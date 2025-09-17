@@ -22,7 +22,26 @@ export class NotificationService {
             await Promise.race([jobPromise, timeoutPromise]);
             return { success: true, message: 'Job queued!' };
         } catch (err) {
-            console.error('❌ Queue add failed:', err.message);
+            return { success: false, message: 'Không thể push vào queue', error: err.message };
+        }
+    }
+
+    async sendPushNotification(notification: { tokens: string[], title: string; body: string, data: Record<string, string> }) {
+        const jobPromise = this.notificationQueue.add('pushNotification', notification, {
+            attempts: 3,
+            backoff: 5000,
+            removeOnComplete: true,
+            removeOnFail: false,
+        });
+
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('⏰ Redis connect timeout')), 2000),
+        );
+
+        try {
+            await Promise.race([jobPromise, timeoutPromise]);
+            return { success: true, message: 'Job queued!' };
+        } catch (err) {
             return { success: false, message: 'Không thể push vào queue', error: err.message };
         }
     }
