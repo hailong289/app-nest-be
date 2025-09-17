@@ -82,10 +82,10 @@ export class FileSystemService {
         };
     }
 
-    async deleteFile(fileName: string) {
+    async deleteFile(fileName: string, folder: string = 'uploads') {
         const deleteParams = {
             Bucket: this.configService.get<string>('s3.bucketName'),
-            Key: fileName,
+            Key: `${folder}/${fileName}`,
         };
         try {
             await this.s3.send(new DeleteObjectCommand(deleteParams));

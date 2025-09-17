@@ -20,8 +20,8 @@ export class FileSystemController {
     }
 
     @Post('delete-file')
-    deleteFile(@Body('fileName') fileName: string) {
-        return this.fileSystemService.deleteFile(fileName);
+    deleteFile(@Body('fileName') fileName: string, @Body('folder') folder: string) {
+        return this.fileSystemService.deleteFile(fileName, folder);
     }
 
     @Get('get-presigned-url')
