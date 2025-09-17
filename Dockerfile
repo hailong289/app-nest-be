@@ -1,12 +1,14 @@
 FROM node:18-alpine
 
-# Tạo thư mục làm việc
 WORKDIR /usr/src/app
 
+# Sao chép package files
 COPY package*.json ./
-RUN npm install --production
 
-# Sao chép toàn bộ mã nguồn vào container
+# Cài đặt tất cả dependencies
+RUN npm ci
+
+# Sao chép mã nguồn
 COPY . .
 
 # Xây dựng ứng dụng NestJS
