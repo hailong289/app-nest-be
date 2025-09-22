@@ -17,7 +17,9 @@ export class FirebaseService implements OnModuleInit {
             clientEmail: this.configService.get<string>('firebase.clientEmail'),
             privateKey: this.configService.get<string>('firebase.privateKey'),
           }),
-          storageBucket: this.configService.get<string>('firebase.storageBucket'),
+          storageBucket: this.configService.get<string>(
+            'firebase.storageBucket',
+          ),
         });
         console.log('🔥 Firebase initialized');
       } catch (error) {

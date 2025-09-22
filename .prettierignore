@@ -1,0 +1,13 @@
+# Ignore build outputs
+dist/
+node_modules/
+coverage/
+
+# Ignore config files that shouldn't be formatted
+*.log
+*.lock
+.env*
+docker-compose*.yml
+
+# Ignore generated files
+*.d.ts

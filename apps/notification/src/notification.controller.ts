@@ -20,15 +20,21 @@ export class NotificationController {
   }
 
   @MessagePattern('send_push_notification')
-  async sendPushNotification(@Payload() data: {
-    tokens: string[];
-    title: string;
-    body: string;
-    data: Record<string, string>;
-  }) {
+  async sendPushNotification(
+    @Payload()
+    data: {
+      tokens: string[];
+      title: string;
+      body: string;
+      data: Record<string, string>;
+    },
+  ) {
     try {
       if (!data || !data.tokens || !data.title || !data.body) {
-        return { success: false, message: 'Tokens, title and body are required' };
+        return {
+          success: false,
+          message: 'Tokens, title and body are required',
+        };
       }
       return await this.notificationService.sendPushNotification(data);
     } catch (error) {

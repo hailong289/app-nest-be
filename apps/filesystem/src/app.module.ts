@@ -4,7 +4,6 @@ import { FilesystemController } from './filesystem.controller';
 import { FilesystemService } from './filesystem.service';
 import s3Config from './config/app/s3.config';
 
-
 @Module({
   imports: [
     ConfigModule.forRoot({

@@ -25,10 +25,6 @@ import { NotificationProcessor } from './notification.processor';
     }),
   ],
   controllers: [NotificationController],
-  providers: [
-    NotificationService,
-    NotificationProcessor,
-    FirebaseService,
-  ],
+  providers: [NotificationService, NotificationProcessor, FirebaseService],
 })
 export class AppModule {}
