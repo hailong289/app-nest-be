@@ -23,10 +23,66 @@ services:
       - "8080:8080"
     environment:
       - KAFKA_CLUSTERS_0_NAME=local
-      # 👇 trỏ tới service kafka, không phải localhost
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
     depends_on:
       - kafka
+
+  # services api gateway and microservices
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - KAFKA_BROKERS=kafka:29092
+    depends_on:
+      - kafka
+      - auth
+      - chat
+      - filesystem
+      - notification
+
+  # service auth microservice
+  auth:
+    build:
+      context: .
+      dockerfile: apps/auth/Dockerfile
+    environment:
+      - KAFKA_BROKERS=kafka:29092
+    depends_on:
+      - kafka
+
+# service chat microservice
+  chat:
+    build:
+      context: .
+      dockerfile: apps/chat/Dockerfile
+    environment:
+      - KAFKA_BROKERS=kafka:29092
+    depends_on:
+      - kafka
+
+# service filesystem microservice
+  filesystem:
+    build:
+      context: .
+      dockerfile: apps/filesystem/Dockerfile
+    environment:
+      - KAFKA_BROKERS=kafka:29092
+    depends_on:
+      - kafka
+
+# service notification microservice
+  notification:
+    build:
+      context: .
+      dockerfile: apps/notification/Dockerfile
+    environment:
+      - KAFKA_BROKERS=kafka:29092
+    depends_on:
+      - kafka
+
 
 volumes:
   kafka_data:

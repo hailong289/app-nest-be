@@ -24,8 +24,6 @@ export class GatewayController {
         await this.filesystemClient.connect();
     }
 
-
-
     @Get()
     getHealth() {
         return this.gatewayService.getHealth();
