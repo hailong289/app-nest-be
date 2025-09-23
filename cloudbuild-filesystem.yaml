@@ -1,0 +1,6 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [ 'build', '-t', 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/filesystem:latest', '-f', 'apps/filesystem/Dockerfile', '.' ]
+images:
+  - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/filesystem:latest'

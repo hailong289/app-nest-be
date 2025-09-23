@@ -41,6 +41,9 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
           consumer: {
             groupId: 'filesystem-consumer',
           },
+          producer: {
+            allowAutoTopicCreation: true,
+          },
         },
       },
     ]),
