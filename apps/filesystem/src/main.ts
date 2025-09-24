@@ -13,10 +13,7 @@ async function bootstrap() {
       },
       consumer: {
         groupId: 'filesystem-consumer',
-      },
-      producer: {
-        allowAutoTopicCreation: true,
-      },
+      }
     },
   });
 

@@ -2,6 +2,10 @@ import { Module } from '@nestjs/common';
 import { GatewayController } from './gateway.controller';
 import { GatewayService } from './gateway.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
+import { GatewayAuthController } from './auth/gateway-auth.controller';
+import { GatewayChatController } from './chat/gateway-chat.controller';
+import { GatewayNotificationController } from './notification/gateway-notification.controller';
 
 @Module({
   imports: [
@@ -37,18 +41,34 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
           client: {
             clientId: 'filesystem-service',
             brokers: ['localhost:9092'],
+            connectionTimeout: 3000,
+            requestTimeout: 25000,
+            retry: {
+              initialRetryTime: 100,
+              retries: 3,
+            },
           },
           consumer: {
             groupId: 'filesystem-consumer',
+            allowAutoTopicCreation: false,
           },
           producer: {
             allowAutoTopicCreation: true,
+            maxInFlightRequests: 1,
+            idempotent: false,
+            transactionTimeout: 30000,
           },
         },
       },
     ]),
   ],
-  controllers: [GatewayController],
+  controllers: [
+    GatewayController,
+    GatewayFilesystemController,
+    GatewayAuthController,
+    GatewayChatController,
+    GatewayNotificationController
+  ],
   providers: [GatewayService],
 })
 export class AppModule {}

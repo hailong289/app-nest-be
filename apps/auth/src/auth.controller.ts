@@ -1,13 +1,14 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
+import { LoginDto } from '@app/dto';
 
 @Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @MessagePattern('login')
-  async login(@Payload() data: any) {
+  async login(@Payload() data: LoginDto) {
     try {
       if (!data || !data.email || !data.password) {
         return { success: false, message: 'Email and password are required' };
