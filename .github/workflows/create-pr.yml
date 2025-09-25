@@ -3,7 +3,7 @@ name: Auto PR to Developer
 on:
   push:
     branches-ignore:
-      - developer   # tránh trigger khi push thẳng vào developer
+      - developer
 
 jobs:
   auto-pr:
@@ -26,3 +26,4 @@ jobs:
           body: |
             This PR was automatically created by CI/CD.
             It merges branch **${{ env.BRANCH_NAME }}** into **developer**.
+          always-create: true
