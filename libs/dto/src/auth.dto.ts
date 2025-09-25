@@ -1,13 +1,17 @@
 // Auth DTOs
 export class LoginDto {
-  email: string;
+  username: string;
   password: string;
 }
 
 export class RegisterDto {
-  email: string;
+  fullname: string; 
+  email?: string;
+  phone?: string;
   password: string;
-  name: string;
+  gender?: string;
+  dateOfBirth?: Date;
+  type: 'email' | 'phone';
 }
 
 export class AuthResponseDto {

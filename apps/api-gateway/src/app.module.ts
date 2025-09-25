@@ -6,68 +6,41 @@ import { GatewayFilesystemController } from './filesystem/gateway-filesystem.con
 import { GatewayAuthController } from './auth/gateway-auth.controller';
 import { GatewayChatController } from './chat/gateway-chat.controller';
 import { GatewayNotificationController } from './notification/gateway-notification.controller';
+import { SERVICES, TRANSPORT_CONFIG } from '@app/constants';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
     ClientsModule.register([
       {
-        name: 'AUTH_SERVICE',
+        name: SERVICES.AUTH,
         transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: 3001,
-        },
+        options: TRANSPORT_CONFIG.TCP.AUTH,
       },
       {
-        name: 'CHAT_SERVICE',
+        name: SERVICES.CHAT,
         transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: 3002,
-        },
+        options: TRANSPORT_CONFIG.TCP.CHAT,
       },
       {
-        name: 'NOTIFICATION_SERVICE',
+        name: SERVICES.NOTIFICATION,
         transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: 3003,
-        },
+        options: TRANSPORT_CONFIG.TCP.NOTIFICATION,
       },
       {
-        name: 'FILESYSTEM_SERVICE',
+        name: SERVICES.FILESYSTEM,
         transport: Transport.KAFKA,
-        options: {
-          client: {
-            clientId: 'filesystem-service',
-            brokers: ['localhost:9092'],
-            connectionTimeout: 3000,
-            requestTimeout: 25000,
-            retry: {
-              initialRetryTime: 100,
-              retries: 3,
-            },
-          },
-          consumer: {
-            groupId: 'filesystem-consumer',
-            allowAutoTopicCreation: false,
-          },
-          producer: {
-            allowAutoTopicCreation: true,
-            maxInFlightRequests: 1,
-            idempotent: false,
-            transactionTimeout: 30000,
-          },
-        },
+        options: TRANSPORT_CONFIG.KAFKA.FILESYSTEM as { client: any; consumer: any; producer: any },
       },
     ]),
+    JwtModule.register({}),
   ],
   controllers: [
     GatewayController,
     GatewayFilesystemController,
     GatewayAuthController,
     GatewayChatController,
-    GatewayNotificationController
+    GatewayNotificationController,
   ],
   providers: [GatewayService],
 })

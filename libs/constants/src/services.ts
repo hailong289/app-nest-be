@@ -22,18 +22,18 @@ export const MESSAGE_PATTERNS = {
   AUTH_REGISTER: 'register',
   AUTH_VALIDATE_TOKEN: 'validate_token',
   AUTH_GET_USER: 'get_user',
-  
+
   // Chat patterns
   CHAT_GET_MESSAGES: 'get_messages',
   CHAT_SEND_MESSAGE: 'send_message',
   CHAT_GET_ROOMS: 'get_rooms',
   CHAT_CREATE_ROOM: 'create_room',
   CHAT_JOIN_ROOM: 'join_room',
-  
+
   // Notification patterns
   NOTIFICATION_SEND_WELCOME_EMAIL: 'send_welcome_email',
   NOTIFICATION_SEND_PUSH: 'send_push_notification',
-  
+
   // Filesystem patterns
   FILESYSTEM_UPLOAD_SINGLE: 'upload_single_file',
   FILESYSTEM_UPLOAD_MULTIPLE: 'upload_multiple_files',
@@ -56,9 +56,29 @@ export const TRANSPORT_CONFIG = {
       host: 'localhost',
       port: SERVICE_PORTS.NOTIFICATION,
     },
+  },
+  KAFKA: {
     FILESYSTEM: {
-      host: 'localhost',
-      port: SERVICE_PORTS.FILESYSTEM,
+      client: {
+        clientId: 'filesystem-service',
+        brokers: ['localhost:9092'],
+        connectionTimeout: 3000,
+        requestTimeout: 25000,
+        retry: {
+          initialRetryTime: 100,
+          retries: 3,
+        },
+      },
+      consumer: {
+        groupId: 'filesystem-consumer',
+        allowAutoTopicCreation: false,
+      },
+      producer: {
+        allowAutoTopicCreation: true,
+        maxInFlightRequests: 1,
+        idempotent: false,
+        transactionTimeout: 30000,
+      },
     },
   },
 } as const;

@@ -1,7 +1,8 @@
-import { Controller } from '@nestjs/common';
+import { Body, Controller, UseGuards } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
-import { LoginDto } from '@app/dto';
+import { LoginDto, RegisterDto } from '@app/dto';
+import { AuthJwtGuard } from './guard/auth.guard';
 
 @Controller()
 export class AuthController {
@@ -9,42 +10,20 @@ export class AuthController {
 
   @MessagePattern('login')
   async login(@Payload() data: LoginDto) {
-    try {
-      if (!data || !data.email || !data.password) {
-        return { success: false, message: 'Email and password are required' };
-      }
-      return await this.authService.login(data);
-    } catch (error) {
-      console.error('Auth login error:', error);
-      return { success: false, message: 'Login failed' };
-    }
+    return await this.authService.login(data);
   }
 
   @MessagePattern('register')
-  async register(@Payload() data: any) {
-    try {
-      if (!data || !data.email || !data.password || !data.name) {
-        return { success: false, message: 'Email, password and name are required' };
-      }
-      return await this.authService.register(data);
-    } catch (error) {
-      console.error('Auth register error:', error);
-      return { success: false, message: 'Registration failed' };
-    }
+  async register(@Payload() data: RegisterDto) {
+    return await this.authService.register(data);
   }
 
-  @MessagePattern('validate_token')
-  async validateToken(@Payload() data: any) {
-    try {
-      if (!data || !data.token) {
-        return { valid: false, message: 'Token is required' };
-      }
-      return await this.authService.validateToken(data.token);
-    } catch (error) {
-      console.error('Auth validate token error:', error);
-      return { valid: false, message: 'Token validation failed' };
-    }
+  @UseGuards(AuthJwtGuard)
+  @MessagePattern('logout')
+  async logout(@Payload() data: any) {
+    return await this.authService.logout(data.user._id);
   }
+    
 
   @MessagePattern('get_user')
   async getUser(@Payload() data: any) {
