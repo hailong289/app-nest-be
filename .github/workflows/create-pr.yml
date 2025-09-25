@@ -15,15 +15,15 @@ jobs:
       - name: Get branch name
         run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: auto-pr/${{ env.BRANCH_NAME }}-to-developer
-          base: developer
-          title: "Merge branch ${{ env.BRANCH_NAME }} into developer"
-          commit-message: "Merge branch ${{ env.BRANCH_NAME }} into developer"
-          body: |
-            This PR was automatically created by CI/CD.
-            It merges branch **${{ env.BRANCH_NAME }}** into **developer**.
-          always-create: true
+      - name: Install GitHub CLI
+        run: sudo apt-get install gh -y
+
+      - name: Create PR into developer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base developer \
+            --head "${BRANCH_NAME}" \
+            --title "Merge branch ${BRANCH_NAME} into developer" \
+            --body "This PR was automatically generated to merge branch **${BRANCH_NAME}** into **developer**."
