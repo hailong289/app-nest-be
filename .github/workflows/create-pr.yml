@@ -1,0 +1,28 @@
+name: Auto PR to Developer
+
+on:
+  push:
+    branches-ignore:
+      - developer   # tránh trigger khi push thẳng vào developer
+
+jobs:
+  auto-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get branch name
+        run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: auto-pr/${{ env.BRANCH_NAME }}-to-developer
+          base: developer
+          title: "Merge branch ${{ env.BRANCH_NAME }} into developer"
+          commit-message: "Merge branch ${{ env.BRANCH_NAME }} into developer"
+          body: |
+            This PR was automatically created by CI/CD.
+            It merges branch **${{ env.BRANCH_NAME }}** into **developer**.
