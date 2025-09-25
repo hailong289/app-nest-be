@@ -15,12 +15,22 @@ jobs:
       - name: Get branch name
         run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
 
-      - name: Install GitHub CLI
-        run: sudo apt-get install gh -y
+      - name: Fetch developer branch
+        run: git fetch origin developer
+
+      - name: Check diff with developer
+        id: diffcheck
+        run: |
+          if git diff --quiet origin/developer..HEAD; then
+            echo "has_diff=false" >> $GITHUB_ENV
+          else
+            echo "has_diff=true" >> $GITHUB_ENV
+          fi
 
       - name: Create PR into developer
+        if: env.has_diff == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # hoặc GITHUB_TOKEN nếu bạn đã bật quyền Write
         run: |
           gh pr create \
             --base developer \
