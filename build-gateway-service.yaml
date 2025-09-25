@@ -1,0 +1,15 @@
+steps:
+  # Build API Gateway service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'build',
+        '-t',
+        'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest',
+        '-f',
+        'apps/api-gateway/Dockerfile',
+        '.'
+      ]
+      
+images:
+  - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest'

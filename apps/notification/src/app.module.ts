@@ -7,12 +7,14 @@ import { FirebaseService } from './firebase.service';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
 import { NotificationProcessor } from './notification.processor';
+import path from 'path';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       load: [firebaseConfig, redisConfig],
       isGlobal: true,
+      envFilePath: path.resolve(process.cwd(), 'apps/notification/.env')
     }),
     BullModule.forRootAsync({
       useFactory: (configService) => ({

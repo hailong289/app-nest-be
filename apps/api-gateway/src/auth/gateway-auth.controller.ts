@@ -1,15 +1,27 @@
 import { LoginDto, RegisterDto } from "@app/dto";
 import { Body, Controller, Inject, Post, Req, UseGuards } from "@nestjs/common";
-import { ClientProxy, Payload } from "@nestjs/microservices";
+import { ClientKafka, ClientProxy, Payload } from "@nestjs/microservices";
 import { GatewayService } from "../gateway.service";
 import { SERVICES } from "@app/constants/services";
 
 @Controller('auth')
 export class GatewayAuthController {
     public constructor(
-        @Inject(SERVICES.AUTH) private readonly authClient: ClientProxy,
+        @Inject(SERVICES.AUTH) private readonly authClient: ClientKafka,
         private readonly gatewayService: GatewayService,
     ) { }
+
+    async onModuleInit() {
+        // Ensure the Kafka client is connected
+        ['login', 'register', 'logout'].forEach((key) => {
+            this.authClient.subscribeToResponseOf(key);
+        });
+        try {
+            await this.authClient.connect();
+        } catch (error) {
+            console.error('Error connecting to Kafka:', error);
+        }
+    }
 
     // Auth endpoints
     @Post('login')

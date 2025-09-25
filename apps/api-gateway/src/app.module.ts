@@ -14,8 +14,8 @@ import { JwtModule } from '@nestjs/jwt';
     ClientsModule.register([
       {
         name: SERVICES.AUTH,
-        transport: Transport.TCP,
-        options: TRANSPORT_CONFIG.TCP.AUTH,
+        transport: Transport.KAFKA,
+        options: TRANSPORT_CONFIG.KAFKA.AUTH as { client: any; consumer: any; producer: any },
       },
       {
         name: SERVICES.CHAT,

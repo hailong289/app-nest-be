@@ -44,10 +44,10 @@ export const MESSAGE_PATTERNS = {
 // Transport configurations
 export const TRANSPORT_CONFIG = {
   TCP: {
-    AUTH: {
-      host: 'localhost',
-      port: SERVICE_PORTS.AUTH,
-    },
+    // AUTH: {
+    //   host: 'auth', // Lên production nên đổi thành 'auth' (tên service trong docker)
+    //   port: SERVICE_PORTS.AUTH,
+    // },
     CHAT: {
       host: 'localhost',
       port: SERVICE_PORTS.CHAT,
@@ -64,14 +64,28 @@ export const TRANSPORT_CONFIG = {
         brokers: ['localhost:9092'],
         connectionTimeout: 3000,
         requestTimeout: 25000,
-        retry: {
-          initialRetryTime: 100,
-          retries: 3,
-        },
       },
       consumer: {
         groupId: 'filesystem-consumer',
         allowAutoTopicCreation: false,
+      },
+      producer: {
+        allowAutoTopicCreation: true,
+        maxInFlightRequests: 1,
+        idempotent: false,
+        transactionTimeout: 30000,
+      },
+    },
+    AUTH: {
+      client: {
+        clientId: 'auth-service',
+        brokers: ['localhost:9092'],
+        connectionTimeout: 3000,
+        requestTimeout: 25000,
+      },
+      consumer: {
+        groupId: 'auth-consumer',
+        allowAutoTopicCreation: true,
       },
       producer: {
         allowAutoTopicCreation: true,
