@@ -3,7 +3,6 @@ import { Body, Controller, Inject, Post, Req, UseGuards } from "@nestjs/common";
 import { ClientKafka, ClientProxy, Payload } from "@nestjs/microservices";
 import { GatewayService } from "../gateway.service";
 import { SERVICES } from "@app/constants/services";
-// test
 @Controller('auth')
 export class GatewayAuthController {
     public constructor(
