@@ -11,7 +11,30 @@ steps:
         '.'
       ]
     env:
-      - 'ENV_FILE=.env'
+      - 'ENV_FILE=apps/auth/.env'
+
+  # Push Auth service image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest']
+
+  # Deploy Auth service to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'  
+    entrypoint: gcloud
+    args:
+      [
+        'run',
+        'deploy',
+        'auth-service',
+        '--image',
+        'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest',
+        '--region',
+        'asia-southeast1',
+        '--platform',
+        'managed',
+        '--port',
+        '3001',
+        '--allow-unauthenticated'
+      ]
 
 images:
   - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest'
