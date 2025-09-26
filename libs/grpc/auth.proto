@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package auth;
+
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  LoginMetadata metadata = 4;
+}
+
+message RegisterRequest {
+  string fullname = 1;
+  string email = 2;
+  string phone = 3;
+  string password = 4;
+  string type = 5;
+  string gender = 6;
+  string dateOfBirth = 7;
+}
+
+message RegisterResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
+}
+
+message LogoutRequest {
+  string userId = 1;
+}
+
+message LogoutResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  LogoutMetadata metadata = 4;
+}
+
+message GetUserRequest {
+  string userId = 1;
+}
+
+message GetUserResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetUserMetadata metadata = 4;
+}
+
+// Metadata messages
+message LoginMetadata {
+  string accessToken = 1;
+  string refreshToken = 2;
+  int32 expiresIn = 3;
+  User user = 4;
+}
+
+message RegisterMetadata {
+  string accessToken = 1;
+  string refreshToken = 2;
+  int32 expiresIn = 3;
+  User user = 4;
+}
+
+message LogoutMetadata {
+  // Empty for now, can add fields if needed
+}
+
+message GetUserMetadata {
+  User user = 1;
+}
+
+message User {
+  string id = 1;
+  string fullname = 2;
+  string email = 3;
+  string phone = 4;
+  string gender = 5;
+  string dateOfBirth = 6;
+}
