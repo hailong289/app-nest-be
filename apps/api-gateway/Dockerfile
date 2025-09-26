@@ -12,5 +12,8 @@ COPY . .
 # Build project (NestJS sẽ tạo dist/)
 RUN npm run build:gateway
 
+# Expose cổng mà service api-gateway sẽ lắng nghe
+EXPOSE 3000
+
 # Chạy service api-gateway
 CMD ["node", "dist/apps/api-gateway/main.js"]

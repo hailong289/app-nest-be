@@ -10,6 +10,8 @@ steps:
         'apps/api-gateway/Dockerfile',
         '.'
       ]
+    env:
+      - 'ENV_FILE=apps/api-gateway/.env'
       
 images:
   - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest'

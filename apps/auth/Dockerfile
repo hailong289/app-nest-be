@@ -12,5 +12,8 @@ COPY . .
 # Build project (NestJS sẽ tạo dist/)
 RUN npm run build:auth
 
+# Expose cổng mà service auth sẽ lắng nghe
+EXPOSE 3001
+
 # Chạy service auth
 CMD ["node", "dist/apps/auth/main.js"]
