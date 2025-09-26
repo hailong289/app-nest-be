@@ -52,8 +52,8 @@ services:
   #   environment:
   #     - KAFKA_BROKERS=kafka:29092
   #     - ENV_FILE=apps/auth/.env
-    # depends_on:
-    #   - kafka
+  #   depends_on:
+  #     - kafka
 
 # # service chat microservice
 #   chat:

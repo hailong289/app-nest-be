@@ -14,6 +14,10 @@ import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ 
+      isGlobal: true,
+      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
+    }),
     ClientsModule.register([
       {
         name: SERVICES.AUTH,
@@ -54,10 +58,6 @@ import { ConfigModule } from '@nestjs/config';
         },
       },
     ]),
-    ConfigModule.forRoot({ 
-      isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
-    }),
     JwtModule.register({}),
   ],
   controllers: [
