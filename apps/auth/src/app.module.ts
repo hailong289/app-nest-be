@@ -8,6 +8,7 @@ import mongodbConfig from './config/database/mongodb.config';
 import { JwtModule } from '@nestjs/jwt';
 import { User, UserSchema } from './models/user';
 import { Key, KeySchema } from './models/keys';
+import { Otp, OtpSchema } from './models/otp';
 
 @Module({
   imports: [
@@ -31,7 +32,8 @@ import { Key, KeySchema } from './models/keys';
     JwtModule.register({}),
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
-      { name: Key.name, schema: KeySchema }
+      { name: Key.name, schema: KeySchema },
+      { name: Otp.name, schema: OtpSchema },
     ]),
   ],
   controllers: [AuthController],

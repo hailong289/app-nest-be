@@ -11,6 +11,7 @@ import { JwtModule } from '@nestjs/jwt';
 import path, { join } from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
@@ -24,8 +25,9 @@ import { ConfigModule } from '@nestjs/config';
         transport: Transport.GRPC,
         options: {
           package: 'auth',
-          protoPath: join(__dirname, '../../../libs/grpc/auth.proto'),
+          protoPath: join(process.cwd(), process.env.SERVICE_AUTH_PROTO_PATH || 'libs/grpc/auth.proto'),
           url: `${process.env.SERVICE_AUTH_HOST || 'localhost'}:${process.env.SERVICE_AUTH_PORT || '5001'}`,
+          credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
         },
       },
       {

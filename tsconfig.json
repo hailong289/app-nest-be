@@ -25,7 +25,11 @@
       "@app/dto": ["libs/dto/src"],
       "@app/dto/*": ["libs/dto/src/*"],
       "@app/constants": ["libs/constants/src"],
-      "@app/constants/*": ["libs/constants/src/*"]
+      "@app/constants/*": ["libs/constants/src/*"],
+      "@app/helpers": ["libs/helpers"],
+      "@app/helpers/*": ["libs/helpers/*"],
+      "@app/grpc": ["libs/grpc"],
+      "@app/grpc/*": ["libs/grpc/*"]
     }
   }
 }
