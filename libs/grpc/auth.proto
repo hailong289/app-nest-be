@@ -7,6 +7,8 @@ service AuthService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc updatePassword(updatePasswordRequest) returns (updatePasswordResponse);
+  rpc verifyOtp(verifyOtpRequest) returns (verifyOtpResponse);
 }
 
 message LoginRequest {
@@ -95,4 +97,29 @@ message User {
   string dateOfBirth = 9;
   string createdAt = 10;
   string updatedAt = 11;
+}
+
+message verifyOtpRequest {
+  string indicator = 1; 
+  string otp = 2; 
+}
+
+message verifyOtpResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
+}
+
+message updatePasswordRequest {
+  string oldPassword = 1;
+  string newPassword = 2;
+  string userId = 3;
+}
+
+message updatePasswordResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
 }
