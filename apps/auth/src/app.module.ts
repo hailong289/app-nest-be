@@ -20,6 +20,10 @@ import { Key, KeySchema } from './models/keys';
       inject: [ConfigService],
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
+        console.log('Environment Variables:', {
+          MONGODB_URI: configService.get<string>('mongodb.uri'),
+          DB_NAME: configService.get<string>('DB_NAME'),
+        });
         const uri = configService.get<string>('mongodb.uri');
         return { uri: uri, dbName: configService.get<string>('DB_NAME')};
       }

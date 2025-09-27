@@ -25,7 +25,7 @@ import { ConfigModule } from '@nestjs/config';
         options: {
           package: 'auth',
           protoPath: join(__dirname, '../../../libs/grpc/auth.proto'),
-          url: `${process.env.AUTH_HOST || 'localhost'}:${process.env.AUTH_PORT || '3001'}`,
+          url: `${process.env.SERVICE_AUTH_HOST || 'localhost'}:${process.env.SERVICE_AUTH_PORT || '5001'}`,
         },
       },
       {

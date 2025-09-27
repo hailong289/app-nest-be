@@ -84,10 +84,15 @@ message GetUserMetadata {
 }
 
 message User {
-  string id = 1;
-  string fullname = 2;
-  string email = 3;
-  string phone = 4;
-  string gender = 5;
-  string dateOfBirth = 6;
+  string _id = 1;
+  string id = 2;
+  string fullname = 3;
+  string slug = 4;
+  string email = 5;
+  string phone = 6;
+  string avatar = 7;
+  string gender = 8;
+  string dateOfBirth = 9;
+  string createdAt = 10;
+  string updatedAt = 11;
 }

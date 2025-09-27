@@ -26,13 +26,13 @@ export class AuthService {
     console.log('for username:', loginDto);
 
     if (!user) {
-      return Response.error('Tài khoản không tồn tại', 401);
+      return Response.error('Tài khoản không tồn tại', 400);
     }
 
     const isPasswordValid = await compare(loginDto.password, user.usr_salt);
 
     if (!isPasswordValid) {
-      return Response.error('Mật khẩu không chính xác', 401);
+      return Response.error('Mật khẩu không chính xác', 400);
     }
 
     const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
@@ -60,11 +60,11 @@ export class AuthService {
 
   async register(registerDto: RegisterDto) {
     if (registerDto.type === 'email' && !Utils.isEmail(registerDto.email || '')) {
-      return Response.error('Email không hợp lệ', 400);
+      return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
     if (registerDto.type === 'phone' && !Utils.isPhone(registerDto.phone || '')) {
-      return Response.error('Số điện thoại không hợp lệ', 400);
+      return Response.error('Số điện thoại không hợp lệ', 400, 'Bad Request');
     }
 
     const existingUser = await this.userModel.findOne({
