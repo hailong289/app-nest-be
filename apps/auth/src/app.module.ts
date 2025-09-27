@@ -8,6 +8,7 @@ import mongodbConfig from './config/database/mongodb.config';
 import { JwtModule } from '@nestjs/jwt';
 import { User, UserSchema } from './models/user';
 import { Key, KeySchema } from './models/keys';
+import { Otp, OtpSchema } from './models/otp';
 
 @Module({
   imports: [
@@ -20,6 +21,10 @@ import { Key, KeySchema } from './models/keys';
       inject: [ConfigService],
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => {
+        console.log('Environment Variables:', {
+          MONGODB_URI: configService.get<string>('mongodb.uri'),
+          DB_NAME: configService.get<string>('DB_NAME'),
+        });
         const uri = configService.get<string>('mongodb.uri');
         return { uri: uri, dbName: configService.get<string>('DB_NAME')};
       }
@@ -27,7 +32,8 @@ import { Key, KeySchema } from './models/keys';
     JwtModule.register({}),
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
-      { name: Key.name, schema: KeySchema }
+      { name: Key.name, schema: KeySchema },
+      { name: Otp.name, schema: OtpSchema },
     ]),
   ],
   controllers: [AuthController],

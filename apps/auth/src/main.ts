@@ -9,14 +9,14 @@ async function bootstrap() {
     transport: Transport.GRPC,
     options: {
       package: 'auth',
-      protoPath: join(__dirname, process.env.PROTO_URL || '../../../libs/grpc/auth.proto'),
-      url: `${process.env.HOST || 'localhost'}:${process.env.PORT || '3001'}`,
+      protoPath: join(process.cwd(), process.env.PROTO_URL || 'libs/grpc/auth.proto'),
+      url: `${process.env.HOST}:${process.env.PORT}`,
     },
   });
 
   app.useGlobalFilters(new HttpExceptionsFilter());
   await app.listen();
-  console.log(`Auth gRPC microservice is listening on port ${process.env.PORT || 3001}`);
+  console.log(`Auth gRPC microservice is listening on port ${process.env.PORT}`);
 }
 
 bootstrap();

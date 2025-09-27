@@ -9,6 +9,8 @@ interface AuthGrpcService {
     register(data: RegisterDto): any;
     logout(data: { userId: string }): any;
     getUser(data: { userId: string }): any;
+    updatePassword(data: { oldPassword: string; newPassword: string; userId: string }): any;
+    verifyOtp(data: { indicator: string; otp: string }): any;
 }
 
 @Controller('auth')
@@ -40,5 +42,15 @@ export class GatewayAuthController {
     async logout(@Req() req: any) {
         console.log('Logout request user:', req.user);
         return await this.gatewayService.dispatchGrpcRequest(this.authService.logout, { userId: req.user?.id });
+    }
+
+    @Post('verify-otp')
+    async verifyOtp(@Body() body: { indicator: string; otp: string }) {
+        return await this.gatewayService.dispatchGrpcRequest(this.authService.verifyOtp, body);
+    }
+
+    @Post('update-password')
+    async updatePassword(@Body() body: { oldPassword: string; newPassword: string; userId: string }) {
+        return await this.gatewayService.dispatchGrpcRequest(this.authService.updatePassword, body);
     }
 }
