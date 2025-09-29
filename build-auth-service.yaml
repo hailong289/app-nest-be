@@ -10,8 +10,6 @@ steps:
         'apps/auth/Dockerfile',
         '.'
       ]
-    env:
-      - 'ENV_FILE=apps/auth/.env'
 
   # Push Auth service image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -25,15 +23,25 @@ steps:
         'run',
         'deploy',
         'auth-service',
-        '--image',
-        'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest',
-        '--region',
-        'asia-southeast1',
-        '--platform',
-        'managed',
-        '--port',
-        '3001',
-        '--allow-unauthenticated'
+        '--image','asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest',
+        '--region','asia-southeast1',
+        '--platform','managed',
+        '--use-http2',
+        '--min-instances=0',
+        '--max-instances=3',
+        '--memory=256Mi',
+        '--cpu=1',
+        '--allow-unauthenticated',
+        '--set-env-vars', 'NODE_ENV=${NODE_ENV}',
+        '--set-env-vars', 'HOST=${HOST}',
+        '--set-env-vars', 'PROTO_PATH=${PROTO_PATH}',
+        '--set-env-vars', 'DB_CONNECTION=${DB_CONNECTION}',
+        '--set-env-vars', 'DB_HOST=${DB_HOST}',
+        '--set-env-vars', 'DB_NAME=${DB_NAME}',
+        '--set-env-vars', 'DB_USER=${DB_USER}',
+        '--set-env-vars', 'DB_PASSWORD=${DB_PASSWORD}',
+        '--set-env-vars', 'JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}',
+        '--set-env-vars', 'JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}'
       ]
 
 images:
