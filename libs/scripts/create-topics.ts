@@ -4,50 +4,33 @@ import { Kafka } from 'kafkajs';
 async function main() {
     try {
         console.log('🚀 Starting Kafka topic provisioning...');
-        const kafkaAuth = new Kafka({
-            clientId: 'auth-service',
-            brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
+        const kafka = new Kafka({
+            brokers: [process.env.KAFKA_BROKER || ''],
+            ssl: {},
+            sasl: {
+                mechanism: process.env.KAFKA_SASL_MECHANISM as any || "scram-sha-256", // scram-sha-256 or scram-sha-512 or plain
+                username: process.env.KAFKA_SASL_USERNAME || 'user',
+                password: process.env.KAFKA_SASL_PASSWORD || 'password',
+            }
         });
-        const kafkaFilesystem = new Kafka({
-            clientId: 'filesystem-service',
-            brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
-            
-        });
 
-        const adminAuth = kafkaAuth.admin();
-        await adminAuth.connect();
-        const adminFilesystem = kafkaFilesystem.admin();
-        await adminFilesystem.connect();
+        const admin = kafka.admin();
 
-
-        const topicsAuthToCreate = [
-            { topic: 'login', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'login.reply', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'register', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'register.reply', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'logout', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'logout.reply', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'get_user', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'get_user.reply', numPartitions: 1, replicationFactor: 1 },
+        const topicsToCreate = [
+            { topic: 'upload_single_file', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'upload_single_file.reply', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'upload_multiple_files', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'upload_multiple_files.reply', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'delete_file', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'delete_file.reply', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'get_presigned_url', numPartitions: 1, replicationFactor: -1 },
+            { topic: 'get_presigned_url.reply', numPartitions: 1, replicationFactor: -1 },
         ];
 
-        const topicsFilesystemToCreate = [
-            { topic: 'upload_single_file', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'upload_single_file.reply', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'upload_multiple_files', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'upload_multiple_files.reply', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'delete_file', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'delete_file.reply', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'get_presigned_url', numPartitions: 1, replicationFactor: 1 },
-            { topic: 'get_presigned_url.reply', numPartitions: 1, replicationFactor: 1 },
-        ];
-
-        await adminAuth.createTopics({ topics: topicsAuthToCreate });
-        await adminFilesystem.createTopics({ topics: topicsFilesystemToCreate });
+        await admin.createTopics({ topics: topicsToCreate });
         console.log('✅ Kafka topics provisioned successfully');
 
-        await adminAuth.disconnect();
-        await adminFilesystem.disconnect();
+        await admin.disconnect();
     } catch (error) {
         console.error('❌ Error creating topics', error);
     }

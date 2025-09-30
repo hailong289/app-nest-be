@@ -1,0 +1,14 @@
+- name: Generate env file
+  run: |
+    cat <<EOF > cloudrun-env.yaml
+    NODE_ENV: production
+    HOST: ${{ secrets.AUTH_HOST }}
+    PROTO_PATH: ${{ secrets.AUTH_PROTO_PATH }}
+    DB_CONNECTION: ${{ secrets.AUTH_DB_CONNECTION }}
+    DB_HOST: ${{ secrets.AUTH_DB_HOST }}
+    DB_NAME: ${{ secrets.AUTH_DB_NAME }}
+    DB_USER: ${{ secrets.AUTH_DB_USER }}
+    DB_PASS: ${{ secrets.AUTH_DB_PASS }}
+    JWT_ACCESS_SECRET: ${{ secrets.AUTH_JWT_ACCESS_SECRET }}
+    JWT_REFRESH_SECRET: ${{ secrets.AUTH_JWT_REFRESH_SECRET }}
+    EOF
