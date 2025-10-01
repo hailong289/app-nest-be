@@ -10,8 +10,6 @@ steps:
         'apps/auth/Dockerfile',
         '.'
       ]
-    env:
-      - 'ENV_FILE=apps/auth/.env'
 
   # Push Auth service image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -31,9 +29,30 @@ steps:
         'asia-southeast1',
         '--platform',
         'managed',
-        '--port',
-        '3001',
-        '--allow-unauthenticated'
+        '--allow-unauthenticated',
+        '--cpu=1',
+        '--memory=256Mi',
+        '--use-http2',
+        '--set-env-vars',
+        'NODE_ENV=production',
+        '--set-env-vars',
+        'HOST=0.0.0.0',
+        '--set-env-vars',
+        'PROTO_PATH=libs/grpc/auth.proto',
+        '--set-env-vars',
+        'DB_CONNECTION=mongodb',
+        '--set-env-vars',
+        'DB_HOST=localhost',
+        '--set-env-vars',
+        'DB_NAME=AppChat',
+        '--set-env-vars',
+        'DB_USER=mongo',
+        '--set-env-vars',
+        'DB_PASSWORD=000000',
+        '--set-env-vars',
+        'JWT_ACCESS_SECRET=123',
+        '--set-env-vars',
+        'JWT_REFRESH_SECRET=123'
       ]
 
 images:

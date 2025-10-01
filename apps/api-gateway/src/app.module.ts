@@ -25,8 +25,8 @@ import * as grpc from '@grpc/grpc-js';
         transport: Transport.GRPC,
         options: {
           package: 'auth',
-          protoPath: join(process.cwd(), process.env.SERVICE_AUTH_PROTO_PATH || 'libs/grpc/auth.proto'),
-          url: `${process.env.SERVICE_AUTH_HOST || 'localhost'}:${process.env.SERVICE_AUTH_PORT || '5001'}`,
+          protoPath: join(process.cwd(), process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto'),
+          url: `${process.env.GATEWAY_AUTH_HOST || 'localhost'}:${process.env.GATEWAY_AUTH_PORT || '5001'}`,
           credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
         },
       },
