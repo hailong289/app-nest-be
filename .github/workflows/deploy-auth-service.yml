@@ -1,0 +1,55 @@
+name: Deploy Auth Service
+
+on:
+  push:
+    branches:
+      - developer
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'service/auth')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: app-chat-2b616
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Build & Push Docker image
+        run: |
+          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest"
+          docker build -t $IMAGE -f apps/auth/Dockerfile .
+          docker push $IMAGE
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy auth-service \
+            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest \
+            --region asia-southeast1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=3 \
+            --cpu=1 \
+            --memory=256Mi \
+            --use-http2 \
+            --set-env-vars NODE_ENV=production \
+            --set-env-vars HOST=${{ secrets.AUTH_HOST }} \
+            --set-env-vars PROTO_PATH=${{ secrets.AUTH_PROTO_PATH }} \
+            --set-env-vars DB_CONNECTION=${{ secrets.AUTH_DB_CONNECTION }} \
+            --set-env-vars DB_HOST=${{ secrets.AUTH_DB_HOST }} \
+            --set-env-vars DB_NAME=${{ secrets.AUTH_DB_NAME }} \
+            --set-env-vars DB_USER=${{ secrets.AUTH_DB_USER }} \
+            --set-env-vars DB_PASSWORD=${{ secrets.AUTH_DB_PASSWORD }} \
+            --set-env-vars JWT_ACCESS_SECRET=${{ secrets.AUTH_JWT_ACCESS_SECRET }} \
+            --set-env-vars JWT_REFRESH_SECRET=${{ secrets.AUTH_JWT_REFRESH_SECRET }}
+           

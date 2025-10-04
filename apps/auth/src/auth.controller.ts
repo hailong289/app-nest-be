@@ -37,4 +37,14 @@ export class AuthController {
       return { success: false, message: 'Get user failed' };
     }
   }
+
+  @GrpcMethod('AuthService', 'UpdatePassword')
+  async updatePassword(data: { oldPassword: string; newPassword: string; userId: string }) {
+    return await this.authService.updatePassword(data.oldPassword, data.newPassword, data.userId);
+  }
+
+  @GrpcMethod('AuthService', 'VerifyOtp')
+  async verifyOtp(data: { indicator: string; otp: string }) {
+    return await this.authService.verifyOtp(data.indicator, data.otp);
+  }
 }

@@ -38,7 +38,7 @@ class Utils {
     }
 
     static isPhone(phone: string): boolean {
-        const re = /^\+?[1-9]\d{1,14}$/; // E.164 format
+        const re = /^(\+84|84|0)(3|5|7|8|9)\d{8}$/; // E.164 format
         return re.test(phone);
     }
 
@@ -71,6 +71,9 @@ class Utils {
             if (key.startsWith(prefix)) {
                 const newKey = key.slice(prefix.length) as keyof Unprefixed<T, P>;
                 result[newKey] = obj[key as keyof T] as unknown as Unprefixed<T, P>[typeof newKey];
+            } else {
+                // Nếu không có prefix, giữ nguyên key
+                result[key as keyof Unprefixed<T, P>] = obj[key as keyof T] as unknown as Unprefixed<T, P>[keyof Unprefixed<T, P>];
             }
         });
         return result;
