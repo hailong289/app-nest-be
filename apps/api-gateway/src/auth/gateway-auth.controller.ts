@@ -7,10 +7,11 @@ import { SERVICES } from "@app/constants/services";
 interface AuthGrpcService {
     login(data: LoginDto): any;
     register(data: RegisterDto): any;
-    logout(data: { userId: string }): any;
+    logout(): any;
     getUser(data: { userId: string }): any;
     updatePassword(data: { oldPassword: string; newPassword: string; userId: string }): any;
     verifyOtp(data: { indicator: string; otp: string }): any;
+    refreshToken(data: { refreshToken: string }): any;
 }
 
 @Controller('auth')
@@ -52,5 +53,13 @@ export class GatewayAuthController {
     @Post('update-password')
     async updatePassword(@Body() body: { oldPassword: string; newPassword: string; userId: string }) {
         return await this.gatewayService.dispatchGrpcRequest(this.authService.updatePassword, body);
+    }
+
+    @Post('refresh-token')
+    async refreshToken(@Req() req: any) {
+        return await this.gatewayService.dispatchGrpcRequest(this.authService.refreshToken, {
+            userId: req.user?.id,
+            refreshToken: req.body.refreshToken
+        });
     }
 }

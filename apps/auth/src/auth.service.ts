@@ -124,6 +124,34 @@ export class AuthService {
     return Response.success(null, 'Đăng xuất thành công');
   }
 
+  async refreshToken(userId: string) {
+    // Tạo access token mới dựa trên userId
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      return Response.error('User not found', 404);
+    }
+    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    const accessToken = this.jwtService.sign(userData, {
+      secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+      expiresIn: '7d', // access token sống 7 ngày
+    });
+
+    const refreshToken = this.jwtService.sign(userData, {
+      secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
+      expiresIn: '30d', // refresh token sống 30 ngày
+    });
+
+    return Response.success(
+      {
+        accessToken,
+        refreshToken,
+        expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
+        user: Utils.unprefix(userData, 'usr_'),
+      },
+      'Đăng nhập thành công'
+    );
+  }
+
   async getUser(userId: string) {
     const user = await this.userModel.findById(userId).exec();
 

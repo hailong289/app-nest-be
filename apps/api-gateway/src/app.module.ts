@@ -77,6 +77,7 @@ export class AppModule {
       .apply(AuthMiddleware)
       .forRoutes(
         { path: 'auth/logout', method: RequestMethod.ALL },
+        { path: 'auth/refresh-token', method: RequestMethod.POST },
       );
   }
 }

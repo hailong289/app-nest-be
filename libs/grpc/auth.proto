@@ -9,6 +9,7 @@ service AuthService {
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
   rpc updatePassword(updatePasswordRequest) returns (updatePasswordResponse);
   rpc verifyOtp(verifyOtpRequest) returns (verifyOtpResponse);
+  rpc refreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
 }
 
 message LoginRequest {
@@ -41,7 +42,7 @@ message RegisterResponse {
 }
 
 message LogoutRequest {
-  string userId = 1;
+  // No fields needed for logout
 }
 
 message LogoutResponse {
@@ -75,6 +76,17 @@ message RegisterMetadata {
   string refreshToken = 2;
   int32 expiresIn = 3;
   User user = 4;
+}
+
+message RefreshTokenRequest {
+  string refreshToken = 1;
+}
+
+message RefreshTokenResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  LoginMetadata metadata = 4;
 }
 
 message LogoutMetadata {

@@ -1,11 +1,15 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response, NextFunction } from 'express';
 import { Response as ResponseHelper } from 'libs/helpers/response';
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    private configService: ConfigService
+  ) {}
 
   use(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers['authorization'];
@@ -16,8 +20,9 @@ export class AuthMiddleware implements NestMiddleware {
 
     const token = authHeader.replace('Bearer ', '');
     try {
+      const jwtSecret = this.configService.get<string>('GATEWAY_JWT_ACCESS_SECRET');
       const payload = this.jwtService.verify(token, {
-        secret: process.env.GATEWAY_JWT_ACCESS_SECRET,
+        secret: jwtSecret,
       });
       (req as any).user = payload; // gắn user context vào request
       next();
