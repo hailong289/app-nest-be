@@ -1,17 +1,24 @@
-import { ForgotPasswordDto, LoginDto, RegisterDto } from "@app/dto";
-import { Body, Controller, Inject, Post, Req } from "@nestjs/common";
-import type { ClientGrpc } from "@nestjs/microservices";
-import { GatewayService } from "../gateway.service";
-import { SERVICES } from "@app/constants/services";
+import {
+  ForgotPasswordDto,
+  LoginDto,
+  RegisterDto,
+  UpdatePasswordDto,
+  VerifyOtpDto,
+} from '@app/dto';
+import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import type { ClientGrpc } from '@nestjs/microservices';
+import { GatewayService } from '../gateway.service';
+import { SERVICES } from '@app/constants/services';
 
 interface AuthGrpcService {
-    login(data: LoginDto): any;
-    register(data: RegisterDto): any;
-    logout(data: { userId: string }): any;
-    getUser(data: { userId: string }): any;
-    updatePassword(data: { oldPassword: string; newPassword: string; userId: string }): any;
-    verifyOtp(data: { indicator: string; otp: string }): any;
-    forgotPassword(data: ForgotPasswordDto): any;
+  login(data: LoginDto): any;
+  register(data: RegisterDto): any;
+  logout(data: { userId: string }): any;
+  getUser(data: { userId: string }): any;
+  updatePassword(data: UpdatePasswordDto & { userId: string }): any;
+  verifyOtp(data: VerifyOtpDto): any;
+  forgotPassword(data: ForgotPasswordDto): any;
+  resetPassword(data: { username: string; newPassword: string }): any;
 }
 
 @Controller('auth')
@@ -56,20 +63,40 @@ export class GatewayAuthController {
   }
 
   @Post('verify-otp')
-  async verifyOtp(@Body() body: { indicator: string; otp: string }) {
+  async verifyOtp(@Body() body: VerifyOtpDto) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.verifyOtp,
       body,
     );
   }
 
-    @Post('update-password')
-    async updatePassword(@Body() body: { oldPassword: string; newPassword: string; userId: string }) {
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.updatePassword, body);
-    }
+  @Post('update-password')
+  async updatePassword(
+    @Req() req: any,
+    @Body() body: { newPassword: string; oldPassword: string },
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.updatePassword,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
+    );
+  }
 
-    @Post('forgot-password')
-    async forgotPassword(@Body() body: ForgotPasswordDto) {
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.forgotPassword, body);
-    }
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.forgotPassword,
+      body,
+    );
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() body: { email: string; newPassword: string }) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.resetPassword,
+      body,
+    );
+  }
 }

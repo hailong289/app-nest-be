@@ -46,7 +46,7 @@ import { ConfigModule } from '@nestjs/config';
         options: {
           client: {
             clientId: 'notification-service',
-            brokers: ['localhost:9092']
+            brokers: ['localhost:9092'],
           },
           consumer: {
             groupId: 'notification-consumer',
@@ -73,7 +73,6 @@ import { ConfigModule } from '@nestjs/config';
     GatewayController,
     GatewayFilesystemController,
     GatewayAuthController,
-    GatewayChatController,
     GatewayNotificationController,
   ],
   providers: [GatewayService],
@@ -85,6 +84,7 @@ export class AppModule {
       .forRoutes(
         { path: 'auth/logout', method: RequestMethod.ALL },
         { path: 'auth/refresh-token', method: RequestMethod.POST },
+        { path: 'auth/update-password', method: RequestMethod.POST },
       );
   }
 }

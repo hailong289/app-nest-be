@@ -13,7 +13,7 @@ import axios from 'axios';
 
 @Injectable()
 export class AuthService {
-  private readonly gatewayUrl = process.env.GATEWAY_URL
+  private readonly gatewayUrl = process.env.GATEWAY_URL;
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
@@ -166,7 +166,7 @@ export class AuthService {
         expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
         user: Utils.unprefix(userData, 'usr_'),
       },
-      'Đăng nhập thành công'
+      'Đăng nhập thành công',
     );
   }
 
@@ -185,8 +185,11 @@ export class AuthService {
 
   async verifyOtp(indicator: string, otp: string) {
     const keyEntry = await this.otpModel
-      .findOne({ indicator: indicator })
+      .findOne({ indicator: indicator, otp })
       .exec();
+
+    console.log('Verifying OTP for indicator:', indicator, 'with OTP:', otp);
+
     if (!keyEntry) {
       return Response.error(
         'Mã OTP không hợp lệ hoặc đã hết hạn',
@@ -194,23 +197,30 @@ export class AuthService {
         'Invalid OTP',
       );
     }
-    if (keyEntry.otp !== otp) {
-      return Response.error('Mã OTP không đúng', 400, 'Invalid OTP');
-    }
+    const user = await this.userModel
+      .findOne({
+        $or: [{ usr_email: indicator }, { usr_phone: indicator }],
+      })
+      .exec();
     // OTP hợp lệ, xóa entry sau khi sử dụng
     await this.otpModel.deleteOne({ _id: keyEntry._id }).exec();
-    return Response.success(null, 'Xác thực OTP thành công');
+    return Response.success({ userId: user?._id }, 'Xác thực OTP thành công');
   }
 
-  async updatePassword(
-    oldPassword: string,
-    newPassword: string,
-    userId: string,
-  ) {
+  async updatePassword({
+    oldPassword,
+    newPassword,
+    userId,
+  }: {
+    oldPassword: string;
+    newPassword: string;
+    userId: string;
+  }) {
     const user = await this.userModel.findById(userId).exec();
     if (!user) {
       return Response.error('Tài khoản không tồn tại', 404);
     }
+    // Nếu có oldPassword thì kiểm tra, không có thì bỏ qua (dành cho trường hợp quên mật khẩu)
     const isOldPasswordValid = await compare(oldPassword, user.usr_salt);
     if (!isOldPasswordValid) {
       return Response.error('Mật khẩu cũ không chính xác', 400);
@@ -222,9 +232,11 @@ export class AuthService {
   }
 
   async forgotPassword(email: string, username: string) {
-    const user = await this.userModel.findOne({
-      $or: [{ usr_email: username }, { usr_phone: username }],
-    }).exec();
+    const user = await this.userModel
+      .findOne({
+        $or: [{ usr_email: username }, { usr_phone: username }],
+      })
+      .exec();
 
     if (!user) {
       return Response.error('Tài khoản không tồn tại', 404);
@@ -234,13 +246,13 @@ export class AuthService {
       const otpCode = Utils.generateOtp(6);
       const otpEntry = new this.otpModel({
         indicator: username,
-        otp: otpCode
+        otp: otpCode,
       });
       await otpEntry.save();
       // Gửi OTP về email thông qua Notification Service
       await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
         email: email,
-        otp: otpCode
+        otp: otpCode,
       });
     } catch (error) {
       console.error('Error sending OTP:', error);
