@@ -47,4 +47,9 @@ export class AuthController {
   async verifyOtp(data: { indicator: string; otp: string }) {
     return await this.authService.verifyOtp(data.indicator, data.otp);
   }
+
+  @GrpcMethod('AuthService', 'ForgotPassword')
+  async forgotPassword(data: { email: string, username: string }) {
+    return await this.authService.forgotPassword(data.email, data.username);
+  }
 }

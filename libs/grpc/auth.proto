@@ -10,6 +10,7 @@ service AuthService {
   rpc updatePassword(updatePasswordRequest) returns (updatePasswordResponse);
   rpc verifyOtp(verifyOtpRequest) returns (verifyOtpResponse);
   rpc refreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
 }
 
 message LoginRequest {
@@ -87,6 +88,18 @@ message RefreshTokenResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   LoginMetadata metadata = 4;
+}
+
+message ForgotPasswordRequest {
+  string email = 1;
+  string username = 2;
+}
+
+message ForgotPasswordResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
 }
 
 message LogoutMetadata {

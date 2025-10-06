@@ -40,10 +40,15 @@ import * as grpc from '@grpc/grpc-js';
       },
       {
         name: SERVICES.NOTIFICATION,
-        transport: Transport.TCP,
+        transport: Transport.KAFKA,
         options: {
-          host: 'localhost',
-          port: 3003,
+          client: {
+            clientId: 'notification-service',
+            brokers: ['localhost:9092']
+          },
+          consumer: {
+            groupId: 'notification-consumer',
+          },
         },
       },
       {

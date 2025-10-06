@@ -9,9 +9,11 @@ import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import { Key, KeyDocument } from './models/keys';
 import { Otp, OtpDocument } from './models/otp';
+import axios from 'axios';
 
 @Injectable()
 export class AuthService {
+  private readonly gatewayUrl = process.env.GATEWAY_URL
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
@@ -120,7 +122,7 @@ export class AuthService {
 
   async logout(userId: string) {
     // Xóa hết key của user khi logout
-    this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec(); 
+    this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec();
     return Response.success(null, 'Đăng xuất thành công');
   }
 
@@ -191,5 +193,34 @@ export class AuthService {
     user.usr_salt = hashedNewPassword;
     await user.save();
     return Response.success(null, 'Cập nhật mật khẩu thành công');
+  }
+
+  async forgotPassword(email: string, username: string) {
+    const user = await this.userModel.findOne({
+      $or: [{ usr_email: username }, { usr_phone: username }],
+    }).exec();
+
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+
+    try {
+      const otpCode = Utils.generateOtp(6);
+      const otpEntry = new this.otpModel({
+        indicator: username,
+        otp: otpCode
+      });
+      await otpEntry.save();
+      // Gửi OTP về email thông qua Notification Service
+      await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
+        email: email,
+        otp: otpCode
+      });
+    } catch (error) {
+      console.error('Error sending OTP:', error);
+      return Response.error('Gửi mã OTP thất bại', 500);
+    }
+
+    return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
   }
 }

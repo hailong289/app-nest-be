@@ -1,4 +1,4 @@
-import { LoginDto, RegisterDto } from "@app/dto";
+import { ForgotPasswordDto, LoginDto, RegisterDto } from "@app/dto";
 import { Body, Controller, Inject, Post, Req } from "@nestjs/common";
 import type { ClientGrpc } from "@nestjs/microservices";
 import { GatewayService } from "../gateway.service";
@@ -7,11 +7,11 @@ import { SERVICES } from "@app/constants/services";
 interface AuthGrpcService {
     login(data: LoginDto): any;
     register(data: RegisterDto): any;
-    logout(): any;
+    logout(data: { userId: string }): any;
     getUser(data: { userId: string }): any;
     updatePassword(data: { oldPassword: string; newPassword: string; userId: string }): any;
     verifyOtp(data: { indicator: string; otp: string }): any;
-    refreshToken(data: { refreshToken: string }): any;
+    forgotPassword(data: ForgotPasswordDto): any;
 }
 
 @Controller('auth')
@@ -55,11 +55,8 @@ export class GatewayAuthController {
         return await this.gatewayService.dispatchGrpcRequest(this.authService.updatePassword, body);
     }
 
-    @Post('refresh-token')
-    async refreshToken(@Req() req: any) {
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.refreshToken, {
-            userId: req.user?.id,
-            refreshToken: req.body.refreshToken
-        });
+    @Post('forgot-password')
+    async forgotPassword(@Body() body: ForgotPasswordDto) {
+        return await this.gatewayService.dispatchGrpcRequest(this.authService.forgotPassword, body);
     }
 }

@@ -30,3 +30,10 @@ export class AuthResponseDto {
   };
   message?: string;
 }
+
+export class ForgotPasswordDto {
+  @IsNotEmpty({ message: 'Email không được để trống' })
+  email: string;
+  @IsNotEmpty({ message: 'Tên đăng nhập không được để trống' })
+  username: string;
+}
