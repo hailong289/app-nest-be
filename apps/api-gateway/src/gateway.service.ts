@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { ClientKafka, ClientProxy } from '@nestjs/microservices';
 import { Response } from 'libs/helpers/response';
-import { catchError, firstValueFrom, lastValueFrom, throwError, timeout } from 'rxjs';
+import {
+  catchError,
+  firstValueFrom,
+  lastValueFrom,
+  throwError,
+  timeout,
+} from 'rxjs';
 
 @Injectable()
 export class GatewayService {
@@ -28,7 +34,13 @@ export class GatewayService {
     };
   }
 
-  async dispatchServiceRequest(client: ClientProxy | ClientKafka, pattern: string, data: any = {}, timeoutMs = 20000) { // Default timeout 20s
+  async dispatchServiceRequest(
+    client: ClientProxy | ClientKafka,
+    pattern: string,
+    data: any = {},
+    timeoutMs = 20000,
+  ) {
+    // Default timeout 20s
     if (this.request && this.request.headers) {
       data.headers = this.request.headers;
     }
@@ -37,16 +49,22 @@ export class GatewayService {
         client.send(pattern, data).pipe(
           timeout(timeoutMs),
           catchError((err) => {
-            return throwError(() => new Error(`Service unavailable: ${err.message || err}`));
+            return throwError(
+              () => new Error(`Service unavailable: ${err.message || err}`),
+            );
           }),
         ),
       );
     } catch (error) {
-       return Response.error(error.message || error, 503, 'SERVICE_UNAVAILABLE');
+      return Response.error(error.message || error, 503, 'SERVICE_UNAVAILABLE');
     }
   }
 
-  async dispatchServiceEvent(client: ClientProxy | ClientKafka, pattern: string, data: any = {}) {
+  async dispatchServiceEvent(
+    client: ClientProxy | ClientKafka,
+    pattern: string,
+    data: any = {},
+  ) {
     if (this.request && this.request.headers) {
       data.headers = this.request.headers;
     }
@@ -55,7 +73,9 @@ export class GatewayService {
         client.emit(pattern, data).pipe(
           timeout(5000),
           catchError((err) => {
-            return throwError(() => new Error(`Service unavailable: ${err.message || err}`));
+            return throwError(
+              () => new Error(`Service unavailable: ${err.message || err}`),
+            );
           }),
         ),
       );
@@ -65,7 +85,12 @@ export class GatewayService {
     }
   }
 
-  async dispatchGrpcRequest<T>(grpcMethod: (...args: any[]) => any, data: any, timeoutMs = 20000) { // Default timeout 20s
+  async dispatchGrpcRequest<T>(
+    grpcMethod: (...args: any[]) => any,
+    data: any,
+    timeoutMs = 20000,
+  ) {
+    // Default timeout 20s
     try {
       if (this.request && this.request.headers) {
         data.headers = this.request.headers;
@@ -74,7 +99,9 @@ export class GatewayService {
         grpcMethod(data).pipe(
           timeout(timeoutMs),
           catchError((err) => {
-            return throwError(() => new Error(`Service unavailable: ${err.message || err}`));
+            return throwError(
+              () => new Error(`Service unavailable: ${err.message || err}`),
+            );
           }),
         ),
       );

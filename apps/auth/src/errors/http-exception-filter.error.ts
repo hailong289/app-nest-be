@@ -1,4 +1,9 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+} from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 import { Response } from 'libs/helpers/response';
 
@@ -14,7 +19,7 @@ export class HttpExceptionsFilter implements ExceptionFilter {
       exception.message || exception || 'Internal server error',
       exception.status || 500,
       exception.reasonStatusCode || 'INTERNAL_SERVER_ERROR',
-      null
+      null,
     );
   }
 }

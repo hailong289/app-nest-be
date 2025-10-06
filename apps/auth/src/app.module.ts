@@ -12,22 +12,22 @@ import { Otp, OtpSchema } from './models/otp';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ 
+    ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/auth/.env'),
-      load: [mongodbConfig]
+      load: [mongodbConfig],
     }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => {
+      useFactory: (configService: ConfigService) => {
         console.log('Environment Variables:', {
           MONGODB_URI: configService.get<string>('mongodb.uri'),
           DB_NAME: configService.get<string>('DB_NAME'),
         });
         const uri = configService.get<string>('mongodb.uri');
-        return { uri: uri, dbName: configService.get<string>('DB_NAME')};
-      }
+        return { uri: uri, dbName: configService.get<string>('DB_NAME') };
+      },
     }),
     JwtModule.register({}),
     MongooseModule.forFeature([

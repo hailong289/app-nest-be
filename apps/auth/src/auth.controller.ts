@@ -5,9 +5,7 @@ import { LoginDto, RegisterDto } from '@app/dto';
 
 @Controller()
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   @GrpcMethod('AuthService', 'Login')
   async login(data: LoginDto) {
@@ -24,7 +22,7 @@ export class AuthController {
     console.log('Logout gRPC data:', data);
     return await this.authService.logout(data.userId);
   }
-    
+
   @GrpcMethod('AuthService', 'GetUser')
   async getUser(data: { userId: string }) {
     try {
@@ -39,8 +37,16 @@ export class AuthController {
   }
 
   @GrpcMethod('AuthService', 'UpdatePassword')
-  async updatePassword(data: { oldPassword: string; newPassword: string; userId: string }) {
-    return await this.authService.updatePassword(data.oldPassword, data.newPassword, data.userId);
+  async updatePassword(data: {
+    oldPassword: string;
+    newPassword: string;
+    userId: string;
+  }) {
+    return await this.authService.updatePassword(
+      data.oldPassword,
+      data.newPassword,
+      data.userId,
+    );
   }
 
   @GrpcMethod('AuthService', 'VerifyOtp')

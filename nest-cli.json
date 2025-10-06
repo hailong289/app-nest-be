@@ -28,31 +28,13 @@
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
-    "chat": {
-      "type": "application",
-      "root": "apps/chat", 
-      "entryFile": "main",
-      "sourceRoot": "apps/chat/src",
+    "constants": {
+      "type": "library",
+      "root": "libs/constants",
+      "entryFile": "index",
+      "sourceRoot": "libs/constants/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/chat/tsconfig.app.json"
-      }
-    },
-    "notification": {
-      "type": "application",
-      "root": "apps/notification",
-      "entryFile": "main",
-      "sourceRoot": "apps/notification/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/notification/tsconfig.app.json"
-      }
-    },
-    "filesystem": {
-      "type": "application",
-      "root": "apps/filesystem",
-      "entryFile": "main",
-      "sourceRoot": "apps/filesystem/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/filesystem/tsconfig.app.json"
+        "tsConfigPath": "libs/constants/tsconfig.lib.json"
       }
     },
     "dto": {
@@ -64,13 +46,13 @@
         "tsConfigPath": "libs/dto/tsconfig.lib.json"
       }
     },
-    "constants": {
-      "type": "library",
-      "root": "libs/constants",
-      "entryFile": "index",
-      "sourceRoot": "libs/constants/src",
+    "filesystem": {
+      "type": "application",
+      "root": "apps/filesystem",
+      "entryFile": "main",
+      "sourceRoot": "apps/filesystem/src",
       "compilerOptions": {
-        "tsConfigPath": "libs/constants/tsconfig.lib.json"
+        "tsConfigPath": "apps/filesystem/tsconfig.app.json"
       }
     },
     "grpc": {
@@ -89,6 +71,15 @@
       "sourceRoot": "libs/helpers/src",
       "compilerOptions": {
         "tsConfigPath": "libs/helpers/tsconfig.lib.json"
+      }
+    },
+    "notification": {
+      "type": "application",
+      "root": "apps/notification",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/notification/tsconfig.app.json"
       }
     },
     "scripts": {

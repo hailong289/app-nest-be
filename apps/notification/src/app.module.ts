@@ -14,7 +14,7 @@ import path from 'path';
     ConfigModule.forRoot({
       load: [firebaseConfig, redisConfig],
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/notification/.env')
+      envFilePath: path.resolve(process.cwd(), 'apps/notification/.env'),
     }),
     BullModule.forRootAsync({
       useFactory: (configService) => ({
@@ -27,10 +27,6 @@ import path from 'path';
     }),
   ],
   controllers: [NotificationController],
-  providers: [
-    NotificationService,
-    NotificationProcessor,
-    FirebaseService,
-  ],
+  providers: [NotificationService, NotificationProcessor, FirebaseService],
 })
 export class AppModule {}

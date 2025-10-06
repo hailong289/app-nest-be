@@ -4,7 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { User, UserDocument } from './models/user';
 import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
-import { compare, hash } from "bcrypt";
+import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import { Key, KeyDocument } from './models/keys';
@@ -16,14 +16,19 @@ export class AuthService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
-    private jwtService: JwtService
-  ) { }
+    private jwtService: JwtService,
+  ) {}
 
   async login(loginDto: LoginDto) {
     console.log('Login attempt:', loginDto);
-    const user = await this.userModel.findOne({
-      $or: [{ usr_email: loginDto.username }, { usr_phone: loginDto.username }],
-    }).exec();
+    const user = await this.userModel
+      .findOne({
+        $or: [
+          { usr_email: loginDto.username },
+          { usr_phone: loginDto.username },
+        ],
+      })
+      .exec();
 
     console.log('for username:', loginDto);
 
@@ -56,27 +61,38 @@ export class AuthService {
         expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
         user: Utils.unprefix(userData, 'usr_'),
       },
-      'Đăng nhập thành công'
+      'Đăng nhập thành công',
     );
   }
 
   async register(registerDto: RegisterDto) {
-    if (registerDto.type === 'email' && !Utils.isEmail(registerDto.email || '')) {
+    if (
+      registerDto.type === 'email' &&
+      !Utils.isEmail(registerDto.email || '')
+    ) {
       return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
-    if (registerDto.type === 'phone' && !Utils.isPhone(registerDto.phone || '')) {
+    if (
+      registerDto.type === 'phone' &&
+      !Utils.isPhone(registerDto.phone || '')
+    ) {
       return Response.error('Số điện thoại không hợp lệ', 400, 'Bad Request');
     }
 
-    const existingUser = await this.userModel.findOne({
-      [registerDto.type === 'email' ? 'usr_email' : 'usr_phone']: registerDto.type === 'email' ? registerDto.email : registerDto.phone,
-    }).exec();
+    const existingUser = await this.userModel
+      .findOne({
+        [registerDto.type === 'email' ? 'usr_email' : 'usr_phone']:
+          registerDto.type === 'email' ? registerDto.email : registerDto.phone,
+      })
+      .exec();
 
     if (existingUser) {
       return Response.error(
-        registerDto.type === 'email' ? 'Email đã được sử dụng' : 'Số điện thoại đã được sử dụng',
-        400
+        registerDto.type === 'email'
+          ? 'Email đã được sử dụng'
+          : 'Số điện thoại đã được sử dụng',
+        400,
       );
     }
 
@@ -110,7 +126,7 @@ export class AuthService {
           expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
           user: Utils.unprefix(userData, 'usr_'),
         },
-        'Đăng ký thành công'
+        'Đăng ký thành công',
       );
     } catch (error) {
       console.error('Auth register error:', error);
@@ -120,7 +136,9 @@ export class AuthService {
 
   async logout(userId: string) {
     // Xóa hết key của user khi logout
-    this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec(); 
+    await this.keyModel
+      .deleteMany({ tkn_userId: new Types.ObjectId(userId) })
+      .exec();
     return Response.success(null, 'Đăng xuất thành công');
   }
 
@@ -138,9 +156,15 @@ export class AuthService {
   }
 
   async verifyOtp(indicator: string, otp: string) {
-    const keyEntry = await this.otpModel.findOne({ indicator: indicator }).exec();
+    const keyEntry = await this.otpModel
+      .findOne({ indicator: indicator })
+      .exec();
     if (!keyEntry) {
-      return Response.error('Mã OTP không hợp lệ hoặc đã hết hạn', 400, 'Invalid OTP');
+      return Response.error(
+        'Mã OTP không hợp lệ hoặc đã hết hạn',
+        400,
+        'Invalid OTP',
+      );
     }
     if (keyEntry.otp !== otp) {
       return Response.error('Mã OTP không đúng', 400, 'Invalid OTP');
@@ -150,7 +174,11 @@ export class AuthService {
     return Response.success(null, 'Xác thực OTP thành công');
   }
 
-  async updatePassword(oldPassword: string, newPassword: string, userId: string) {
+  async updatePassword(
+    oldPassword: string,
+    newPassword: string,
+    userId: string,
+  ) {
     const user = await this.userModel.findById(userId).exec();
     if (!user) {
       return Response.error('Tài khoản không tồn tại', 404);
