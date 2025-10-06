@@ -13,11 +13,9 @@ export class GatewayFilesystemController implements OnModuleInit {
     ) {}
 
     async onModuleInit() {
-        this.filesystemClient.subscribeToResponseOf('upload_single_file');
-        this.filesystemClient.subscribeToResponseOf('upload_multiple_files');
-        this.filesystemClient.subscribeToResponseOf('delete_file');
-        this.filesystemClient.subscribeToResponseOf('get_presigned_url');
-        
+        ['upload_single_file', 'upload_multiple_files', 'delete_file', 'get_presigned_url'].forEach((key) => {
+            this.filesystemClient.subscribeToResponseOf(key);
+        });
         try {
             await this.filesystemClient.connect();
         } catch (error) {

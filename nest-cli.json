@@ -72,6 +72,33 @@
       "compilerOptions": {
         "tsConfigPath": "libs/constants/tsconfig.lib.json"
       }
+    },
+    "grpc": {
+      "type": "library",
+      "root": "libs/grpc",
+      "entryFile": "index",
+      "sourceRoot": "libs/grpc/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/grpc/tsconfig.lib.json"
+      }
+    },
+    "helpers": {
+      "type": "library",
+      "root": "libs/helpers",
+      "entryFile": "index",
+      "sourceRoot": "libs/helpers/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/helpers/tsconfig.lib.json"
+      }
+    },
+    "scripts": {
+      "type": "library",
+      "root": "libs/scripts",
+      "entryFile": "index",
+      "sourceRoot": "libs/scripts/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/scripts/tsconfig.lib.json"
+      }
     }
   }
 }

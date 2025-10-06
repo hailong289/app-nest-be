@@ -8,12 +8,14 @@ import { compare, hash } from "bcrypt";
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import { Key, KeyDocument } from './models/keys';
+import { Otp, OtpDocument } from './models/otp';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
+    @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
     private jwtService: JwtService
   ) { }
 
@@ -26,13 +28,13 @@ export class AuthService {
     console.log('for username:', loginDto);
 
     if (!user) {
-      return Response.error('Tài khoản không tồn tại', 401);
+      return Response.error('Tài khoản không tồn tại', 400);
     }
 
     const isPasswordValid = await compare(loginDto.password, user.usr_salt);
 
     if (!isPasswordValid) {
-      return Response.error('Mật khẩu không chính xác', 401);
+      return Response.error('Mật khẩu không chính xác', 400);
     }
 
     const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
@@ -60,11 +62,11 @@ export class AuthService {
 
   async register(registerDto: RegisterDto) {
     if (registerDto.type === 'email' && !Utils.isEmail(registerDto.email || '')) {
-      return Response.error('Email không hợp lệ', 400);
+      return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
     if (registerDto.type === 'phone' && !Utils.isPhone(registerDto.phone || '')) {
-      return Response.error('Số điện thoại không hợp lệ', 400);
+      return Response.error('Số điện thoại không hợp lệ', 400, 'Bad Request');
     }
 
     const existingUser = await this.userModel.findOne({
@@ -133,5 +135,33 @@ export class AuthService {
       success: true,
       user: Utils.omit(user.toObject(), ['usr_salt', '__v']),
     };
+  }
+
+  async verifyOtp(indicator: string, otp: string) {
+    const keyEntry = await this.otpModel.findOne({ indicator: indicator }).exec();
+    if (!keyEntry) {
+      return Response.error('Mã OTP không hợp lệ hoặc đã hết hạn', 400, 'Invalid OTP');
+    }
+    if (keyEntry.otp !== otp) {
+      return Response.error('Mã OTP không đúng', 400, 'Invalid OTP');
+    }
+    // OTP hợp lệ, xóa entry sau khi sử dụng
+    await this.otpModel.deleteOne({ _id: keyEntry._id }).exec();
+    return Response.success(null, 'Xác thực OTP thành công');
+  }
+
+  async updatePassword(oldPassword: string, newPassword: string, userId: string) {
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    const isOldPasswordValid = await compare(oldPassword, user.usr_salt);
+    if (!isOldPasswordValid) {
+      return Response.error('Mật khẩu cũ không chính xác', 400);
+    }
+    const hashedNewPassword = await hash(newPassword, 10);
+    user.usr_salt = hashedNewPassword;
+    await user.save();
+    return Response.success(null, 'Cập nhật mật khẩu thành công');
   }
 }

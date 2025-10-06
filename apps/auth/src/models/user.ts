@@ -28,14 +28,12 @@ export class User {
 
   @Prop({
     type: String,
-    unique: [true, 'Email already exists'],
     sparse: true,
   })
   usr_email: string;
 
   @Prop({
     type: String,
-    unique: [true, 'Phone number already exists'],
     sparse: true,
   })
   usr_phone: string;
