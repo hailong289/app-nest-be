@@ -1,39 +1,43 @@
-name: "nestjs-microservices-kafka-appchat"
+name: 'nestjs-microservices-kafka-appchat'
 services:
-  kafka:
-    image: bitnami/kafka:3.6
-    container_name: kafka
+  redpanda:
+    image: redpandadata/redpanda:v23.2.9
+    container_name: redpanda
     ports:
-      - "9092:9092" # host dùng localhost:9092
-      - "29092:29092" # container khác dùng kafka:29092
-    environment:
-      - KAFKA_CFG_NODE_ID=1
-      - KAFKA_CFG_PROCESS_ROLES=broker,controller
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,DOCKER://:29092,CONTROLLER://:9093
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,DOCKER:PLAINTEXT,CONTROLLER:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,DOCKER://kafka:29092
-    volumes:
-      - kafka_data:/bitnami/kafka
+      - '9092:9092'
+      - '29092:29092'
+    command:
+      - redpanda
+      - start
+      - --smp
+      - '1'
+      - --reserve-memory
+      - 0M
+      - --overprovisioned
+      - --node-id
+      - '0'
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     ports:
-      - "8080:8080"
+      - '8080:8080'
     environment:
       - KAFKA_CLUSTERS_0_NAME=local
-      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=redpanda:29092 # Sửa từ "redpand" thành "redpanda"
     depends_on:
-      - kafka
+      - redpanda
 
   # MongoDB Database
   mongodb:
     image: mongo:7.0
     container_name: mongodb
     ports:
-      - "27017:27017"
+      - '27017:27017'
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=password123
@@ -48,7 +52,7 @@ services:
     image: mongo-express:1.0.2
     container_name: mongo-express
     ports:
-      - "8081:8081"
+      - '8081:8081'
     environment:
       - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
       - ME_CONFIG_MONGODB_ADMINPASSWORD=password123
@@ -65,7 +69,7 @@ services:
     image: redis:7.2-alpine
     container_name: redis
     ports:
-      - "6379:6379"
+      - '6379:6379'
     command: redis-server --appendonly yes --requirepass redis123
     volumes:
       - redis_data:/data
@@ -76,7 +80,7 @@ services:
     image: rediscommander/redis-commander:latest
     container_name: redis-commander
     ports:
-      - "8082:8081"
+      - '8082:8081'
     environment:
       - REDIS_HOSTS=local:redis:6379:1:redis123
       - HTTP_USER=admin
