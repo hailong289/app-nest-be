@@ -15,7 +15,15 @@ export class AuthMiddleware implements NestMiddleware {
     const authHeader = req.headers['authorization'];
     console.log('AuthMiddleware - Authorization Header:', authHeader);
     if (!authHeader) {
-       return res.status(401).json(ResponseHelper.error('Authorization header missing', 401, 'UNAUTHORIZED'));
+      return res
+        .status(401)
+        .json(
+          ResponseHelper.error(
+            'Authorization header missing',
+            401,
+            'UNAUTHORIZED',
+          ),
+        );
     }
 
     const token = authHeader.replace('Bearer ', '');
@@ -27,7 +35,11 @@ export class AuthMiddleware implements NestMiddleware {
       (req as any).user = payload; // gắn user context vào request
       next();
     } catch {
-       return res.status(401).json(ResponseHelper.error('Invalid or expired token', 401, 'UNAUTHORIZED'));
+      return res
+        .status(401)
+        .json(
+          ResponseHelper.error('Invalid or expired token', 401, 'UNAUTHORIZED'),
+        );
     }
   }
 }

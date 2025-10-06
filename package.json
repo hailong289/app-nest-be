@@ -13,7 +13,7 @@
     "build:notification": "nest build notification",
     "build:filesystem": "nest build filesystem",
     "build:all": "nest build api-gateway && nest build auth && nest build chat && nest build notification && nest build filesystem",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start",
     "start:gateway": "nest start api-gateway",
     "start:auth": "nest start auth",
@@ -27,7 +27,7 @@
     "start:dev:notification": "nest start notification --watch",
     "start:dev:filesystem": "nest start filesystem --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/apps/app-nest-be/main",
     "start:prod:gateway": "node dist/apps/api-gateway/main",
     "start:prod:auth": "node dist/apps/auth/main",
     "start:prod:chat": "node dist/apps/chat/main",
@@ -38,7 +38,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e": "jest --config ./apps/app-nest-be/test/jest-e2e.json",
     "kafka:create-topics": "ts-node -r tsconfig-paths/register libs/scripts/create-topics.ts"
   },
   "dependencies": {
@@ -105,7 +105,7 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": "apps",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
@@ -114,6 +114,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/apps/"
+    ]
   }
 }

@@ -16,39 +16,52 @@ interface AuthGrpcService {
 
 @Controller('auth')
 export class GatewayAuthController {
-    private authService: AuthGrpcService;
+  private authService: AuthGrpcService;
 
-    public constructor(
-        @Inject(SERVICES.AUTH) private readonly authClient: ClientGrpc,
-        private readonly gatewayService: GatewayService,
-    ) { }
+  public constructor(
+    @Inject(SERVICES.AUTH) private readonly authClient: ClientGrpc,
+    private readonly gatewayService: GatewayService,
+  ) {}
 
-    onModuleInit() {
-        this.authService = this.authClient.getService<AuthGrpcService>('AuthService');
-    }
+  onModuleInit() {
+    this.authService =
+      this.authClient.getService<AuthGrpcService>('AuthService');
+  }
 
-    // Auth endpoints
-    @Post('login')
-    async login(@Body() loginDto: LoginDto) {
-        console.log('Login DTO:', loginDto);
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.login, loginDto);
-    }
+  // Auth endpoints
+  @Post('login')
+  async login(@Body() loginDto: LoginDto) {
+    console.log('Login DTO:', loginDto);
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.login,
+      loginDto,
+    );
+  }
 
-    @Post('register')
-    async register(@Body() registerDto: RegisterDto) {
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.register, registerDto);
-    }
+  @Post('register')
+  async register(@Body() registerDto: RegisterDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.register,
+      registerDto,
+    );
+  }
 
-    @Post('logout')
-    async logout(@Req() req: any) {
-        console.log('Logout request user:', req.user);
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.logout, { userId: req.user?.id });
-    }
+  @Post('logout')
+  async logout(@Req() req: any) {
+    console.log('Logout request user:', req.user);
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.logout,
+      { userId: req.user?.id },
+    );
+  }
 
-    @Post('verify-otp')
-    async verifyOtp(@Body() body: { indicator: string; otp: string }) {
-        return await this.gatewayService.dispatchGrpcRequest(this.authService.verifyOtp, body);
-    }
+  @Post('verify-otp')
+  async verifyOtp(@Body() body: { indicator: string; otp: string }) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.verifyOtp,
+      body,
+    );
+  }
 
     @Post('update-password')
     async updatePassword(@Body() body: { oldPassword: string; newPassword: string; userId: string }) {
