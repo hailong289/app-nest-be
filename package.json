@@ -13,7 +13,7 @@
     "build:notification": "nest build notification",
     "build:filesystem": "nest build filesystem",
     "build:all": "nest build api-gateway && nest build auth && nest build chat && nest build notification && nest build filesystem",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start",
     "start:gateway": "nest start api-gateway",
     "start:auth": "nest start auth",

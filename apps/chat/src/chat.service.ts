@@ -62,7 +62,7 @@ export class ChatService {
     if (roomId) {
       return {
         success: true,
-        messages: this.messages.filter(m => m.roomId === roomId),
+        messages: this.messages.filter((m) => m.roomId === roomId),
       };
     }
 
@@ -72,11 +72,11 @@ export class ChatService {
     };
   }
 
-  async sendMessage(messageDto: { 
-    roomId: number; 
-    userId: number; 
-    content: string; 
-    userName: string; 
+  async sendMessage(messageDto: {
+    roomId: number;
+    userId: number;
+    content: string;
+    userName: string;
   }) {
     const newMessage: Message = {
       id: this.messages.length + 1,
@@ -100,7 +100,7 @@ export class ChatService {
     if (userId) {
       return {
         success: true,
-        rooms: this.rooms.filter(r => r.participants.includes(userId)),
+        rooms: this.rooms.filter((r) => r.participants.includes(userId)),
       };
     }
 
@@ -110,10 +110,10 @@ export class ChatService {
     };
   }
 
-  async createRoom(roomDto: { 
-    name: string; 
-    description: string; 
-    createdBy: number; 
+  async createRoom(roomDto: {
+    name: string;
+    description: string;
+    createdBy: number;
   }) {
     const newRoom: Room = {
       id: this.rooms.length + 1,
@@ -134,8 +134,8 @@ export class ChatService {
   }
 
   async joinRoom(roomId: number, userId: number) {
-    const room = this.rooms.find(r => r.id === roomId);
-    
+    const room = this.rooms.find((r) => r.id === roomId);
+
     if (!room) {
       return {
         success: false,

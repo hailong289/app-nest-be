@@ -20,7 +20,10 @@ export class ChatController {
   async sendMessage(@Payload() data: any) {
     try {
       if (!data || !data.roomId || !data.userId || !data.content) {
-        return { success: false, message: 'Room ID, User ID and content are required' };
+        return {
+          success: false,
+          message: 'Room ID, User ID and content are required',
+        };
       }
       return await this.chatService.sendMessage(data);
     } catch (error) {
@@ -43,7 +46,10 @@ export class ChatController {
   async createRoom(@Payload() data: any) {
     try {
       if (!data || !data.name || !data.createdBy) {
-        return { success: false, message: 'Room name and creator ID are required' };
+        return {
+          success: false,
+          message: 'Room name and creator ID are required',
+        };
       }
       return await this.chatService.createRoom(data);
     } catch (error) {

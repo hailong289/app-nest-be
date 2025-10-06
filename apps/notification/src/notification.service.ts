@@ -4,7 +4,9 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class NotificationService {
-  constructor(@InjectQueue('notification') private readonly notificationQueue: Queue) {}
+  constructor(
+    @InjectQueue('notification') private readonly notificationQueue: Queue,
+  ) {}
 
   async sendWelcomeEmail(user: { email: string; name: string }) {
     const jobPromise = this.notificationQueue.add('welcome', user, {
@@ -22,7 +24,11 @@ export class NotificationService {
       await Promise.race([jobPromise, timeoutPromise]);
       return { success: true, message: 'Job queued!' };
     } catch (err) {
-      return { success: false, message: 'Không thể push vào queue', error: err.message };
+      return {
+        success: false,
+        message: 'Không thể push vào queue',
+        error: err.message,
+      };
     }
   }
 
@@ -32,12 +38,16 @@ export class NotificationService {
     body: string;
     data: Record<string, string>;
   }) {
-    const jobPromise = this.notificationQueue.add('pushNotification', notification, {
-      attempts: 3,
-      backoff: 5000,
-      removeOnComplete: true,
-      removeOnFail: false,
-    });
+    const jobPromise = this.notificationQueue.add(
+      'pushNotification',
+      notification,
+      {
+        attempts: 3,
+        backoff: 5000,
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
 
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('⏰ Redis connect timeout')), 2000),
@@ -47,7 +57,11 @@ export class NotificationService {
       await Promise.race([jobPromise, timeoutPromise]);
       return { success: true, message: 'Job queued!' };
     } catch (err) {
-      return { success: false, message: 'Không thể push vào queue', error: err.message };
+      return {
+        success: false,
+        message: 'Không thể push vào queue',
+        error: err.message,
+      };
     }
   }
 }
