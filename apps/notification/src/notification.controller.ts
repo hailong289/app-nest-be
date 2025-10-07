@@ -9,7 +9,13 @@ export class NotificationController {
 
   @MessagePattern('send_otp')
   async sendOtp(@Payload() data: { email: string; string; otp: string }) {
-    await this.notificationService.sendOtp(data)
+    await this.notificationService.sendOtp(data);
     return Response.success(null, 'OTP sent successfully');
+  }
+
+  @MessagePattern('forgot_password')
+  async forgotPassword(@Payload() data: { email: string; token: string }) {
+    await this.notificationService.sendForgotPasswordEmail(data);
+    return Response.success(null, 'Forgot password email sent successfully');
   }
 }

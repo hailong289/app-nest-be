@@ -231,6 +231,17 @@ export class AuthService {
     return Response.success(null, 'Cập nhật mật khẩu thành công');
   }
 
+  async resetPassword(userId: string, newPassword: string) {
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    const hashedNewPassword = await hash(newPassword, 10);
+    user.usr_salt = hashedNewPassword;
+    await user.save();
+    return Response.success(null, 'Đặt lại mật khẩu thành công');
+  }
+
   async forgotPassword(email: string, username: string) {
     const user = await this.userModel
       .findOne({
@@ -243,16 +254,17 @@ export class AuthService {
     }
 
     try {
-      const otpCode = Utils.generateOtp(6);
-      const otpEntry = new this.otpModel({
-        indicator: username,
-        otp: otpCode,
-      });
-      await otpEntry.save();
-      // Gửi OTP về email thông qua Notification Service
-      await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
+      const accessToken = this.jwtService.sign(
+        Utils.omit(user.toObject(), ['usr_salt', '__v']),
+        {
+          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+          expiresIn: '5m', // access token sống 5 phút
+        },
+      );
+      // Gửi token về email thông qua Notification Service
+      await axios.post(`${this.gatewayUrl}/api/notifications/forgot-password`, {
         email: email,
-        otp: otpCode,
+        token: accessToken,
       });
     } catch (error) {
       console.error('Error sending OTP:', error);

@@ -9,13 +9,14 @@ import { NotificationService } from './notification.service';
 import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
+import appConfig from './config/app/app.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/notification/.env'),
-      load: [firebaseConfig, redisConfig, mailConfig]
+      load: [firebaseConfig, redisConfig, mailConfig, appConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],
@@ -40,15 +41,11 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handleba
             options: { strict: false },
           },
         };
-        
         return mailConfig;
       },
     }),
   ],
   controllers: [NotificationController],
-  providers: [
-    NotificationService,
-    FirebaseService,
-  ],
+  providers: [NotificationService, FirebaseService],
 })
 export class AppModule {}

@@ -93,10 +93,13 @@ export class GatewayAuthController {
   }
 
   @Post('reset-password')
-  async resetPassword(@Body() body: { email: string; newPassword: string }) {
+  async resetPassword(@Req() req: any, @Body() body: { newPassword: string }) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.resetPassword,
-      body,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
     );
   }
 }

@@ -85,6 +85,7 @@ export class AppModule {
         { path: 'auth/logout', method: RequestMethod.ALL },
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
+        { path: 'auth/reset-password', method: RequestMethod.POST },
       );
   }
 }

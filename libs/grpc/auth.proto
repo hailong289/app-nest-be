@@ -11,6 +11,7 @@ service AuthService {
   rpc VerifyOtp(VerifyOtpRequest) returns (VerifyOtpResponse);
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
 }
 
 message LoginRequest {
@@ -143,6 +144,19 @@ message UpdatePasswordRequest {
 }
 
 message UpdatePasswordResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
+}
+
+
+message ResetPasswordRequest {
+  string userId = 1; // ID người dùng cần thay đổi mật khẩu
+  string newPassword = 2;
+}
+
+message ResetPasswordResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
