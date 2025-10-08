@@ -56,6 +56,19 @@ export class AuthService {
       expiresIn: '30d', // refresh token sống 30 ngày
     });
 
+    if (loginDto.fcmToken) {
+      // Lưu fcmToken vào database
+      await this.keyModel.updateOne(
+        { tkn_userId: user._id, tkn_fcmToken: loginDto.fcmToken },
+        {
+          tkn_userId: user._id,
+          tkn_fcmToken: loginDto.fcmToken,
+          tkn_createdAt: new Date(),
+        },
+        { upsert: true },
+      );
+    }
+
     return Response.success(
       {
         accessToken,
@@ -121,6 +134,20 @@ export class AuthService {
         secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
         expiresIn: '30d', // refresh token sống 30 ngày
       });
+
+      if (registerDto.fcmToken) {
+        // Lưu fcmToken vào database
+        await this.keyModel.updateOne(
+          { tkn_userId: newUser._id, tkn_fcmToken: registerDto.fcmToken },
+          {
+            tkn_userId: newUser._id,
+            tkn_fcmToken: registerDto.fcmToken,
+            tkn_createdAt: new Date(),
+          },
+          { upsert: true },
+        );
+      }
+
       return Response.success(
         {
           accessToken,
