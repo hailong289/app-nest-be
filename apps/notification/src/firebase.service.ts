@@ -49,4 +49,53 @@ export class FirebaseService implements OnModuleInit {
   getApp() {
     return this.app;
   }
+
+  async pushNotification({
+    title,
+    message,
+    fcmTokens,
+    data,
+  }: {
+    title: string;
+    message: string;
+    fcmTokens: string[];
+    data?: Record<string, any>;
+  }) {
+    const payload: admin.messaging.MulticastMessage = {
+      tokens: fcmTokens,
+      notification: {
+        title,
+        body: message,
+      },
+      data: data
+        ? Object.fromEntries(
+            Object.entries(data).map(([key, value]) => [
+              key,
+              typeof value === 'string' ? value : JSON.stringify(value),
+            ]),
+          )
+        : {},
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channelId: "notifications",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
+    };
+    try {
+      await this.getMessaging().sendEachForMulticast(payload);
+    } catch (error) {
+      console.error('🔥 Firebase Cloud Messaging error:', error);
+    }
+    return true;
+  }
 }

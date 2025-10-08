@@ -2,10 +2,14 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { NotificationService } from './notification.service';
 import { Response } from '@app/helpers/response';
+import { FirebaseService } from './firebase.service';
 
 @Controller()
 export class NotificationController {
-  constructor(private readonly notificationService: NotificationService) {}
+  constructor(
+    private readonly notificationService: NotificationService,
+    private readonly firebaseService: FirebaseService,
+  ) {}
 
   @MessagePattern('send_otp')
   async sendOtp(@Payload() data: { email: string; string; otp: string }) {
@@ -17,5 +21,19 @@ export class NotificationController {
   async forgotPassword(@Payload() data: { email: string; token: string }) {
     await this.notificationService.sendForgotPasswordEmail(data);
     return Response.success(null, 'Forgot password email sent successfully');
+  }
+
+  @MessagePattern('push_notification')
+  async pushNotification(
+    @Payload()
+    data: {
+      title: string;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, any>;
+    },
+  ) {
+    await this.firebaseService.pushNotification(data);
+    return Response.success(null, 'Push notification sent successfully');
   }
 }
