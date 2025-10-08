@@ -19,7 +19,7 @@ export class SignatureMiddleware implements NestMiddleware {
           .status(401)
           .json(
             ResponseHelper.error(
-              'Missing signature headers',
+              'Thiếu thông tin xác thực',
               401,
               'UNAUTHORIZED',
             ),
