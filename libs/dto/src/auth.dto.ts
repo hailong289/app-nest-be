@@ -1,4 +1,4 @@
-import { IsEmpty, IsNotEmpty } from 'class-validator';
+import { IsEmpty, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 // Auth DTOs
 export class LoginDto {
@@ -6,6 +6,9 @@ export class LoginDto {
   username: string;
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   password: string;
+  @IsOptional()
+  @IsString()
+  fcmToken: string; // Thêm trường fcmToken
 }
 
 export class RegisterDto {
@@ -18,6 +21,9 @@ export class RegisterDto {
   gender?: string;
   dateOfBirth?: Date;
   type: 'email' | 'phone';
+  @IsOptional()
+  @IsString()
+  fcmToken: string; // Thêm trường fcmToken
 }
 
 export class AuthResponseDto {
