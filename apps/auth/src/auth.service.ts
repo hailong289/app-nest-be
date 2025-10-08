@@ -4,26 +4,33 @@ import { InjectModel } from '@nestjs/mongoose';
 import { User, UserDocument } from './models/user';
 import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
-import { compare, hash } from "bcrypt";
+import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import { Key, KeyDocument } from './models/keys';
 import { Otp, OtpDocument } from './models/otp';
+import axios from 'axios';
 
 @Injectable()
 export class AuthService {
+  private readonly gatewayUrl = process.env.GATEWAY_URL;
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
     @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
-    private jwtService: JwtService
-  ) { }
+    private jwtService: JwtService,
+  ) {}
 
   async login(loginDto: LoginDto) {
     console.log('Login attempt:', loginDto);
-    const user = await this.userModel.findOne({
-      $or: [{ usr_email: loginDto.username }, { usr_phone: loginDto.username }],
-    }).exec();
+    const user = await this.userModel
+      .findOne({
+        $or: [
+          { usr_email: loginDto.username },
+          { usr_phone: loginDto.username },
+        ],
+      })
+      .exec();
 
     console.log('for username:', loginDto);
 
@@ -56,27 +63,38 @@ export class AuthService {
         expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
         user: Utils.unprefix(userData, 'usr_'),
       },
-      'Đăng nhập thành công'
+      'Đăng nhập thành công',
     );
   }
 
   async register(registerDto: RegisterDto) {
-    if (registerDto.type === 'email' && !Utils.isEmail(registerDto.email || '')) {
+    if (
+      registerDto.type === 'email' &&
+      !Utils.isEmail(registerDto.email || '')
+    ) {
       return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
-    if (registerDto.type === 'phone' && !Utils.isPhone(registerDto.phone || '')) {
+    if (
+      registerDto.type === 'phone' &&
+      !Utils.isPhone(registerDto.phone || '')
+    ) {
       return Response.error('Số điện thoại không hợp lệ', 400, 'Bad Request');
     }
 
-    const existingUser = await this.userModel.findOne({
-      [registerDto.type === 'email' ? 'usr_email' : 'usr_phone']: registerDto.type === 'email' ? registerDto.email : registerDto.phone,
-    }).exec();
+    const existingUser = await this.userModel
+      .findOne({
+        [registerDto.type === 'email' ? 'usr_email' : 'usr_phone']:
+          registerDto.type === 'email' ? registerDto.email : registerDto.phone,
+      })
+      .exec();
 
     if (existingUser) {
       return Response.error(
-        registerDto.type === 'email' ? 'Email đã được sử dụng' : 'Số điện thoại đã được sử dụng',
-        400
+        registerDto.type === 'email'
+          ? 'Email đã được sử dụng'
+          : 'Số điện thoại đã được sử dụng',
+        400,
       );
     }
 
@@ -110,7 +128,7 @@ export class AuthService {
           expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
           user: Utils.unprefix(userData, 'usr_'),
         },
-        'Đăng ký thành công'
+        'Đăng ký thành công',
       );
     } catch (error) {
       console.error('Auth register error:', error);
@@ -120,8 +138,36 @@ export class AuthService {
 
   async logout(userId: string) {
     // Xóa hết key của user khi logout
-    this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec(); 
+    this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec();
     return Response.success(null, 'Đăng xuất thành công');
+  }
+
+  async refreshToken(userId: string) {
+    // Tạo access token mới dựa trên userId
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      return Response.error('User not found', 404);
+    }
+    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    const accessToken = this.jwtService.sign(userData, {
+      secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+      expiresIn: '7d', // access token sống 7 ngày
+    });
+
+    const refreshToken = this.jwtService.sign(userData, {
+      secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
+      expiresIn: '30d', // refresh token sống 30 ngày
+    });
+
+    return Response.success(
+      {
+        accessToken,
+        refreshToken,
+        expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
+        user: Utils.unprefix(userData, 'usr_'),
+      },
+      'Đăng nhập thành công',
+    );
   }
 
   async getUser(userId: string) {
@@ -138,23 +184,43 @@ export class AuthService {
   }
 
   async verifyOtp(indicator: string, otp: string) {
-    const keyEntry = await this.otpModel.findOne({ indicator: indicator }).exec();
+    const keyEntry = await this.otpModel
+      .findOne({ indicator: indicator, otp })
+      .exec();
+
+    console.log('Verifying OTP for indicator:', indicator, 'with OTP:', otp);
+
     if (!keyEntry) {
-      return Response.error('Mã OTP không hợp lệ hoặc đã hết hạn', 400, 'Invalid OTP');
+      return Response.error(
+        'Mã OTP không hợp lệ hoặc đã hết hạn',
+        400,
+        'Invalid OTP',
+      );
     }
-    if (keyEntry.otp !== otp) {
-      return Response.error('Mã OTP không đúng', 400, 'Invalid OTP');
-    }
+    const user = await this.userModel
+      .findOne({
+        $or: [{ usr_email: indicator }, { usr_phone: indicator }],
+      })
+      .exec();
     // OTP hợp lệ, xóa entry sau khi sử dụng
     await this.otpModel.deleteOne({ _id: keyEntry._id }).exec();
-    return Response.success(null, 'Xác thực OTP thành công');
+    return Response.success({ userId: user?._id }, 'Xác thực OTP thành công');
   }
 
-  async updatePassword(oldPassword: string, newPassword: string, userId: string) {
+  async updatePassword({
+    oldPassword,
+    newPassword,
+    userId,
+  }: {
+    oldPassword: string;
+    newPassword: string;
+    userId: string;
+  }) {
     const user = await this.userModel.findById(userId).exec();
     if (!user) {
       return Response.error('Tài khoản không tồn tại', 404);
     }
+    // Nếu có oldPassword thì kiểm tra, không có thì bỏ qua (dành cho trường hợp quên mật khẩu)
     const isOldPasswordValid = await compare(oldPassword, user.usr_salt);
     if (!isOldPasswordValid) {
       return Response.error('Mật khẩu cũ không chính xác', 400);
@@ -163,5 +229,48 @@ export class AuthService {
     user.usr_salt = hashedNewPassword;
     await user.save();
     return Response.success(null, 'Cập nhật mật khẩu thành công');
+  }
+
+  async resetPassword(userId: string, newPassword: string) {
+    const user = await this.userModel.findById(userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    const hashedNewPassword = await hash(newPassword, 10);
+    user.usr_salt = hashedNewPassword;
+    await user.save();
+    return Response.success(null, 'Đặt lại mật khẩu thành công');
+  }
+
+  async forgotPassword(email: string, username: string) {
+    const user = await this.userModel
+      .findOne({
+        $or: [{ usr_email: username }, { usr_phone: username }],
+      })
+      .exec();
+
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+
+    try {
+      const accessToken = this.jwtService.sign(
+        Utils.omit(user.toObject(), ['usr_salt', '__v']),
+        {
+          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+          expiresIn: '5m', // access token sống 5 phút
+        },
+      );
+      // Gửi token về email thông qua Notification Service
+      await axios.post(`${this.gatewayUrl}/api/notifications/forgot-password`, {
+        email: email,
+        token: accessToken,
+      });
+    } catch (error) {
+      console.error('Error sending OTP:', error);
+      return Response.error('Gửi mã OTP thất bại', 500);
+    }
+
+    return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
   }
 }

@@ -4,18 +4,17 @@ import { GatewayService } from './gateway.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
 import { GatewayAuthController } from './auth/gateway-auth.controller';
-import { GatewayChatController } from './chat/gateway-chat.controller';
 import { GatewayNotificationController } from './notification/gateway-notification.controller';
 import { SERVICES } from '@app/constants';
 import { JwtModule } from '@nestjs/jwt';
 import path, { join } from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
-import * as grpc from '@grpc/grpc-js';
+// import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ 
+    ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
     }),
@@ -25,7 +24,10 @@ import * as grpc from '@grpc/grpc-js';
         transport: Transport.GRPC,
         options: {
           package: 'auth',
-          protoPath: join(process.cwd(), process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto'),
+          protoPath: join(
+            process.cwd(),
+            process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
+          ),
           url: `${process.env.GATEWAY_AUTH_HOST || 'localhost'}:${process.env.GATEWAY_AUTH_PORT || '5001'}`,
           // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
         },
@@ -40,10 +42,15 @@ import * as grpc from '@grpc/grpc-js';
       },
       {
         name: SERVICES.NOTIFICATION,
-        transport: Transport.TCP,
+        transport: Transport.KAFKA,
         options: {
-          host: 'localhost',
-          port: 3003,
+          client: {
+            clientId: 'notification-service',
+            brokers: ['localhost:9092'],
+          },
+          consumer: {
+            groupId: 'notification-consumer',
+          },
         },
       },
       {
@@ -52,7 +59,7 @@ import * as grpc from '@grpc/grpc-js';
         options: {
           client: {
             clientId: 'filesystem-service',
-            brokers: ['localhost:9092']
+            brokers: ['localhost:9092'],
           },
           consumer: {
             groupId: 'filesystem-consumer',
@@ -66,7 +73,6 @@ import * as grpc from '@grpc/grpc-js';
     GatewayController,
     GatewayFilesystemController,
     GatewayAuthController,
-    GatewayChatController,
     GatewayNotificationController,
   ],
   providers: [GatewayService],
@@ -77,6 +83,9 @@ export class AppModule {
       .apply(AuthMiddleware)
       .forRoutes(
         { path: 'auth/logout', method: RequestMethod.ALL },
+        { path: 'auth/refresh-token', method: RequestMethod.POST },
+        { path: 'auth/update-password', method: RequestMethod.POST },
+        { path: 'auth/reset-password', method: RequestMethod.POST },
       );
   }
 }

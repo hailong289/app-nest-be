@@ -5,7 +5,6 @@ import { FilesystemService } from './filesystem.service';
 import s3Config from './config/app/s3.config';
 import path from 'path';
 
-
 @Module({
   imports: [
     ConfigModule.forRoot({

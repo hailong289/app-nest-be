@@ -1,4 +1,4 @@
-import { IsNotEmpty } from "class-validator";
+import { IsEmpty, IsNotEmpty } from 'class-validator';
 
 // Auth DTOs
 export class LoginDto {
@@ -29,4 +29,32 @@ export class AuthResponseDto {
     name: string;
   };
   message?: string;
+}
+
+export class RefreshTokenDto {
+  @IsNotEmpty({ message: 'Refresh token không được để trống' })
+  refreshToken: string;
+}
+
+export class UpdatePasswordDto {
+  @IsNotEmpty({ message: 'Mật khẩu cũ không được để trống' })
+  oldPassword: string;
+  @IsNotEmpty({ message: 'Mật khẩu mới không được để trống' })
+  newPassword: string;
+  @IsNotEmpty({ message: 'Tài khoản không tồn tại' })
+  userId: string;
+}
+
+export class ForgotPasswordDto {
+  @IsNotEmpty({ message: 'Email không được để trống' })
+  email: string;
+  @IsNotEmpty({ message: 'Tên đăng nhập không được để trống' })
+  username: string;
+}
+
+export class VerifyOtpDto {
+  @IsNotEmpty({ message: 'Chỉ số không được để trống' })
+  indicator: string;
+  @IsNotEmpty({ message: 'Mã OTP không được để trống' })
+  otp: string;
 }

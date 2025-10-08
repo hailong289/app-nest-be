@@ -7,8 +7,11 @@ service AuthService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
-  rpc updatePassword(updatePasswordRequest) returns (updatePasswordResponse);
-  rpc verifyOtp(verifyOtpRequest) returns (verifyOtpResponse);
+  rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
+  rpc VerifyOtp(VerifyOtpRequest) returns (VerifyOtpResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
 }
 
 message LoginRequest {
@@ -41,7 +44,7 @@ message RegisterResponse {
 }
 
 message LogoutRequest {
-  string userId = 1;
+  // No fields needed for logout
 }
 
 message LogoutResponse {
@@ -77,6 +80,29 @@ message RegisterMetadata {
   User user = 4;
 }
 
+message RefreshTokenRequest {
+  string refreshToken = 1;
+}
+
+message RefreshTokenResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  LoginMetadata metadata = 4;
+}
+
+message ForgotPasswordRequest {
+  string email = 1;
+  string username = 2;
+}
+
+message ForgotPasswordResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
+}
+
 message LogoutMetadata {
   // Empty for now, can add fields if needed
 }
@@ -99,25 +125,38 @@ message User {
   string updatedAt = 11;
 }
 
-message verifyOtpRequest {
+message VerifyOtpRequest {
   string indicator = 1; 
   string otp = 2; 
 }
 
-message verifyOtpResponse {
+message VerifyOtpResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   RegisterMetadata metadata = 4;
 }
 
-message updatePasswordRequest {
-  string oldPassword = 1;
+message UpdatePasswordRequest {
+  string oldPassword = 1;  // Có thể gửi hoặc không
   string newPassword = 2;
-  string userId = 3;
+  string userId = 3; // ID người dùng cần thay đổi mật khẩu
 }
 
-message updatePasswordResponse {
+message UpdatePasswordResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RegisterMetadata metadata = 4;
+}
+
+
+message ResetPasswordRequest {
+  string userId = 1; // ID người dùng cần thay đổi mật khẩu
+  string newPassword = 2;
+}
+
+message ResetPasswordResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
