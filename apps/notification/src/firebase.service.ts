@@ -76,22 +76,29 @@ export class FirebaseService implements OnModuleInit {
           )
         : {},
       android: {
-        priority: "high",
+        priority: 'high',
         notification: {
-          sound: "default",
-          channelId: "notifications",
+          sound: 'default',
+          channelId: 'notifications',
         },
       },
       apns: {
         payload: {
           aps: {
-            sound: "default",
+            sound: 'default',
             badge: 1,
           },
         },
       },
+      webpush: {
+        headers: { Urgency: 'high' },
+        fcmOptions: {
+          link: this.configService.get<string>('app.url_frontend') || '',
+        },
+      },
     };
     try {
+      console.log('Firebase Cloud Messaging payload:', payload);
       await this.getMessaging().sendEachForMulticast(payload);
     } catch (error) {
       console.error('🔥 Firebase Cloud Messaging error:', error);
