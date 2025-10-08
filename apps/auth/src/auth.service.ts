@@ -58,15 +58,11 @@ export class AuthService {
 
     if (loginDto.fcmToken) {
       // Lưu fcmToken vào database
-      await this.keyModel.updateOne(
-        { tkn_userId: user._id, tkn_fcmToken: loginDto.fcmToken },
-        {
-          tkn_userId: user._id,
-          tkn_fcmToken: loginDto.fcmToken,
-          tkn_createdAt: new Date(),
-        },
-        { upsert: true },
-      );
+      await this.keyModel.create({
+        tkn_userId: user._id,
+        tkn_fcmToken: loginDto.fcmToken,
+        tkn_createdAt: new Date(),
+      });
     }
 
     return Response.success(
@@ -137,15 +133,11 @@ export class AuthService {
 
       if (registerDto.fcmToken) {
         // Lưu fcmToken vào database
-        await this.keyModel.updateOne(
-          { tkn_userId: newUser._id, tkn_fcmToken: registerDto.fcmToken },
-          {
-            tkn_userId: newUser._id,
-            tkn_fcmToken: registerDto.fcmToken,
-            tkn_createdAt: new Date(),
-          },
-          { upsert: true },
-        );
+        await this.keyModel.create({
+          tkn_userId: newUser._id,
+          tkn_fcmToken: registerDto.fcmToken,
+          tkn_createdAt: new Date(),
+        });
       }
 
       return Response.success(
