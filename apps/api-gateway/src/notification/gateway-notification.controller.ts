@@ -28,4 +28,18 @@ export class GatewayNotificationController {
       body,
     );
   }
+
+  @Post('push-notification')
+  async pushNotification(@Body() body: { 
+    title: string; 
+    message: string;
+    fcmTokens: string[];
+    data?: Record<string, any>;
+  }) {
+    return await this.gatewayService.dispatchServiceEvent(
+      this.notificationClient,
+      'push_notification',
+      body,
+    );
+  }
 }
