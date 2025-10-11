@@ -4,7 +4,6 @@ import { GatewayService } from './gateway.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
 import { GatewayAuthController } from './auth/gateway-auth.controller';
-import { GatewayChatController } from './chat/gateway-chat.controller';
 import { GatewayNotificationController } from './notification/gateway-notification.controller';
 import { SERVICES } from '@app/constants';
 import { JwtModule } from '@nestjs/jwt';
@@ -43,10 +42,15 @@ import { ConfigModule } from '@nestjs/config';
       },
       {
         name: SERVICES.NOTIFICATION,
-        transport: Transport.TCP,
+        transport: Transport.KAFKA,
         options: {
-          host: 'localhost',
-          port: 3003,
+          client: {
+            clientId: 'notification-service',
+            brokers: ['localhost:9092'],
+          },
+          consumer: {
+            groupId: 'notification-consumer',
+          },
         },
       },
       {
@@ -69,7 +73,6 @@ import { ConfigModule } from '@nestjs/config';
     GatewayController,
     GatewayFilesystemController,
     GatewayAuthController,
-    GatewayChatController,
     GatewayNotificationController,
   ],
   providers: [GatewayService],
@@ -78,6 +81,11 @@ export class AppModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(AuthMiddleware)
-      .forRoutes({ path: 'auth/logout', method: RequestMethod.ALL });
+      .forRoutes(
+        { path: 'auth/logout', method: RequestMethod.ALL },
+        { path: 'auth/refresh-token', method: RequestMethod.POST },
+        { path: 'auth/update-password', method: RequestMethod.POST },
+        { path: 'auth/reset-password', method: RequestMethod.POST },
+      );
   }
 }

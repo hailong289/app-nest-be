@@ -1,45 +1,39 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { NotificationService } from './notification.service';
+import { Response } from '@app/helpers/response';
+import { FirebaseService } from './firebase.service';
 
 @Controller()
 export class NotificationController {
-  constructor(private readonly notificationService: NotificationService) {}
+  constructor(
+    private readonly notificationService: NotificationService,
+    private readonly firebaseService: FirebaseService,
+  ) {}
 
-  @MessagePattern('send_welcome_email')
-  async sendWelcomeEmail(@Payload() data: { email: string; name: string }) {
-    try {
-      if (!data || !data.email || !data.name) {
-        return { success: false, message: 'Email and name are required' };
-      }
-      return await this.notificationService.sendWelcomeEmail(data);
-    } catch (error) {
-      console.error('Send welcome email error:', error);
-      return { success: false, message: 'Send welcome email failed' };
-    }
+  @MessagePattern('send_otp')
+  async sendOtp(@Payload() data: { email: string; string; otp: string }) {
+    await this.notificationService.sendOtp(data);
+    return Response.success(null, 'OTP sent successfully');
   }
 
-  @MessagePattern('send_push_notification')
-  async sendPushNotification(
+  @MessagePattern('forgot_password')
+  async forgotPassword(@Payload() data: { email: string; token: string }) {
+    await this.notificationService.sendForgotPasswordEmail(data);
+    return Response.success(null, 'Forgot password email sent successfully');
+  }
+
+  @MessagePattern('push_notification')
+  async pushNotification(
     @Payload()
     data: {
-      tokens: string[];
       title: string;
-      body: string;
-      data: Record<string, string>;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, any>;
     },
   ) {
-    try {
-      if (!data || !data.tokens || !data.title || !data.body) {
-        return {
-          success: false,
-          message: 'Tokens, title and body are required',
-        };
-      }
-      return await this.notificationService.sendPushNotification(data);
-    } catch (error) {
-      console.error('Send push notification error:', error);
-      return { success: false, message: 'Send push notification failed' };
-    }
+    await this.firebaseService.pushNotification(data);
+    return Response.success(null, 'Push notification sent successfully');
   }
 }

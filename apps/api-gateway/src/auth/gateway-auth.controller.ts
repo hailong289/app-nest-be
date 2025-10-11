@@ -1,4 +1,10 @@
-import { LoginDto, RegisterDto } from '@app/dto';
+import {
+  ForgotPasswordDto,
+  LoginDto,
+  RegisterDto,
+  UpdatePasswordDto,
+  VerifyOtpDto,
+} from '@app/dto';
 import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway.service';
@@ -9,12 +15,10 @@ interface AuthGrpcService {
   register(data: RegisterDto): any;
   logout(data: { userId: string }): any;
   getUser(data: { userId: string }): any;
-  updatePassword(data: {
-    oldPassword: string;
-    newPassword: string;
-    userId: string;
-  }): any;
-  verifyOtp(data: { indicator: string; otp: string }): any;
+  updatePassword(data: UpdatePasswordDto & { userId: string }): any;
+  verifyOtp(data: VerifyOtpDto): any;
+  forgotPassword(data: ForgotPasswordDto): any;
+  resetPassword(data: { username: string; newPassword: string }): any;
 }
 
 @Controller('auth')
@@ -59,7 +63,7 @@ export class GatewayAuthController {
   }
 
   @Post('verify-otp')
-  async verifyOtp(@Body() body: { indicator: string; otp: string }) {
+  async verifyOtp(@Body() body: VerifyOtpDto) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.verifyOtp,
       body,
@@ -68,11 +72,34 @@ export class GatewayAuthController {
 
   @Post('update-password')
   async updatePassword(
-    @Body() body: { oldPassword: string; newPassword: string; userId: string },
+    @Req() req: any,
+    @Body() body: { newPassword: string; oldPassword: string },
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.updatePassword,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
+    );
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.forgotPassword,
       body,
+    );
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Req() req: any, @Body() body: { newPassword: string }) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.resetPassword,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
     );
   }
 }

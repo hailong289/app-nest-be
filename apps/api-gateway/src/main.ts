@@ -20,6 +20,7 @@ async function bootstrap() {
             field: err.property,
             errors: Object.values(err.constraints ?? {}),
           })),
+          reasonStatusCode: 'BAD_REQUEST',
         });
       },
     }),

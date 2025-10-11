@@ -1,7 +1,12 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
-import { LoginDto, RegisterDto } from '@app/dto';
+import {
+  LoginDto,
+  RegisterDto,
+  UpdatePasswordDto,
+  VerifyOtpDto,
+} from '@app/dto';
 
 @Controller()
 export class AuthController {
@@ -23,6 +28,11 @@ export class AuthController {
     return await this.authService.logout(data.userId);
   }
 
+  @GrpcMethod('AuthService', 'RefreshToken')
+  async refreshToken(data: { userId: string }) {
+    return await this.authService.refreshToken(data.userId);
+  }
+
   @GrpcMethod('AuthService', 'GetUser')
   async getUser(data: { userId: string }) {
     try {
@@ -37,20 +47,23 @@ export class AuthController {
   }
 
   @GrpcMethod('AuthService', 'UpdatePassword')
-  async updatePassword(data: {
-    oldPassword: string;
-    newPassword: string;
-    userId: string;
-  }) {
-    return await this.authService.updatePassword(
-      data.oldPassword,
-      data.newPassword,
-      data.userId,
-    );
+  async updatePassword(data: UpdatePasswordDto & { userId: string }) {
+    console.log('UpdatePassword gRPC data:', data);
+    return await this.authService.updatePassword(data);
   }
 
   @GrpcMethod('AuthService', 'VerifyOtp')
-  async verifyOtp(data: { indicator: string; otp: string }) {
+  async verifyOtp(data: VerifyOtpDto) {
     return await this.authService.verifyOtp(data.indicator, data.otp);
+  }
+
+  @GrpcMethod('AuthService', 'ForgotPassword')
+  async forgotPassword(data: { username: string; email: string }) {
+    return await this.authService.forgotPassword(data.email, data.username);
+  }
+
+  @GrpcMethod('AuthService', 'ResetPassword')
+  async resetPassword(data: { userId: string; newPassword: string }) {
+    return await this.authService.resetPassword(data.userId, data.newPassword);
   }
 }

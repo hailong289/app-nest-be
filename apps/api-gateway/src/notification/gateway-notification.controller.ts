@@ -1,5 +1,5 @@
 import { Body, Controller, Inject, Post, OnModuleInit } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientKafka, ClientProxy } from '@nestjs/microservices';
 import { GatewayService } from '../gateway.service';
 import { SERVICES } from '@app/constants/services';
 
@@ -7,34 +7,39 @@ import { SERVICES } from '@app/constants/services';
 export class GatewayNotificationController {
   public constructor(
     @Inject(SERVICES.NOTIFICATION)
-    private readonly notificationClient: ClientProxy,
+    private readonly notificationClient: ClientKafka,
     private readonly gatewayService: GatewayService,
   ) {}
 
-  // Notification endpoints
-  @Post('notifications/welcome')
-  async sendWelcomeEmail(@Body() user: { email: string; name: string }) {
-    return await this.gatewayService.dispatchServiceRequest(
+  @Post('send-otp')
+  async sendOtp(@Body() body: { email: string; otp: string }) {
+    return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
-      'send_welcome_email',
-      user,
+      'send_otp',
+      body,
     );
   }
 
-  @Post('notifications/push')
-  async sendPushNotification(
-    @Body()
-    notification: {
-      tokens: string[];
-      title: string;
-      body: string;
-      data: Record<string, string>;
-    },
-  ) {
-    return await this.gatewayService.dispatchServiceRequest(
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string; token: string }) {
+    return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
-      'send_push_notification',
-      notification,
+      'forgot_password',
+      body,
+    );
+  }
+
+  @Post('push-notification')
+  async pushNotification(@Body() body: { 
+    title: string; 
+    message: string;
+    fcmTokens: string[];
+    data?: Record<string, any>;
+  }) {
+    return await this.gatewayService.dispatchServiceEvent(
+      this.notificationClient,
+      'push_notification',
+      body,
     );
   }
 }

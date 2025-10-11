@@ -90,34 +90,30 @@ services:
     restart: unless-stopped
 
   # services api gateway and microservices
-  api-gateway:
-    build:
-      context: .
-      dockerfile: apps/api-gateway/Dockerfile
-    ports:
-      - "5000:5000" # host dùng localhost:5000
-    env_file:
-      - apps/api-gateway/.env
-    depends_on:
-      - kafka
-      - mongodb
-      - redis
-      - auth
-      # - chat
-      # - filesystem
-      # - notification
+  # api-gateway:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/api-gateway/Dockerfile
+  #   ports:
+  #     - "5000:5000" # host dùng localhost:5000
+  #   env_file:
+  #     - apps/api-gateway/.env
+  #   depends_on:
+  #     - kafka
+  #     - auth
+  #     # - chat
+  #     # - filesystem
+  #     # - notification
 
-  # service auth microservice
-  auth:
-    build:
-      context: .
-      dockerfile: apps/auth/Dockerfile
-    env_file:
-      - apps/auth/.env
-    depends_on:
-      - kafka
-      - mongodb
-      - redis
+  # # service auth microservice
+  # auth:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/auth/Dockerfile
+  #   env_file:
+  #     - apps/auth/.env
+  #   depends_on:
+  #     - kafka
 
 # # service chat microservice
 #   chat:
