@@ -12,7 +12,7 @@ export class NotificationController {
   ) {}
 
   @MessagePattern('send_otp')
-  async sendOtp(@Payload() data: { email: string; string; otp: string }) {
+  async sendOtp(@Payload() data: { email: string; otp: string }) {
     await this.notificationService.sendOtp(data);
     return Response.success(null, 'OTP sent successfully');
   }

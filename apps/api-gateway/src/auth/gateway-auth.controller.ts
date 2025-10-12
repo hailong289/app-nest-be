@@ -63,7 +63,7 @@ export class GatewayAuthController {
   }
 
   @Post('verify-otp')
-  async verifyOtp(@Body() body: VerifyOtpDto) {
+  async verifyOtp(@Body() body: VerifyOtpDto, @Req() req: any) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.verifyOtp,
       body,

@@ -10,6 +10,8 @@ import { JwtModule } from '@nestjs/jwt';
 import path, { join } from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
+import { KafkaClientModule } from './kafka.module';
+import { KafkaService } from './kafka.service';
 // import * as grpc from '@grpc/grpc-js';
 
 @Module({
@@ -40,34 +42,9 @@ import { ConfigModule } from '@nestjs/config';
           port: 3002,
         },
       },
-      {
-        name: SERVICES.NOTIFICATION,
-        transport: Transport.KAFKA,
-        options: {
-          client: {
-            clientId: 'notification-service',
-            brokers: ['localhost:9092'],
-          },
-          consumer: {
-            groupId: 'notification-consumer',
-          },
-        },
-      },
-      {
-        name: SERVICES.FILESYSTEM,
-        transport: Transport.KAFKA,
-        options: {
-          client: {
-            clientId: 'filesystem-service',
-            brokers: ['localhost:9092'],
-          },
-          consumer: {
-            groupId: 'filesystem-consumer',
-          },
-        },
-      },
     ]),
     JwtModule.register({}),
+    KafkaClientModule,
   ],
   controllers: [
     GatewayController,

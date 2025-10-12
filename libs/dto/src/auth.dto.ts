@@ -1,4 +1,10 @@
-import { IsEmpty, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmpty,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 // Auth DTOs
 export class LoginDto {
@@ -14,12 +20,19 @@ export class LoginDto {
 export class RegisterDto {
   @IsNotEmpty({ message: 'Họ và tên không được để trống' })
   fullname: string;
-  email?: string;
-  phone?: string;
+  @IsOptional()
+  @IsString()
+  email: string;
+  @IsOptional()
+  @IsString()
+  phone: string;
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   password: string;
-  gender?: string;
-  dateOfBirth?: Date;
+  @IsNotEmpty({ message: 'Giới tính không được để trống' })
+  gender: string;
+  @IsNotEmpty({ message: 'Ngày sinh không được để trống' })
+  dateOfBirth: Date;
+  @IsNotEmpty({ message: 'Loại tài khoản không được để trống' })
   type: 'email' | 'phone';
   @IsOptional()
   @IsString()
@@ -56,6 +69,8 @@ export class ForgotPasswordDto {
   email: string;
   @IsNotEmpty({ message: 'Tên đăng nhập không được để trống' })
   username: string;
+  @IsOptional()
+  isMobile: boolean; // Thêm trường isMobile tùy chọn
 }
 
 export class VerifyOtpDto {
@@ -63,4 +78,10 @@ export class VerifyOtpDto {
   indicator: string;
   @IsNotEmpty({ message: 'Mã OTP không được để trống' })
   otp: string;
+  @IsOptional()
+  @IsString()
+  type: string; // Thêm type tùy chọn reset_password, verify_account
+  @IsOptional()
+  @IsString()
+  userId: string; // Thêm userId tùy chọn
 }
