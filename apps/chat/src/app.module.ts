@@ -11,6 +11,8 @@ import { RedisModule } from 'libs/db/src/redis/redis.module';
 import path from 'path/win32';
 import messagesModel from './database/mongo/model/messages.model';
 import userModel from 'apps/auth/src/models/user';
+import roomModel from './database/mongo/model/room.model';
+import eventModel from './database/mongo/model/event.model';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -33,7 +35,12 @@ import userModel from 'apps/auth/src/models/user';
         return { uri: uri, dbName: configService.get<string>('DB_NAME') };
       },
     }),
-    MongooseModule.forFeature([messagesModel, userModel]),
+    MongooseModule.forFeature([
+      messagesModel,
+      userModel,
+      roomModel,
+      eventModel,
+    ]),
     RedisModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {

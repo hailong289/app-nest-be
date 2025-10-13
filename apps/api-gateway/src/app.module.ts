@@ -30,7 +30,18 @@ import { KafkaService } from './kafka.service';
             process.cwd(),
             process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
           ),
-          url: `${process.env.GATEWAY_AUTH_HOST || 'localhost'}:${process.env.GATEWAY_AUTH_PORT || '5001'}`,
+          url: (() => {
+            const hostEnv = (process.env.GATEWAY_AUTH_HOST || '').trim();
+            const isDockerHost = hostEnv && hostEnv.includes('auth');
+            const host =
+              isDockerHost && process.env.NODE_ENV !== 'production'
+                ? 'localhost'
+                : hostEnv || 'localhost';
+            const port = process.env.GATEWAY_AUTH_PORT || '5001';
+            // helpful debug log for name resolution issues
+            console.log('Gateway gRPC auth URL:', `${host}:${port}`);
+            return `${host}:${port}`;
+          })(),
           // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
         },
       },

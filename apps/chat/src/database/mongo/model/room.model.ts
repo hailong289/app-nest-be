@@ -3,7 +3,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 
 export type roomType = 'private' | 'group' | 'channel';
 
-export class RoomMember {
+class RoomMember {
   @Prop({ type: String, required: true })
   user_id: string;
   @Prop({ type: String, enum: ['member', 'admin', 'owner'], default: 'member' })
@@ -11,7 +11,7 @@ export class RoomMember {
   @Prop({ type: Date, default: Date.now })
   joinedAt: Date;
 }
-export const RoomMemberSchema = SchemaFactory.createForClass(RoomMember);
+const RoomMemberSchema = SchemaFactory.createForClass(RoomMember);
 
 @Schema({ timestamps: true })
 export class Room {
@@ -28,3 +28,10 @@ export class Room {
   @Prop({ type: [RoomMemberSchema], default: [] })
   members: RoomMember[];
 }
+
+export const RoomSchema = SchemaFactory.createForClass(Room);
+
+export default {
+  name: 'RoomModel',
+  schema: RoomSchema,
+};

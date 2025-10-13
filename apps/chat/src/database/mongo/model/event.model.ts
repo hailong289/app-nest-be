@@ -21,3 +21,8 @@ export class MsgEvent {
   createdAt: Date;
 }
 export const MsgEventSchema = SchemaFactory.createForClass(MsgEvent);
+
+export default {
+  name: 'EventModel',
+  schema: MsgEventSchema,
+};
