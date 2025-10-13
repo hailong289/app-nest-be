@@ -1,28 +1,41 @@
-import { Body, Controller, Get, Inject, Post } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { Body, Controller, Get, Inject, Post, Req } from '@nestjs/common';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway.service';
 import { SERVICES } from '@app/constants/services';
+import { CreateRoomDto } from 'apps/chat/src/rooms/dto/create-room.dto';
+
+interface ChatGrpcService {
+  createRoom(data: CreateRoomDto): any;
+}
 
 @Controller('chat')
 export class GatewayChatController {
-  //   public constructor(
-  //     @Inject(SERVICES.CHAT) private readonly chatClient: ClientProxy,
-  //     private readonly gatewayService: GatewayService,
-  //   ) {}
-  //   // Chat endpoints
-  //   @Get('chat/messages')
-  //   async getMessages() {
-  //     return await this.gatewayService.dispatchServiceRequest(
-  //       this.chatClient,
-  //       'get_messages',
-  //     );
-  //   }
-  //   @Post('chat/send')
-  //   async sendMessage(@Body() messageDto: any) {
-  //     return await this.gatewayService.dispatchServiceRequest(
-  //       this.chatClient,
-  //       'send_message',
-  //       messageDto,
-  //     );
-  //   }
+  private chatGrpcService: ChatGrpcService;
+
+  constructor(
+    @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
+    private readonly gatewayService: GatewayService,
+  ) {}
+  onModuleInit() {
+    this.chatGrpcService =
+      this.chatClient.getService<ChatGrpcService>('ChatService');
+  }
+  // Chat endpoints
+  @Post('rooms')
+  async createRoom(
+    @Body()
+    data: CreateRoomDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    const rl = await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.createRoom,
+      {
+        userId:
+          req.user && typeof req.user.id === 'string' ? req.user.id : null,
+        ...data,
+      },
+    );
+    console.log('🚀 ~ GatewayChatController ~ createRoom ~ rl:', rl);
+    return rl;
+  }
 }

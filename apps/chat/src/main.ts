@@ -1,21 +1,29 @@
-import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { HttpExceptionsFilter } from 'apps/auth/src/errors/http-exception-filter.error';
+import { join } from 'path';
 import { AppModule } from './app.module';
+import { NestFactory } from '@nestjs/core';
 
 async function bootstrap() {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     AppModule,
     {
-      transport: Transport.TCP,
+      transport: Transport.GRPC,
       options: {
-        host: 'localhost',
-        port: 3002,
+        package: 'chat',
+        protoPath: join(
+          process.cwd(),
+          process.env.PROTO_URL || 'libs/grpc/chat.proto',
+        ),
+        url: `${process.env.HOST}:${process.env.PORT}`,
       },
     },
   );
 
+  app.useGlobalFilters(new HttpExceptionsFilter());
   await app.listen();
-  console.log('Chat microservice is listening on port 3002');
+  console.log(
+    `chat gRPC microservice is listening on port ${process.env.PORT}`,
+  );
 }
-
-bootstrap();
+void bootstrap();

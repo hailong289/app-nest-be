@@ -11,7 +11,7 @@ import path, { join } from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
 import { KafkaClientModule } from './kafka.module';
-import { KafkaService } from './kafka.service';
+import { GatewayChatController } from './chat/gateway-chat.controller';
 // import * as grpc from '@grpc/grpc-js';
 
 @Module({
@@ -47,10 +47,23 @@ import { KafkaService } from './kafka.service';
       },
       {
         name: SERVICES.CHAT,
-        transport: Transport.TCP,
+        transport: Transport.GRPC,
         options: {
-          host: 'localhost',
-          port: 3002,
+          package: 'chat',
+          protoPath: join(
+            process.cwd(),
+            process.env.GATEWAY_CHAT_PROTO_PATH || 'libs/grpc/chat.proto',
+          ),
+          url: (() => {
+            const hostEnv = (process.env.GATEWAY_CHAT_HOST || '').trim();
+            const isDockerHost = hostEnv && hostEnv.includes('chat');
+            const host =
+              isDockerHost && process.env.NODE_ENV !== 'production'
+                ? 'localhost'
+                : hostEnv || 'localhost';
+            const port = process.env.GATEWAY_CHAT_PORT || '5003';
+            return `${host}:${port}`;
+          })(),
         },
       },
     ]),
@@ -62,6 +75,7 @@ import { KafkaService } from './kafka.service';
     GatewayFilesystemController,
     GatewayAuthController,
     GatewayNotificationController,
+    GatewayChatController,
   ],
   providers: [GatewayService],
 })
@@ -74,6 +88,7 @@ export class AppModule {
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
+        { path: 'chat/*', method: RequestMethod.ALL },
       );
   }
 }

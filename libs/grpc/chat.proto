@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package chat;
+
+import "google/protobuf/struct.proto";
+
+service ChatService {
+  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+}
+
+// Requests and Responses
+message CreateRoomRequest {
+  string userId = 1;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated string memberIds = 5;
+}
+
+message CreateRoomResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RoomResponse metadata = 4;
+}
+
+message RoomResponse {
+  string type = 1;
+}
+

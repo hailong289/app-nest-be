@@ -30,7 +30,14 @@ export class AuthMiddleware implements NestMiddleware {
       const jwtSecret = this.configService.get<string>(
         'GATEWAY_JWT_ACCESS_SECRET',
       );
-      const payload = this.jwtService.verify(token, {
+      console.log('🚀 ~ AuthMiddleware ~ use ~ jwtSecret:', jwtSecret);
+      interface JwtPayload {
+        userId: string;
+        username: string;
+        // add other expected properties here
+        [key: string]: any;
+      }
+      const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
       (req as any).user = payload; // gắn user context vào request
