@@ -71,3 +71,8 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+export default {
+  name: 'UserModel',
+  schema: UserSchema,
+};

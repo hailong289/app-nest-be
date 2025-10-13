@@ -28,13 +28,31 @@
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
-    "constants": {
-      "type": "library",
-      "root": "libs/constants",
-      "entryFile": "index",
-      "sourceRoot": "libs/constants/src",
+    "chat": {
+      "type": "application",
+      "root": "apps/chat",
+      "entryFile": "main",
+      "sourceRoot": "apps/chat/src",
       "compilerOptions": {
-        "tsConfigPath": "libs/constants/tsconfig.lib.json"
+        "tsConfigPath": "apps/chat/tsconfig.app.json"
+      }
+    },
+    "notification": {
+      "type": "application",
+      "root": "apps/notification",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/notification/tsconfig.app.json"
+      }
+    },
+    "filesystem": {
+      "type": "application",
+      "root": "apps/filesystem",
+      "entryFile": "main",
+      "sourceRoot": "apps/filesystem/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/filesystem/tsconfig.app.json"
       }
     },
     "dto": {
@@ -46,13 +64,13 @@
         "tsConfigPath": "libs/dto/tsconfig.lib.json"
       }
     },
-    "filesystem": {
-      "type": "application",
-      "root": "apps/filesystem",
-      "entryFile": "main",
-      "sourceRoot": "apps/filesystem/src",
+    "constants": {
+      "type": "library",
+      "root": "libs/constants",
+      "entryFile": "index",
+      "sourceRoot": "libs/constants/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/filesystem/tsconfig.app.json"
+        "tsConfigPath": "libs/constants/tsconfig.lib.json"
       }
     },
     "grpc": {
@@ -73,15 +91,6 @@
         "tsConfigPath": "libs/helpers/tsconfig.lib.json"
       }
     },
-    "notification": {
-      "type": "application",
-      "root": "apps/notification",
-      "entryFile": "main",
-      "sourceRoot": "apps/notification/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/notification/tsconfig.app.json"
-      }
-    },
     "scripts": {
       "type": "library",
       "root": "libs/scripts",
@@ -89,6 +98,15 @@
       "sourceRoot": "libs/scripts/src",
       "compilerOptions": {
         "tsConfigPath": "libs/scripts/tsconfig.lib.json"
+      }
+    },
+    "db": {
+      "type": "library",
+      "root": "libs/db",
+      "entryFile": "index",
+      "sourceRoot": "libs/db/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/db/tsconfig.lib.json"
       }
     }
   }
