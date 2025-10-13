@@ -16,10 +16,10 @@ export class Message {
   @Prop({ type: [AttachmentSchema], default: [] })
   msg_attachments: Attachment[];
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   msg_sender: Types.ObjectId;
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Room', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'Room', required: true })
   msg_room: Types.ObjectId;
 
   @Prop({
