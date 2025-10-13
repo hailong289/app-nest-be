@@ -30,7 +30,7 @@
     },
     "chat": {
       "type": "application",
-      "root": "apps/chat", 
+      "root": "apps/chat",
       "entryFile": "main",
       "sourceRoot": "apps/chat/src",
       "compilerOptions": {
@@ -98,6 +98,15 @@
       "sourceRoot": "libs/scripts/src",
       "compilerOptions": {
         "tsConfigPath": "libs/scripts/tsconfig.lib.json"
+      }
+    },
+    "db": {
+      "type": "library",
+      "root": "libs/db",
+      "entryFile": "index",
+      "sourceRoot": "libs/db/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/db/tsconfig.lib.json"
       }
     }
   }

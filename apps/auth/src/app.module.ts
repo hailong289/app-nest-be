@@ -20,7 +20,7 @@ import { Otp, OtpSchema } from './models/otp';
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => {
+      useFactory: (configService: ConfigService) => {
         console.log('Environment Variables:', {
           MONGODB_URI: configService.get<string>('mongodb.uri'),
           DB_NAME: configService.get<string>('DB_NAME'),
