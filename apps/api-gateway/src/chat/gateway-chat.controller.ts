@@ -24,18 +24,14 @@ export class GatewayChatController {
   @Post('rooms')
   async createRoom(
     @Body()
-    data: CreateRoomDto,
-    @Req() req: { user?: { id?: string } },
+    body: CreateRoomDto,
+    @Req() req: { user?: { _id?: string } },
   ) {
+    body.userId = req.user?._id;
     const rl = await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.createRoom,
-      {
-        userId:
-          req.user && typeof req.user.id === 'string' ? req.user.id : null,
-        ...data,
-      },
+      body,
     );
-    console.log('🚀 ~ GatewayChatController ~ createRoom ~ rl:', rl);
     return rl;
   }
 }

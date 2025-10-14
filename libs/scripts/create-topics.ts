@@ -1,47 +1,37 @@
 // scripts/create-topics.ts
+import { topic } from 'kafka.topic';
 import { Kafka } from 'kafkajs';
 
 async function main() {
   try {
     console.log('🚀 Starting Kafka topic provisioning...');
-    const kafka = new Kafka({
-      brokers: [process.env.KAFKA_BROKER || ''],
-      ssl: {},
-      sasl: {
-        mechanism: (process.env.KAFKA_SASL_MECHANISM as any) || 'scram-sha-256', // scram-sha-256 or scram-sha-512 or plain
-        username: process.env.KAFKA_SASL_USERNAME || 'user',
-        password: process.env.KAFKA_SASL_PASSWORD || 'password',
-      },
-    });
+    const brokersEnv =
+      process.env.KAFKA_BROKERS || process.env.KAFKA_BROKER || 'localhost:9092';
+    const brokers = brokersEnv
+      .split(',')
+      .map((b) => b.trim())
+      .filter(Boolean);
+
+    const kafkaConfig: any = { brokers };
+
+    // Only add SASL/SSL config when provided
+    if (process.env.KAFKA_SASL_USERNAME && process.env.KAFKA_SASL_PASSWORD) {
+      kafkaConfig.sasl = {
+        mechanism: (process.env.KAFKA_SASL_MECHANISM as any) || 'scram-sha-256',
+        username: process.env.KAFKA_SASL_USERNAME,
+        password: process.env.KAFKA_SASL_PASSWORD,
+      };
+      // If SASL is used, let user opt-in to SSL via env
+      if ((process.env.KAFKA_SSL || '').toLowerCase() === 'true') {
+        kafkaConfig.ssl = true;
+      }
+    }
+
+    const kafka = new Kafka(kafkaConfig);
 
     const admin = kafka.admin();
 
-    const topicsToCreate = [
-      { topic: 'upload_single_file', numPartitions: 1, replicationFactor: -1 },
-      {
-        topic: 'upload_single_file.reply',
-        numPartitions: 1,
-        replicationFactor: -1,
-      },
-      {
-        topic: 'upload_multiple_files',
-        numPartitions: 1,
-        replicationFactor: -1,
-      },
-      {
-        topic: 'upload_multiple_files.reply',
-        numPartitions: 1,
-        replicationFactor: -1,
-      },
-      { topic: 'delete_file', numPartitions: 1, replicationFactor: -1 },
-      { topic: 'delete_file.reply', numPartitions: 1, replicationFactor: -1 },
-      { topic: 'get_presigned_url', numPartitions: 1, replicationFactor: -1 },
-      {
-        topic: 'get_presigned_url.reply',
-        numPartitions: 1,
-        replicationFactor: -1,
-      },
-    ];
+    const topicsToCreate = topic;
 
     await admin.createTopics({ topics: topicsToCreate });
     console.log('✅ Kafka topics provisioned successfully');

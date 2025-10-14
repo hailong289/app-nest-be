@@ -43,6 +43,17 @@ import { GatewayChatController } from './chat/gateway-chat.controller';
             return `${host}:${port}`;
           })(),
           // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
+          loader: {
+            keepCase: true,
+            longs: String,
+            enums: String,
+            defaults: false,
+            oneofs: true,
+            includeDirs: [
+              join(process.cwd(), 'libs/grpc'), // chat.proto
+              join(process.cwd(), 'libs/grpc'), // để resolve google/protobuf/struct.proto
+            ],
+          },
         },
       },
       {
@@ -64,17 +75,28 @@ import { GatewayChatController } from './chat/gateway-chat.controller';
             const port = process.env.GATEWAY_CHAT_PORT || '5003';
             return `${host}:${port}`;
           })(),
+          loader: {
+            keepCase: true,
+            longs: String,
+            enums: String,
+            defaults: false,
+            oneofs: true,
+            includeDirs: [
+              join(process.cwd(), 'libs/grpc'), // chat.proto
+              join(process.cwd(), 'libs/grpc'), // để resolve google/protobuf/struct.proto
+            ],
+          },
         },
       },
     ]),
     JwtModule.register({}),
-    KafkaClientModule,
+    // KafkaClientModule,
   ],
   controllers: [
     GatewayController,
-    GatewayFilesystemController,
+    // GatewayFilesystemController,
     GatewayAuthController,
-    GatewayNotificationController,
+    // GatewayNotificationController,
     GatewayChatController,
   ],
   providers: [GatewayService],

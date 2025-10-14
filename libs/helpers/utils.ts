@@ -1,3 +1,5 @@
+import { Types } from 'mongoose';
+
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
 };
@@ -151,6 +153,15 @@ class Utils {
       otp += Math.floor(Math.random() * 10).toString();
     }
     return otp;
+  }
+  static convertToObjectIdMongoose(id: string) {
+    return new Types.ObjectId(id);
+  }
+
+  static pairRoomId(a: string, b: string) {
+    const sa = String(a),
+      sb = String(b);
+    return sa < sb ? `${sa}.${sb}` : `${sb}.${sa}`;
   }
 }
 

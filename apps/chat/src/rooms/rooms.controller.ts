@@ -16,15 +16,12 @@ import { GrpcMethod } from '@nestjs/microservices';
 export class RoomsController {
   constructor(private readonly roomsService: RoomsService) {}
 
-  @Post()
+  // @Post()
   @GrpcMethod('ChatService', 'CreateRoom')
-  create(@Body() createRoomDto: CreateRoomDto) {
-    console.log(
-      '🚀 ~ RoomsController ~ create ~ createRoomDto:',
-      createRoomDto,
-    );
-    const rl = this.roomsService.create(createRoomDto);
+  async create(@Body() createRoomDto: CreateRoomDto) {
+    const rl = await this.roomsService.create(createRoomDto);
     console.log('🚀 ~ RoomsController ~ create ~ rl:', rl);
+
     return rl;
   }
 }

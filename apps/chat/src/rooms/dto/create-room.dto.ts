@@ -7,11 +7,11 @@ export class CreateRoomDto {
 
   @IsOptional()
   @IsString()
-  name?: string;
+  name: string;
 
   @IsOptional()
   @IsString()
-  avatar?: string;
+  avatar: string;
 
   @IsString()
   @IsNotEmpty()

@@ -21,8 +21,6 @@ import eventModel from './database/mongo/model/event.model';
       load: [mongodbConfig, redisConfig],
     }),
 
-    RoomsModule,
-    HandleChatModule,
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
@@ -66,6 +64,8 @@ import eventModel from './database/mongo/model/event.model';
         };
       },
     }),
+    RoomsModule,
+    HandleChatModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

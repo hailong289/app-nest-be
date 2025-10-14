@@ -4,8 +4,9 @@ import Utils from 'libs/helpers/utils';
 import { Attachment, AttachmentSchema } from './Attachment.model';
 
 export type MessageDocument = HydratedDocument<Message>;
-
-@Schema({ timestamps: true, collection: 'Messages' })
+const collectionNames = 'Messages';
+const DocumentName = 'Message';
+@Schema({ timestamps: true, collection: collectionNames })
 export class Message {
   @Prop({ type: String, default: () => Utils.randomId(), unique: true })
   msg_id: string;
@@ -57,6 +58,6 @@ MessageSchema.pre('save', function (next) {
 });
 
 export default {
-  name: 'MessageModel',
+  name: DocumentName,
   schema: MessageSchema,
 };

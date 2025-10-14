@@ -3,6 +3,7 @@ syntax = "proto3";
 package chat;
 
 import "google/protobuf/struct.proto";
+// 
 
 service ChatService {
   rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
@@ -25,6 +26,20 @@ message CreateRoomResponse {
 }
 
 message RoomResponse {
-  string type = 1;
+  string id = 1;
+  string room_id = 2;
+  string name = 3;
+  string avatar = 4;
+  string type = 5;
+  repeated members members = 6;
+  string lastMessage = 7;
 }
 
+message members {
+  string user_id = 1;
+  string role = 2;
+  string joinedAt = 3;
+  string name = 4;
+  string id = 5;
+  
+}

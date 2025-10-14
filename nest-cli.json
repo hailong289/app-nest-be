@@ -7,7 +7,9 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "webpack": true,
-    "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+    "tsConfigPath": "apps/api-gateway/tsconfig.app.json",
+    "watchAssets": true,
+    "assets": ["**/*.proto", "**/*.env", "**/*.yaml"]
   },
   "projects": {
     "api-gateway": {
@@ -16,6 +18,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/api-gateway/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
       }
     },
@@ -25,6 +29,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/auth/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
@@ -34,6 +40,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/chat/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/chat/tsconfig.app.json"
       }
     },
@@ -43,6 +51,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/notification/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/notification/tsconfig.app.json"
       }
     },
@@ -52,6 +62,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/filesystem/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/filesystem/tsconfig.app.json"
       }
     },
@@ -61,6 +73,8 @@
       "entryFile": "index",
       "sourceRoot": "libs/dto/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "libs/dto/tsconfig.lib.json"
       }
     },
@@ -70,6 +84,8 @@
       "entryFile": "index",
       "sourceRoot": "libs/constants/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "libs/constants/tsconfig.lib.json"
       }
     },
@@ -79,6 +95,8 @@
       "entryFile": "index",
       "sourceRoot": "libs/grpc/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "libs/grpc/tsconfig.lib.json"
       }
     },
@@ -88,6 +106,8 @@
       "entryFile": "index",
       "sourceRoot": "libs/helpers/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "libs/helpers/tsconfig.lib.json"
       }
     },
