@@ -1,23 +1,23 @@
 import { LoginDto, RegisterDto } from '@app/dto';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { User, UserDocument } from './models/user';
 import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
-import { Key, KeyDocument } from './models/keys';
-import { Otp, OtpDocument } from './models/otp';
 import axios from 'axios';
+import userSchema, { UserDocument } from 'libs/schemas/src/user.schema';
+import keysSchema, { KeyDocument } from 'libs/schemas/src/keys.schema';
+import otpSchema, { OtpDocument } from 'libs/schemas/src/otp.schema';
 
 @Injectable()
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
   constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
-    @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
-    @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
+    @InjectModel(userSchema.name) private userModel: Model<UserDocument>,
+    @InjectModel(keysSchema.name) private keyModel: Model<KeyDocument>,
+    @InjectModel(otpSchema.name) private otpModel: Model<OtpDocument>,
     private jwtService: JwtService,
   ) {}
 

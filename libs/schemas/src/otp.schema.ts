@@ -46,8 +46,13 @@ export class Otp {
   isUsed: boolean;
 }
 
-export const OtpSchema = SchemaFactory.createForClass(Otp);
+const OtpSchema = SchemaFactory.createForClass(Otp);
 
 // Create compound index for better performance
 OtpSchema.index({ email: 1, otp: 1 });
 OtpSchema.index({ email: 1, type: 1 });
+
+export default {
+  name: 'Otps',
+  schema: OtpSchema,
+}
