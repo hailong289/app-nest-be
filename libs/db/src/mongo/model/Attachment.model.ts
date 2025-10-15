@@ -5,7 +5,7 @@ import { Types } from 'mongoose';
 export type AttachmentKind = 'photo' | 'video' | 'file';
 export type AttachmentStatus = 'uploaded' | 'processing' | 'failed';
 
-@Schema({ _id: false })
+@Schema({ _id: false, collection: 'Attachments' })
 export class Attachment {
   @Prop({ type: String, default: () => Utils.randomId() })
   id: string;
@@ -51,6 +51,6 @@ export class Attachment {
 export const AttachmentSchema = SchemaFactory.createForClass(Attachment);
 
 export default {
-  name: 'AttachmentModel',
+  name: 'Attachment',
   schema: AttachmentSchema,
 };

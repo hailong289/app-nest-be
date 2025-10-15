@@ -7,6 +7,8 @@ import "google/protobuf/struct.proto";
 
 service ChatService {
   rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+  rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
+  rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
 }
 
 // Requests and Responses
@@ -33,6 +35,8 @@ message RoomResponse {
   string type = 5;
   repeated members members = 6;
   string lastMessage = 7;
+  repeated Log log = 8;
+  
 }
 
 message members {
@@ -40,6 +44,35 @@ message members {
   string role = 2;
   string joinedAt = 3;
   string name = 4;
-  string id = 5;
-  
+  string id = 5;  
+}
+
+message Log {
+ string name = 1;
+ string dateAt = 2;
+ string action = 3; 
+}
+
+
+message inputLeavingRoom {
+  string userId = 1;
+  string roomId =2;
+}
+message outputLeavingRoom {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+message inputRmMbr {
+  string userId =1 ;
+  string roomId =2;
+  repeated string memberIds =3;
+}
+message outputRmMbr {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
 }

@@ -6,13 +6,9 @@ import { RoomsModule } from './rooms/rooms.module';
 import { HandleChatModule } from './handle-chat/handle-chat.module';
 import mongodbConfig from './database/config/mongodb.config';
 import redisConfig from './database/config/redis.config';
-import { MongooseModule } from '@nestjs/mongoose';
 import { RedisModule } from 'libs/db/src/redis/redis.module';
 import path from 'path/win32';
-import messagesModel from './database/mongo/model/messages.model';
-import userModel from 'apps/auth/src/models/user';
-import roomModel from './database/mongo/model/room.model';
-import eventModel from './database/mongo/model/event.model';
+import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -21,24 +17,26 @@ import eventModel from './database/mongo/model/event.model';
       load: [mongodbConfig, redisConfig],
     }),
 
-    MongooseModule.forRootAsync({
-      inject: [ConfigService],
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => {
-        console.log('Environment Variables:', {
-          MONGODB_URI: configService.get<string>('mongodb.uri'),
-          DB_NAME: configService.get<string>('DB_NAME'),
-        });
-        const uri = configService.get<string>('mongodb.uri');
-        return { uri: uri, dbName: configService.get<string>('DB_NAME') };
-      },
-    }),
-    MongooseModule.forFeature([
-      messagesModel,
-      userModel,
-      roomModel,
-      eventModel,
-    ]),
+    // MongooseModule.forRootAsync({
+    //   inject: [ConfigService],
+    //   imports: [ConfigModule],
+    //   useFactory: (configService: ConfigService) => {
+    //     console.log('Environment Variables:', {
+    //       MONGODB_URI: configService.get<string>('mongodb.uri'),
+    //       DB_NAME: configService.get<string>('DB_NAME'),
+    //     });
+    //     const uri = configService.get<string>('mongodb.uri');
+    //     return {
+    //       uri: uri,
+    //       dbName: configService.get<string>('DB_NAME'),
+    //       // Disable sessions/transactions for standalone MongoDB
+    //       autoIndex: true,
+    //       autoCreate: true,
+    //       directConnection: true, // Use direct connection to avoid replica set detection
+    //     };
+    //   },
+    // }),
+    MongodbModule,
     RedisModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {

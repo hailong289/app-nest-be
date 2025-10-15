@@ -1,11 +1,15 @@
-import { Body, Controller, Get, Inject, Post, Req } from '@nestjs/common';
+import { Body, Controller, Inject, Patch, Post, Req } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway.service';
 import { SERVICES } from '@app/constants/services';
-import { CreateRoomDto } from 'apps/chat/src/rooms/dto/create-room.dto';
+import { CreateRoomDto } from './dto/create-room.dto';
+import { LeavingRoomDto } from './dto/leaving-room.dto';
+import { removeMeberRoomDto } from './dto/remove-member.dto';
 
 interface ChatGrpcService {
   createRoom(data: CreateRoomDto): any;
+  leavingRoom(data: LeavingRoomDto): any;
+  removeMember(data: removeMeberRoomDto): any;
 }
 
 @Controller('chat')
@@ -29,7 +33,34 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     const rl = await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.createRoom,
+      this.chatGrpcService.createRoom.bind(this.chatGrpcService),
+      body,
+    );
+    return rl;
+  }
+
+  @Patch('rooms/leaving')
+  async leavingRoom(
+    @Body()
+    body: LeavingRoomDto,
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    body.userId = req.user?._id;
+    const rl = await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.leavingRoom.bind(this.chatGrpcService),
+      body,
+    );
+    return rl;
+  }
+  @Patch('rooms/remove')
+  async removeMember(
+    @Body()
+    body: removeMeberRoomDto,
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    body.userId = req.user?._id;
+    const rl = await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.removeMember.bind(this.chatGrpcService),
       body,
     );
     return rl;

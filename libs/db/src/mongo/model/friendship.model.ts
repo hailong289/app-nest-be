@@ -7,6 +7,9 @@ const modelName = 'Friendship';
 
 @Schema({ timestamps: true, collection: collectionName, _id: false })
 export class Friendship {
+  @Prop({ type: String, default: '' })
+  frp_id: string;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   frp_userId1: Types.ObjectId;
 

@@ -4,6 +4,11 @@ import { Types } from 'mongoose';
 export type RoomDocument = Room & Document;
 export type roomType = 'private' | 'group' | 'channel';
 export type roleMember = 'member' | 'admin' | 'owner';
+export type actionRoomLog =
+  | 'Create Room'
+  | 'Leaving Room'
+  | 'Remove Room'
+  | 'Administration';
 export type memberId = {
   user_id: Types.ObjectId;
   role: roleMember;
@@ -13,8 +18,8 @@ export type memberId = {
 };
 export type roomLog = {
   action: string;
-  DateAt: Date;
-  name: string;
+  dateAt: Date;
+  name: actionRoomLog;
 };
 const collectionNames = 'Rooms';
 const DocumentName = 'Room';

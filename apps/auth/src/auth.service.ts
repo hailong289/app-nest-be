@@ -1,24 +1,24 @@
 import { LoginDto, RegisterDto } from '@app/dto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { User, UserDocument } from './models/user';
 import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
-import { Key, KeyDocument } from './models/keys';
-import { Otp, OtpDocument } from './models/otp';
 import axios from 'axios';
+import { User } from 'libs/db/src/mongo/model/user.model';
+import { Key } from 'libs/db/src/mongo/model/keys.model';
+import { Otp } from 'libs/db/src/mongo/model/otp.model';
 
 @Injectable()
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
   constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
-    @InjectModel(Key.name) private keyModel: Model<KeyDocument>,
-    @InjectModel(Otp.name) private otpModel: Model<OtpDocument>,
-    private jwtService: JwtService,
+    @InjectModel('User') private readonly userModel: Model<User>,
+    @InjectModel('Key') private readonly keyModel: Model<Key>,
+    @InjectModel('Otp') private readonly otpModel: Model<Otp>,
+    @Inject() private readonly jwtService: JwtService,
   ) {}
 
   async login(loginDto: LoginDto) {
@@ -156,7 +156,7 @@ export class AuthService {
     }
   }
 
-  async logout(userId: string) {
+  logout(userId: string) {
     // Xóa hết key của user khi logout
     this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec();
     return Response.success(null, 'Đăng xuất thành công');

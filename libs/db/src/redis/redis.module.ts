@@ -22,7 +22,7 @@ export class RedisModule {
             const client = new Redis({
               lazyConnect: opstions.lazyConnect ?? false,
               ...opstions,
-            }) as RedisInstance;
+            });
 
             client.on('connect', () =>
               console.log(
@@ -82,7 +82,7 @@ export class RedisModule {
             const client = new Redis({
               lazyConnect: opts.lazyConnect ?? false,
               ...opts,
-            }) as RedisInstance;
+            });
 
             client.on('connect', () =>
               console.log(`✅ Redis connected to ${opts.host}:${opts.port}`),

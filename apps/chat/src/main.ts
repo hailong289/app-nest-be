@@ -1,8 +1,8 @@
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { HttpExceptionsFilter } from 'apps/auth/src/errors/http-exception-filter.error';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
+import { HttpExceptionsFilter } from './errors/http-exception-filter.error';
 
 async function bootstrap() {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
