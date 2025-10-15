@@ -53,6 +53,6 @@ OtpSchema.index({ email: 1, otp: 1 });
 OtpSchema.index({ email: 1, type: 1 });
 
 export default {
-  name: 'Otps',
+  name: 'Otp',
   schema: OtpSchema,
-}
+};

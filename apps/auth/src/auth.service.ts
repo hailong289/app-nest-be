@@ -1,5 +1,5 @@
 import { LoginDto, RegisterDto } from '@app/dto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
@@ -7,18 +7,18 @@ import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import axios from 'axios';
-import userSchema, { UserDocument } from 'libs/schemas/src/user.schema';
-import keysSchema, { KeyDocument } from 'libs/schemas/src/keys.schema';
-import otpSchema, { OtpDocument } from 'libs/schemas/src/otp.schema';
+import { User } from 'libs/db/src/mongo/model/user.model';
+import { Key } from 'libs/db/src/mongo/model/keys.model';
+import { Otp } from 'libs/db/src/mongo/model/otp.model';
 
 @Injectable()
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
   constructor(
-    @InjectModel(userSchema.name) private userModel: Model<UserDocument>,
-    @InjectModel(keysSchema.name) private keyModel: Model<KeyDocument>,
-    @InjectModel(otpSchema.name) private otpModel: Model<OtpDocument>,
-    private jwtService: JwtService,
+    @InjectModel('User') private readonly userModel: Model<User>,
+    @InjectModel('Key') private readonly keyModel: Model<Key>,
+    @InjectModel('Otp') private readonly otpModel: Model<Otp>,
+    @Inject() private readonly jwtService: JwtService,
   ) {}
 
   async login(loginDto: LoginDto) {
@@ -156,7 +156,7 @@ export class AuthService {
     }
   }
 
-  async logout(userId: string) {
+  logout(userId: string) {
     // Xóa hết key của user khi logout
     this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec();
     return Response.success(null, 'Đăng xuất thành công');

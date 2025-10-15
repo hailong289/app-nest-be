@@ -28,6 +28,6 @@ export class Key {
 const KeySchema = SchemaFactory.createForClass(Key);
 
 export default {
-  name: 'Keys',
+  name: 'Key',
   schema: KeySchema,
 };
