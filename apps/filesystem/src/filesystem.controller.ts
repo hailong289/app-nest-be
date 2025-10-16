@@ -29,7 +29,10 @@ export class FilesystemController {
         originalname: data.originalname,
         mimetype: data.mimetype,
       } as any;
-      return await this.filesystemService.uploadSingleFile(file, data.folder || 'uploads');
+      return await this.filesystemService.uploadSingleFile(
+        file,
+        data.folder || 'uploads',
+      );
     } catch (error) {
       console.error('Upload single file error:', error);
       return { success: false, message: 'Upload single file failed' };
@@ -42,12 +45,15 @@ export class FilesystemController {
       if (!data || !data.files || data.files.length === 0) {
         return { success: false, message: 'Files data is required' };
       }
-      const files = data.files.map(fileData => ({
+      const files = data.files.map((fileData) => ({
         buffer: Buffer.from(fileData.buffer),
         originalname: fileData.originalname,
         mimetype: fileData.mimetype,
       })) as any[];
-      return await this.filesystemService.uploadMultipleFiles(files, data.folder || 'uploads');
+      return await this.filesystemService.uploadMultipleFiles(
+        files,
+        data.folder || 'uploads',
+      );
     } catch (error) {
       console.error('Upload multiple files error:', error);
       return { success: false, message: 'Upload multiple files failed' };
@@ -60,7 +66,10 @@ export class FilesystemController {
       if (!data || !data.fileName) {
         return { success: false, message: 'File name is required' };
       }
-      return await this.filesystemService.deleteFile(data.fileName, data.folder || 'uploads');
+      return await this.filesystemService.deleteFile(
+        data.fileName,
+        data.folder || 'uploads',
+      );
     } catch (error) {
       console.error('Delete file error:', error);
       return { success: false, message: 'Delete file failed' };

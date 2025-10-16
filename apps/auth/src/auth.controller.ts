@@ -1,32 +1,40 @@
-import { Body, Controller, UseGuards } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { Controller } from '@nestjs/common';
+import { GrpcMethod } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
-import { LoginDto, RegisterDto } from '@app/dto';
-import { AuthJwtGuard } from './guard/auth.guard';
+import {
+  LoginDto,
+  RegisterDto,
+  UpdatePasswordDto,
+  VerifyOtpDto,
+} from '@app/dto';
 
 @Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @MessagePattern('login')
-  async login(@Payload() data: LoginDto) {
+  @GrpcMethod('AuthService', 'Login')
+  async login(data: LoginDto) {
     return await this.authService.login(data);
   }
 
-  @MessagePattern('register')
-  async register(@Payload() data: RegisterDto) {
+  @GrpcMethod('AuthService', 'Register')
+  async register(data: RegisterDto) {
     return await this.authService.register(data);
   }
 
-  @UseGuards(AuthJwtGuard)
-  @MessagePattern('logout')
-  async logout(@Payload() data: any) {
-    return await this.authService.logout(data.user._id);
+  @GrpcMethod('AuthService', 'Logout')
+  async logout(data: { userId: string }) {
+    console.log('Logout gRPC data:', data);
+    return await this.authService.logout(data.userId);
   }
-    
 
-  @MessagePattern('get_user')
-  async getUser(@Payload() data: any) {
+  @GrpcMethod('AuthService', 'RefreshToken')
+  async refreshToken(data: { userId: string }) {
+    return await this.authService.refreshToken(data.userId);
+  }
+
+  @GrpcMethod('AuthService', 'GetUser')
+  async getUser(data: { userId: string }) {
     try {
       if (!data || !data.userId) {
         return { success: false, message: 'User ID is required' };
@@ -36,5 +44,39 @@ export class AuthController {
       console.error('Auth get user error:', error);
       return { success: false, message: 'Get user failed' };
     }
+  }
+
+  @GrpcMethod('AuthService', 'UpdatePassword')
+  async updatePassword(data: UpdatePasswordDto & { userId: string }) {
+    console.log('UpdatePassword gRPC data:', data);
+    return await this.authService.updatePassword(data);
+  }
+
+  @GrpcMethod('AuthService', 'VerifyOtp')
+  async verifyOtp(data: VerifyOtpDto) {
+    return await this.authService.verifyOtp(
+      data.indicator,
+      data.otp,
+      data.type,
+    );
+  }
+
+  @GrpcMethod('AuthService', 'ForgotPassword')
+  async forgotPassword(data: {
+    username: string;
+    email: string;
+    isMobile?: boolean;
+  }) {
+    console.log('ForgotPassword gRPC data:', data);
+    return await this.authService.forgotPassword(
+      data.email,
+      data.username,
+      data?.isMobile || false,
+    );
+  }
+
+  @GrpcMethod('AuthService', 'ResetPassword')
+  async resetPassword(data: { userId: string; newPassword: string }) {
+    return await this.authService.resetPassword(data.userId, data.newPassword);
   }
 }

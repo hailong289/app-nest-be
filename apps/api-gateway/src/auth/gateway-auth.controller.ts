@@ -1,43 +1,105 @@
-import { LoginDto, RegisterDto } from "@app/dto";
-import { Body, Controller, Inject, Post, Req, UseGuards } from "@nestjs/common";
-import { ClientKafka, ClientProxy, Payload } from "@nestjs/microservices";
-import { GatewayService } from "../gateway.service";
-import { SERVICES } from "@app/constants/services";
+import {
+  ForgotPasswordDto,
+  LoginDto,
+  RegisterDto,
+  UpdatePasswordDto,
+  VerifyOtpDto,
+} from '@app/dto';
+import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import type { ClientGrpc } from '@nestjs/microservices';
+import { GatewayService } from '../gateway.service';
+import { SERVICES } from '@app/constants/services';
+
+interface AuthGrpcService {
+  login(data: LoginDto): any;
+  register(data: RegisterDto): any;
+  logout(data: { userId: string }): any;
+  getUser(data: { userId: string }): any;
+  updatePassword(data: UpdatePasswordDto & { userId: string }): any;
+  verifyOtp(data: VerifyOtpDto): any;
+  forgotPassword(data: ForgotPasswordDto): any;
+  resetPassword(data: { username: string; newPassword: string }): any;
+}
+
 @Controller('auth')
 export class GatewayAuthController {
-    public constructor(
-        @Inject(SERVICES.AUTH) private readonly authClient: ClientKafka,
-        private readonly gatewayService: GatewayService,
-    ) { }
+  private authService: AuthGrpcService;
 
-    async onModuleInit() {
-        // Ensure the Kafka client is connected
-        ['login', 'register', 'logout'].forEach((key) => {
-            this.authClient.subscribeToResponseOf(key);
-        });
-        try {
-            await this.authClient.connect();
-        } catch (error) {
-            console.error('Error connecting to Kafka:', error);
-        }
-    }
+  public constructor(
+    @Inject(SERVICES.AUTH) private readonly authClient: ClientGrpc,
+    private readonly gatewayService: GatewayService,
+  ) {}
 
-    // Auth endpoints
-    @Post('login')
-    async login(@Body() loginDto: LoginDto) {
-        console.log('Login DTO:', loginDto);
-        return await this.gatewayService.dispatchServiceRequest(this.authClient, 'login', loginDto);
-    }
+  onModuleInit() {
+    this.authService =
+      this.authClient.getService<AuthGrpcService>('AuthService');
+  }
 
-    @Post('register')
-    async register(@Body() registerDto: RegisterDto) {
-        return await this.gatewayService.dispatchServiceRequest(this.authClient, 'register', registerDto);
-    }
+  // Auth endpoints
+  @Post('login')
+  async login(@Body() loginDto: LoginDto) {
+    console.log('Login DTO:', loginDto);
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.login,
+      loginDto,
+    );
+  }
 
-    @Post('logout')
-    async logout(@Req() req: any) {
-        return await this.gatewayService.dispatchServiceRequest(this.authClient, 'logout', {
-            token: req.headers.authorization?.split(' ')[1],
-        });
-    }
+  @Post('register')
+  async register(@Body() registerDto: RegisterDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.register,
+      registerDto,
+    );
+  }
+
+  @Post('logout')
+  async logout(@Req() req: any) {
+    console.log('Logout request user:', req.user);
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.logout,
+      { userId: req.user?.id },
+    );
+  }
+
+  @Post('verify-otp')
+  async verifyOtp(@Body() body: VerifyOtpDto, @Req() req: any) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.verifyOtp,
+      body,
+    );
+  }
+
+  @Post('update-password')
+  async updatePassword(
+    @Req() req: any,
+    @Body() body: { newPassword: string; oldPassword: string },
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.updatePassword,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
+    );
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.forgotPassword,
+      body,
+    );
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Req() req: any, @Body() body: { newPassword: string }) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.resetPassword,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
+    );
+  }
 }

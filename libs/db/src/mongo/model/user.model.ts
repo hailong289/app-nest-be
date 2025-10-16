@@ -4,11 +4,11 @@ import Utils from 'libs/helpers/utils';
 
 export type UserDocument = User & Document;
 
-@Schema({ timestamps: true, collection: "Users" })
+@Schema({ timestamps: true, collection: 'Users' })
 export class User {
   @Prop({
     type: String,
-    default: () => Utils.randomId(), 
+    default: () => Utils.randomId(),
   })
   usr_id: string;
 
@@ -16,7 +16,7 @@ export class User {
     type: String,
     unique: true,
     required: true,
-    default: () => `usr_${Utils.randomId()}`, 
+    default: () => `usr_${Utils.randomId()}`,
   })
   usr_slug: string;
 
@@ -28,14 +28,12 @@ export class User {
 
   @Prop({
     type: String,
-    unique: [true, 'Email already exists'],
     sparse: true,
   })
   usr_email: string;
 
   @Prop({
     type: String,
-    unique: [true, 'Phone number already exists'],
     sparse: true,
   })
   usr_phone: string;
@@ -72,4 +70,9 @@ export class User {
   usr_status: string;
 }
 
-export const UserSchema = SchemaFactory.createForClass(User);
+const UserSchema = SchemaFactory.createForClass(User);
+
+export default {
+  name: 'User',
+  schema: UserSchema,
+};
