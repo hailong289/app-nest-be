@@ -96,6 +96,7 @@ message RefreshTokenResponse {
 message ForgotPasswordRequest {
   string email = 1;
   string username = 2;
+  bool isMobile = 3; // Mặc định là false nếu không gửi
 }
 
 message ForgotPasswordResponse {
