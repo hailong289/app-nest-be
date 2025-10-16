@@ -4,17 +4,16 @@ import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { RoomsModule } from './rooms/rooms.module';
 import { HandleChatModule } from './handle-chat/handle-chat.module';
-import mongodbConfig from './database/config/mongodb.config';
-import redisConfig from './database/config/redis.config';
 import { RedisModule } from 'libs/db/src/redis/redis.module';
 import path from 'path/win32';
 import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
+import redisConfig from './config/redis.config';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/chat/.env'),
-      load: [mongodbConfig, redisConfig],
+      load: [redisConfig],
     }),
 
     // MongooseModule.forRootAsync({

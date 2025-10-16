@@ -16,6 +16,9 @@ class Utils {
   static isNumber(value: any): value is number {
     return typeof value === 'number' && isFinite(value);
   }
+  static escapeRegex(str: string) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
   static isBoolean(value: any): value is boolean {
     return typeof value === 'boolean';
@@ -26,21 +29,20 @@ class Utils {
   }
 
   static isObject(value: any): value is object {
-    return value && typeof value === 'object' && !Array.isArray(value);
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
-  static isFunction(value: any): value is Function {
+  static isFunction(value: any): value is (...args: any[]) => any {
     return typeof value === 'function';
   }
 
   static isEmail(email: string): boolean {
-    const re =
-      /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(String(email).toLowerCase());
   }
 
   static isPhone(phone: string): boolean {
-    const re = /^(\+84|84|0)(3|5|7|8|9)\d{8}$/; // E.164 format
+    const re = /^(\+84|84|0)[35789]\d{8}$/; // E.164 format
     return re.test(phone);
   }
 
@@ -63,7 +65,7 @@ class Utils {
     obj: T,
     keys: K[],
   ): Omit<T, K> {
-    const result = { ...obj } as T;
+    const result = { ...obj };
     keys.forEach((key) => {
       if (key in result) {
         delete result[key];
@@ -76,9 +78,15 @@ class Utils {
   static unprefix<T extends object, P extends string>(
     obj: T,
     prefix: P,
+    excludeFields: string[] = [],
   ): Partial<Unprefixed<T, P>> {
     const result = {} as Partial<Unprefixed<T, P>>;
     Object.keys(obj).forEach((key) => {
+      // Bỏ qua các trường ngoại lệ
+      if (excludeFields.includes(key)) {
+        return;
+      }
+
       if (key.startsWith(prefix)) {
         const newKey = key.slice(prefix.length) as keyof Unprefixed<T, P>;
         result[newKey] = obj[key as keyof T] as unknown as Unprefixed<
@@ -99,11 +107,16 @@ class Utils {
   static prefix<T extends object, P extends string>(
     obj: T,
     prefix: P,
+    excludeFields: string[] = [],
   ): { [K in keyof T as `${P}${string & K}`]: T[K] } {
     const result = {} as { [K in keyof T as `${P}${string & K}`]: T[K] };
     Object.keys(obj).forEach((key) => {
+      // Bỏ qua các trường ngoại lệ
+      if (excludeFields.includes(key)) {
+        return;
+      }
       const newKey = `${prefix}${key}` as keyof typeof result;
-      result[newKey] = obj[key as keyof T] as any;
+      result[newKey] = obj[key as keyof T] as (typeof result)[typeof newKey];
     });
     return result;
   }
@@ -113,7 +126,8 @@ class Utils {
     let seq = 0;
     const MAX_SEQ = 0xffffff; // ~16.7 triệu ID trong 1ms
 
-    const toHex = (n, width) => n.toString(16).padStart(width, '0');
+    const toHex = (n: number, width: number): string =>
+      n.toString(16).padStart(width, '0');
 
     return function () {
       let now = Date.now();

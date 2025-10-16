@@ -9,6 +9,8 @@ service ChatService {
   rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
   rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
   rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
+  rpc AddMember(inputRmMbr) returns (outputRmMbr);
+  rpc GetRooms(inputGetRooms)returns (outputGetRoms);
 }
 
 // Requests and Responses
@@ -29,13 +31,12 @@ message CreateRoomResponse {
 
 message RoomResponse {
   string id = 1;
-  string room_id = 2;
-  string name = 3;
-  string avatar = 4;
-  string type = 5;
-  repeated members members = 6;
-  string lastMessage = 7;
-  repeated Log log = 8;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated members members = 5;
+  string lastMessage = 6;
+  string room_id = 7;
   
 }
 
@@ -47,11 +48,6 @@ message members {
   string id = 5;  
 }
 
-message Log {
- string name = 1;
- string dateAt = 2;
- string action = 3; 
-}
 
 
 message inputLeavingRoom {
@@ -75,4 +71,51 @@ message outputRmMbr {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   string metadata = 4;
+}
+
+
+message inputGetRooms {  
+  string userId =1; 
+  optionsType options =2;
+}
+
+message optionsType {
+  string q = 1;
+  int32 limit =2;
+  int32 offset =3;
+  string type =4;
+}
+
+
+message outputGetRoms {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+ repeated metadataGetRomsType metadata = 4;
+}
+
+
+message metadataGetRomsType{
+  string id =1;
+  string roomId=2;
+  string updatedAt =3;
+  string type = 4;
+  last_messageType last_message= 5;
+  string name =6;
+  bool is_read=7;
+  string avatar =8;
+  repeated membersType members=9;
+
+
+}
+message last_messageType{
+  string content =1;
+  string createdAt =2;
+  string id =3;
+}
+message membersType {
+  string id =1;
+  string name=2;
+  string role =3;
+  string avatar=4;
 }

@@ -7,8 +7,8 @@ import { Response as ResponseHelper } from 'libs/helpers/response';
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
   constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
   use(req: Request, res: Response, next: NextFunction) {
@@ -30,7 +30,6 @@ export class AuthMiddleware implements NestMiddleware {
       const jwtSecret = this.configService.get<string>(
         'GATEWAY_JWT_ACCESS_SECRET',
       );
-      console.log('🚀 ~ AuthMiddleware ~ use ~ jwtSecret:', jwtSecret);
       interface JwtPayload {
         userId: string;
         username: string;
@@ -40,7 +39,7 @@ export class AuthMiddleware implements NestMiddleware {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
-      (req as any).user = payload; // gắn user context vào request
+      (req as Record<string, any>).user = payload; // gắn user context vào request
       next();
     } catch {
       return res

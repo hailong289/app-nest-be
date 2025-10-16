@@ -5,6 +5,9 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "resolutions": {
+    "mongodb": "6.19.0"
+  },
   "scripts": {
     "build": "nest build",
     "build:gateway": "nest build api-gateway",
@@ -77,6 +80,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
+    "remove-accents": "^0.5.0",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {

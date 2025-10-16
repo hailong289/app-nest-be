@@ -67,17 +67,7 @@
         "tsConfigPath": "apps/filesystem/tsconfig.app.json"
       }
     },
-    "dto": {
-      "type": "library",
-      "root": "libs/dto",
-      "entryFile": "index",
-      "sourceRoot": "libs/dto/src",
-      "compilerOptions": {
-        "watchAssets": true,
-        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
-        "tsConfigPath": "libs/dto/tsconfig.lib.json"
-      }
-    },
+
     "constants": {
       "type": "library",
       "root": "libs/constants",

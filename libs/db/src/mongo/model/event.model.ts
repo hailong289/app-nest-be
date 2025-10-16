@@ -11,13 +11,13 @@ export class MsgEvent {
     enum: ['readed', 'del_only_me', 'del_for_all'],
     required: true,
   })
-  type: eventType;
+  event_type: eventType;
 
   @Prop({ type: String, required: true })
-  msg_id: string;
+  event_msgId: string;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
-  user_id: Types.ObjectId;
+  event_userId: Types.ObjectId;
 
   @Prop({ type: Date, default: Date.now })
   createdAt: Date;

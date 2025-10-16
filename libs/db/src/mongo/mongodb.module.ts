@@ -17,7 +17,10 @@ import AttachmentModel from './model/Attachment.model';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), '.env'),
+      envFilePath: [
+        path.resolve(__dirname, '..', '.env'), // ./src/.env
+        path.resolve(__dirname, '../../.env'), // fallback
+      ],
       load: [mongodbConfig],
     }),
     MongooseModule.forRootAsync({
@@ -25,7 +28,6 @@ import AttachmentModel from './model/Attachment.model';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         console.log('Environment Variables:', {
-          MONGODB_URI: configService.get<string>('mongodb.uri'),
           DB_NAME: configService.get<string>('DB_NAME'),
         });
         const uri = configService.get<string>('mongodb.uri');

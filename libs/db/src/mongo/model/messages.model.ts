@@ -1,8 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types, Schema as MongooseSchema } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 import Utils from 'libs/helpers/utils';
-import { Attachment, AttachmentSchema } from './Attachment.model';
-
+export type msgType = 'text' | 'file' | 'log' | 'call';
 export type MessageDocument = HydratedDocument<Message>;
 const collectionNames = 'Messages';
 const DocumentName = 'Message';
@@ -12,10 +11,10 @@ export class Message {
   msg_id: string;
 
   @Prop({ type: String, default: '' })
-  msg_content: string;
+  msg_content: string | null;
 
-  @Prop({ type: [AttachmentSchema], default: [] })
-  msg_attachments: Attachment[];
+  @Prop({ type: Array, default: [] })
+  msg_attachments: Types.ObjectId[];
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   msg_sender: Types.ObjectId;
@@ -28,13 +27,13 @@ export class Message {
     enum: ['text', 'image', 'video', 'file'],
     default: 'text',
   })
-  msg_type: 'text' | 'image' | 'video' | 'file';
+  msg_type: msgType;
 
   @Prop({ type: Boolean, default: false })
   msg_deleted: boolean;
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Message', default: null })
-  msg_replyTo: Types.ObjectId | null;
+  @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
+  msg_replyTo: string | null;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

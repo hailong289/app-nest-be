@@ -7,7 +7,7 @@ import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import axios from 'axios';
-import { User } from 'libs/db/src/mongo/model/user.model';
+import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
 import { Otp } from 'libs/db/src/mongo/model/otp.model';
 
@@ -15,7 +15,7 @@ import { Otp } from 'libs/db/src/mongo/model/otp.model';
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
   constructor(
-    @InjectModel('User') private readonly userModel: Model<User>,
+    @InjectModel(Userschema.name) private readonly userModel: Model<User>,
     @InjectModel('Key') private readonly keyModel: Model<Key>,
     @InjectModel('Otp') private readonly otpModel: Model<Otp>,
     @Inject() private readonly jwtService: JwtService,

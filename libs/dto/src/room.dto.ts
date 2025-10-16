@@ -1,0 +1,97 @@
+import {
+  IsNotEmpty,
+  IsString,
+  MinLength,
+  IsOptional,
+  IsNumber,
+  IsIn,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+export class CreateRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  avatar: string;
+
+  @IsString()
+  @IsNotEmpty()
+  type: 'private' | 'group' | 'channel';
+
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  @IsNotEmpty()
+  memberIds: string[];
+}
+export class LeavingRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  roomId: string;
+}
+export class RemoveMemberRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @MinLength(1, { each: true })
+  @IsNotEmpty()
+  memberIds: string[];
+}
+
+export class AddMemberRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @MinLength(1, { each: true })
+  @IsNotEmpty()
+  memberIds: string[];
+}
+type roomType = 'all' | 'group' | 'channel' | 'private';
+export class OptionsType {
+  @IsOptional()
+  @IsString()
+  q: string = '';
+
+  @IsOptional()
+  @Type(() => Number) // chuyển string -> number khi query params
+  @IsNumber()
+  limit: number = 50;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  offset: number = 0;
+
+  @IsOptional()
+  @IsIn(['all', 'private', 'group', 'channel'])
+  type: roomType = 'all';
+}
+export class GetRoomType {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OptionsType)
+  options: OptionsType = new OptionsType();
+}

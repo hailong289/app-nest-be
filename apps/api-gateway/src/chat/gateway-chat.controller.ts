@@ -1,15 +1,31 @@
-import { Body, Controller, Inject, Patch, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway.service';
 import { SERVICES } from '@app/constants/services';
-import { CreateRoomDto } from './dto/create-room.dto';
-import { LeavingRoomDto } from './dto/leaving-room.dto';
-import { removeMeberRoomDto } from './dto/remove-member.dto';
+import {
+  AddMemberRoomDto,
+  CreateRoomDto,
+  GetRoomType,
+  LeavingRoomDto,
+  OptionsType,
+  RemoveMemberRoomDto,
+} from '@app/dto/room.dto';
 
 interface ChatGrpcService {
   createRoom(data: CreateRoomDto): any;
   leavingRoom(data: LeavingRoomDto): any;
-  removeMember(data: removeMeberRoomDto): any;
+  removeMember(data: RemoveMemberRoomDto): any;
+  addMember(data: AddMemberRoomDto): any;
+  getRooms(data: GetRoomType): any;
 }
 
 @Controller('chat')
@@ -55,13 +71,51 @@ export class GatewayChatController {
   @Patch('rooms/remove')
   async removeMember(
     @Body()
-    body: removeMeberRoomDto,
+    body: RemoveMemberRoomDto,
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
     const rl = await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.removeMember.bind(this.chatGrpcService),
       body,
+    );
+    return rl;
+  }
+  @Patch('rooms/add')
+  async addMember(
+    @Body()
+    body: AddMemberRoomDto,
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    body.userId = req.user?._id;
+    const rl = await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.addMember.bind(this.chatGrpcService),
+      body,
+    );
+    return rl;
+  }
+  @Get('rooms')
+  async GetRooms(
+    @Req() req: { user?: { _id?: string } },
+    @Query()
+    options: Partial<OptionsType> = {},
+  ) {
+    console.log('query', options);
+    const safeOptions: OptionsType = {
+      q: '',
+      limit: 1000,
+      offset: 0,
+      type: 'all',
+      ...options,
+    };
+    const data: GetRoomType = {
+      userId: req.user?._id,
+      options: safeOptions,
+    };
+    console.log('data', data);
+    const rl = await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.getRooms.bind(this.chatGrpcService),
+      data,
     );
     return rl;
   }

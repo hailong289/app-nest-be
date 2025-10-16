@@ -1,9 +1,12 @@
 import { Controller, Body } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
-import { CreateRoomDto } from './dto/create-room.dto';
 import { GrpcMethod } from '@nestjs/microservices';
-import { LeavingRoomDto } from './dto/leaving-room.dto';
-import { removeMeberRoomDto } from './dto/remove-member.dto';
+import {
+  CreateRoomDto,
+  GetRoomType,
+  LeavingRoomDto,
+  RemoveMemberRoomDto,
+} from '@app/dto/room.dto';
 
 @Controller('rooms')
 export class RoomsController {
@@ -19,7 +22,15 @@ export class RoomsController {
     return await this.roomsService.leavedRoom(body);
   }
   @GrpcMethod('ChatService', 'RemoveMember')
-  async removeMbr(@Body() payload: removeMeberRoomDto) {
+  async removeMbr(@Body() payload: RemoveMemberRoomDto) {
     return this.roomsService.removeMemberByAdmin(payload);
+  }
+  @GrpcMethod('ChatService', 'AddMember')
+  async addMbr(@Body() payload: RemoveMemberRoomDto) {
+    return this.roomsService.addMemberInRoom(payload);
+  }
+  @GrpcMethod('ChatService', 'GetRooms')
+  async GetRooms(@Body() payload: GetRoomType) {
+    return this.roomsService.GetRooms(payload);
   }
 }
