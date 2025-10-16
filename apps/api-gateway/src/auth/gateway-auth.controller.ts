@@ -7,7 +7,7 @@ import {
 } from '@app/dto';
 import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
-import { GatewayService } from '../gateway.service';
+import { GatewayService } from '../services/gateway.service';
 import { SERVICES } from '@app/constants/services';
 
 interface AuthGrpcService {

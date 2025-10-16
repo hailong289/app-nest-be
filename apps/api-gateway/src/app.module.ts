@@ -1,57 +1,26 @@
 import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
 import { GatewayController } from './gateway.controller';
-import { GatewayService } from './gateway.service';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
-import { GatewayAuthController } from './auth/gateway-auth.controller';
-import { GatewayNotificationController } from './notification/gateway-notification.controller';
-import { SERVICES } from '@app/constants';
+import { GatewayService } from './services/gateway.service';
 import { JwtModule } from '@nestjs/jwt';
-import path, { join } from 'path';
+import path from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
-import { KafkaClientModule } from './kafka.module';
-import { KafkaService } from './kafka.service';
-// import * as grpc from '@grpc/grpc-js';
-
+import { GatewayAuthModule } from './auth/gateway-auth.module';
+import { GatewayNotificationModule } from './notification/gateway-notification.module';
+import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
+const env = process.env.NODE_ENV || '';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
+      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env' + (env ? `.${env}` : '')),
     }),
-    ClientsModule.register([
-      {
-        name: SERVICES.AUTH,
-        transport: Transport.GRPC,
-        options: {
-          package: 'auth',
-          protoPath: join(
-            process.cwd(),
-            process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
-          ),
-          url: `${process.env.GATEWAY_AUTH_HOST || 'localhost'}:${process.env.GATEWAY_AUTH_PORT || '5001'}`,
-          // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
-        },
-      },
-      {
-        name: SERVICES.CHAT,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: 3002,
-        },
-      },
-    ]),
     JwtModule.register({}),
-    KafkaClientModule,
+    GatewayAuthModule,
+    GatewayNotificationModule,
+    GatewayFileSystemModule,
   ],
-  controllers: [
-    GatewayController,
-    GatewayFilesystemController,
-    GatewayAuthController,
-    GatewayNotificationController,
-  ],
+  controllers: [GatewayController],
   providers: [GatewayService],
 })
 export class AppModule {
