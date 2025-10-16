@@ -54,12 +54,25 @@ export class AuthController {
 
   @GrpcMethod('AuthService', 'VerifyOtp')
   async verifyOtp(data: VerifyOtpDto) {
-    return await this.authService.verifyOtp(data.indicator, data.otp);
+    return await this.authService.verifyOtp(
+      data.indicator,
+      data.otp,
+      data.type,
+    );
   }
 
   @GrpcMethod('AuthService', 'ForgotPassword')
-  async forgotPassword(data: { username: string; email: string }) {
-    return await this.authService.forgotPassword(data.email, data.username);
+  async forgotPassword(data: {
+    username: string;
+    email: string;
+    isMobile?: boolean;
+  }) {
+    console.log('ForgotPassword gRPC data:', data);
+    return await this.authService.forgotPassword(
+      data.email,
+      data.username,
+      data?.isMobile || false,
+    );
   }
 
   @GrpcMethod('AuthService', 'ResetPassword')

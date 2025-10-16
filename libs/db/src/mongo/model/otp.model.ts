@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 export type OtpDocument = HydratedDocument<Otp>;
 
@@ -11,6 +11,12 @@ export class Otp {
     index: true, // Index for faster queries
   })
   indicator: string;
+
+  @Prop({
+    type: String,
+    default: null,
+  })
+  userId: string;
 
   @Prop({
     type: String,
@@ -40,8 +46,13 @@ export class Otp {
   isUsed: boolean;
 }
 
-export const OtpSchema = SchemaFactory.createForClass(Otp);
+const OtpSchema = SchemaFactory.createForClass(Otp);
 
 // Create compound index for better performance
 OtpSchema.index({ email: 1, otp: 1 });
 OtpSchema.index({ email: 1, type: 1 });
+
+export default {
+  name: 'Otp',
+  schema: OtpSchema,
+};

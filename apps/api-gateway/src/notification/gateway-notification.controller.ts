@@ -1,4 +1,11 @@
-import { Body, Controller, Inject, Post, OnModuleInit } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Inject,
+  Post,
+  OnModuleInit,
+  Req,
+} from '@nestjs/common';
 import { ClientKafka, ClientProxy } from '@nestjs/microservices';
 import { GatewayService } from '../gateway.service';
 import { SERVICES } from '@app/constants/services';
@@ -12,11 +19,14 @@ export class GatewayNotificationController {
   ) {}
 
   @Post('send-otp')
-  async sendOtp(@Body() body: { email: string; otp: string }) {
+  async sendOtp(@Body() body: { email: string; otp: string }, @Req() req) {
     return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
       'send_otp',
-      body,
+      {
+        ...body,
+        userId: req.user?._id,
+      },
     );
   }
 
@@ -30,12 +40,15 @@ export class GatewayNotificationController {
   }
 
   @Post('push-notification')
-  async pushNotification(@Body() body: { 
-    title: string; 
-    message: string;
-    fcmTokens: string[];
-    data?: Record<string, any>;
-  }) {
+  async pushNotification(
+    @Body()
+    body: {
+      title: string;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, any>;
+    },
+  ) {
     return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
       'push_notification',
