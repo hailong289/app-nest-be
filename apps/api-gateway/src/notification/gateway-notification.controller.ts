@@ -3,10 +3,9 @@ import {
   Controller,
   Inject,
   Post,
-  OnModuleInit,
   Req,
 } from '@nestjs/common';
-import { ClientKafka, ClientProxy } from '@nestjs/microservices';
+import { ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../services/gateway.service';
 import { SERVICES } from '@app/constants/services';
 

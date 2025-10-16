@@ -26,7 +26,7 @@ interface FileSystemService {
   deleteFile(data: { fileName: string; folder?: string }): any;
   getPresignedUrl(data: { fileName: string }): any;
 }
-@Controller()
+@Controller('filesystem')
 export class GatewayFilesystemController implements OnModuleInit {
   private filesystemService: FileSystemService;
   constructor(
@@ -40,7 +40,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   }
 
   // Filesystem endpoints
-  @Post('filesystem/upload-single')
+  @Post('upload-single')
   @UseInterceptors(FileInterceptor('file'))
   async uploadSingleFile(
     @UploadedFile() file: any,
@@ -57,7 +57,7 @@ export class GatewayFilesystemController implements OnModuleInit {
     );
   }
 
-  @Post('filesystem/upload-multiple')
+  @Post('upload-multiple')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultipleFiles(
     @UploadedFiles() files: any[],
@@ -76,7 +76,7 @@ export class GatewayFilesystemController implements OnModuleInit {
     );
   }
 
-  @Post('filesystem/delete')
+  @Post('delete')
   async deleteFile(@Body() data: { fileName: string; folder?: string }) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.filesystemService.deleteFile,
@@ -84,7 +84,7 @@ export class GatewayFilesystemController implements OnModuleInit {
     );
   }
 
-  @Get('filesystem/presigned-url')
+  @Get('presigned-url')
   async getPresignedUrl(@Query('fileName') fileName: string) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.filesystemService.getPresignedUrl,

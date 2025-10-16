@@ -46,7 +46,11 @@ export class User {
 
   @Prop({
     type: String,
-    default: 'https://example.com/default-avatar.png',
+    default: function() {
+      return this.usr_fullname ? 
+        `https://icotar.com/initials/${this.usr_fullname.charAt(0)}.png` : 
+        'https://icotar.com/initials/U.png';
+    }
   })
   usr_avatar: string;
 
