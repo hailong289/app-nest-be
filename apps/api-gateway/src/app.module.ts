@@ -8,12 +8,11 @@ import { ConfigModule } from '@nestjs/config';
 import { GatewayAuthModule } from './auth/gateway-auth.module';
 import { GatewayNotificationModule } from './notification/gateway-notification.module';
 import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
-const env = process.env.NODE_ENV || '';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env' + (env ? `.${env}` : '')),
+      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
     }),
     JwtModule.register({}),
     GatewayAuthModule,
