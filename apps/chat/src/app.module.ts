@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { RoomsModule } from './rooms/rooms.module';
@@ -36,31 +36,7 @@ import redisConfig from './config/redis.config';
     //   },
     // }),
     MongodbModule,
-    RedisModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const redis = configService.get<{
-          host: string;
-          port: number;
-          password?: string;
-          keyPrefix?: string;
-          ttl?: string;
-        }>('redis');
-        if (!redis?.host) {
-          throw new Error('Redis host is not defined in configuration');
-        }
-        if (!redis?.port) {
-          throw new Error('Redis port is not defined in configuration');
-        }
-        return {
-          host: redis.host,
-          port: redis.port,
-          password: redis.password,
-          keyPrefix: redis.keyPrefix,
-          ttl: redis.ttl ?? '3600', // default to 1 hour if not set
-        };
-      },
-    }),
+    RedisModule,
     RoomsModule,
     HandleChatModule,
   ],

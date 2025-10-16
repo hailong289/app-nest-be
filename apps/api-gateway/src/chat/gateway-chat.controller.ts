@@ -9,10 +9,12 @@ import {
   Req,
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
-import { GatewayService } from '../gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import {
   AddMemberRoomDto,
+  ChangelinkAvatarRoomDto,
+  ChangeNameRoomDto,
   CreateRoomDto,
   GetRoomType,
   LeavingRoomDto,
@@ -21,11 +23,13 @@ import {
 } from '@app/dto/room.dto';
 
 interface ChatGrpcService {
-  createRoom(data: CreateRoomDto): any;
-  leavingRoom(data: LeavingRoomDto): any;
-  removeMember(data: RemoveMemberRoomDto): any;
-  addMember(data: AddMemberRoomDto): any;
-  getRooms(data: GetRoomType): any;
+  createRoom(data: any): any;
+  leavingRoom(data: any): any;
+  removeMember(data: any): any;
+  addMember(data: any): any;
+  getRooms(data: any): any;
+  changeAvatar(data: any): any;
+  changeName(data: any): any;
 }
 
 @Controller('chat')
@@ -48,11 +52,10 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    const rl = await this.gatewayService.dispatchGrpcRequest(
+    return await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.createRoom.bind(this.chatGrpcService),
       body,
     );
-    return rl;
   }
 
   @Patch('rooms/leaving')
@@ -62,12 +65,12 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    const rl = await this.gatewayService.dispatchGrpcRequest(
+    return await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.leavingRoom.bind(this.chatGrpcService),
       body,
     );
-    return rl;
   }
+
   @Patch('rooms/remove')
   async removeMember(
     @Body()
@@ -75,12 +78,12 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    const rl = await this.gatewayService.dispatchGrpcRequest(
+    return await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.removeMember.bind(this.chatGrpcService),
       body,
     );
-    return rl;
   }
+
   @Patch('rooms/add')
   async addMember(
     @Body()
@@ -88,11 +91,10 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    const rl = await this.gatewayService.dispatchGrpcRequest(
+    return await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.addMember.bind(this.chatGrpcService),
       body,
     );
-    return rl;
   }
   @Get('rooms')
   async GetRooms(
@@ -100,7 +102,6 @@ export class GatewayChatController {
     @Query()
     options: Partial<OptionsType> = {},
   ) {
-    console.log('query', options);
     const safeOptions: OptionsType = {
       q: '',
       limit: 1000,
@@ -112,11 +113,35 @@ export class GatewayChatController {
       userId: req.user?._id,
       options: safeOptions,
     };
-    console.log('data', data);
-    const rl = await this.gatewayService.dispatchGrpcRequest(
+    return await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.getRooms.bind(this.chatGrpcService),
       data,
     );
-    return rl;
+  }
+
+  @Patch('rooms/avatar')
+  async ChangeAvatar(
+    @Body()
+    body: ChangelinkAvatarRoomDto,
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    body.userId = req.user?._id;
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.changeAvatar.bind(this.chatGrpcService),
+      body,
+    );
+  }
+
+  @Patch('rooms/name')
+  async ChangeName(
+    @Body()
+    body: ChangeNameRoomDto,
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    body.userId = req.user?._id;
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.changeName.bind(this.chatGrpcService),
+      body,
+    );
   }
 }

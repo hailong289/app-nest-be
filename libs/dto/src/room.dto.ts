@@ -8,6 +8,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Types } from 'mongoose';
+import { EventRoomType } from 'libs/db/src/mongo/model/room-events.model';
 export class CreateRoomDto {
   @IsOptional()
   @IsString()
@@ -94,4 +96,42 @@ export class GetRoomType {
   @ValidateNested()
   @Type(() => OptionsType)
   options: OptionsType = new OptionsType();
+}
+
+export class ChangelinkAvatarRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  link: string;
+}
+
+export class ChangeNameRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
+export class CreateRoomEvent {
+  event_type: EventRoomType;
+  room_id: Types.ObjectId;
+  actor_id: Types.ObjectId;
+  placeholder: string;
+  targets: Types.ObjectId[];
+  message_id?: Types.ObjectId;
+  payload?: Record<string, any>;
 }

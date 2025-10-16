@@ -121,7 +121,7 @@ class Utils {
     return result;
   }
 
-  static randomId = (() => {
+  static readonly randomId = (() => {
     let lastMs = 0;
     let seq = 0;
     const MAX_SEQ = 0xffffff; // ~16.7 triệu ID trong 1ms

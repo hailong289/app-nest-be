@@ -12,8 +12,14 @@ import {
 } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { GatewayService } from '../gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
+
+interface UploadedFileType {
+  originalname: string;
+  buffer: Buffer;
+  mimetype: string;
+}
 
 @Controller()
 export class GatewayFilesystemController implements OnModuleInit {
@@ -42,7 +48,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Post('filesystem/upload-single')
   @UseInterceptors(FileInterceptor('file'))
   async uploadSingleFile(
-    @UploadedFile() file: any,
+    @UploadedFile() file: UploadedFileType,
     @Body('folder') folder: string,
   ) {
     return await this.gatewayService.dispatchServiceRequest(
@@ -60,7 +66,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Post('filesystem/upload-multiple')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultipleFiles(
-    @UploadedFiles() files: any[],
+    @UploadedFiles() files: UploadedFileType[],
     @Body('folder') folder: string,
   ) {
     return await this.gatewayService.dispatchServiceRequest(

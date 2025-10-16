@@ -3,6 +3,7 @@ import { join } from 'path';
 import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
+import { Logger } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
@@ -19,11 +20,10 @@ async function bootstrap() {
       },
     },
   );
-
+  const logger = new Logger();
   app.useGlobalFilters(new HttpExceptionsFilter());
+  // useSharedRedisAdapter(app);
   await app.listen();
-  console.log(
-    `chat gRPC microservice is listening on port ${process.env.PORT}`,
-  );
+  logger.log(`chat gRPC microservice is listening on port ${process.env.PORT}`);
 }
 void bootstrap();

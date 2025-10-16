@@ -1,62 +1,77 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import Utils from 'libs/helpers/utils';
-export type msgType = 'text' | 'file' | 'log' | 'call';
+
 export type MessageDocument = HydratedDocument<Message>;
-const collectionNames = 'Messages';
-const DocumentName = 'Message';
-@Schema({ timestamps: true, collection: collectionNames })
+export type MsgType = 'text' | 'image' | 'file' | 'system';
+
+@Schema({ timestamps: true, collection: 'Messages' })
 export class Message {
-  @Prop({ type: String, default: () => Utils.randomId(), unique: true })
-  msg_id: string;
-
-  @Prop({ type: String, default: '' })
-  msg_content: string | null;
-
-  @Prop({ type: Array, default: [] })
-  msg_attachments: Types.ObjectId[];
-
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  msg_sender: Types.ObjectId;
-
-  @Prop({ type: Types.ObjectId, ref: 'Room', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })
   msg_room: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  msg_sender: Types.ObjectId;
 
   @Prop({
     type: String,
-    enum: ['text', 'image', 'video', 'file'],
+    enum: ['text', 'image', 'file', 'system'],
     default: 'text',
   })
-  msg_type: msgType;
+  msg_type: MsgType;
 
-  @Prop({ type: Boolean, default: false })
-  msg_deleted: boolean;
+  @Prop({ type: String, default: '' })
+  msg_content: string;
+
+  @Prop({ type: String, default: '' })
+  msg_content_norm: string; // search không dấu
+
+  @Prop({ type: [String], default: [] })
+  attachment_ids: string[]; // id từ Upload Service
 
   @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
-  msg_replyTo: string | null;
-}
+  reply_to: Types.ObjectId | null;
 
+  @Prop({ type: Boolean, default: false })
+  pinned: boolean;
+
+  // Xoá cho tất cả
+  @Prop({ type: Date, default: null })
+  deletedAt: Date | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  deletedBy: Types.ObjectId | null;
+
+  @Prop({ type: String, default: '' })
+  deletedReason: string;
+
+  @Prop({ type: String, default: '' })
+  placeholder: string; // “Tin nhắn đã bị thu hồi”
+
+  @Prop({ type: Date, default: null })
+  editedAt: Date | null;
+}
 export const MessageSchema = SchemaFactory.createForClass(Message);
 
-// Indexes
-MessageSchema.index({ msg_room: 1, msg_sender: 1 });
+/** Indexes */
+MessageSchema.index({ msg_room: 1, createdAt: -1 });
+MessageSchema.index({ msg_sender: 1, createdAt: -1 });
+MessageSchema.index({ msg_room: 1, msg_content_norm: 1 });
+MessageSchema.index({ msg_room: 1, deletedAt: 1, createdAt: -1 });
 
-// Pre-save hook to trim content
+/** Hooks */
+function normalizeVi(s = '') {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
 MessageSchema.pre('save', function (next) {
-  try {
-    if (
-      this.isModified('msg_content') &&
-      typeof this.msg_content === 'string'
-    ) {
-      this.msg_content = this.msg_content.trim();
-    }
-  } catch {
-    // ignore
+  if (this.isModified('msg_content')) {
+    this.msg_content_norm = normalizeVi(this.msg_content || '');
   }
   next();
 });
 
-export default {
-  name: DocumentName,
-  schema: MessageSchema,
-};
+export default { name: 'Message', schema: MessageSchema };

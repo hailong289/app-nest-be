@@ -11,6 +11,8 @@ service ChatService {
   rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
   rpc AddMember(inputRmMbr) returns (outputRmMbr);
   rpc GetRooms(inputGetRooms)returns (outputGetRoms);
+  rpc ChangeAvatar(inputChangeAvater) returns (outputChange);
+  rpc ChangeName(inputChangeName) returns (outputChange);
 }
 
 // Requests and Responses
@@ -118,4 +120,24 @@ message membersType {
   string name=2;
   string role =3;
   string avatar=4;
+}
+
+
+message inputChangeAvater{
+  string userId =1;
+  string roomId =2;
+  string link =3;
+}
+
+
+message outputChange {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+message inputChangeName{
+  string userId =1;
+  string roomId =2;
+  string name =3;
 }

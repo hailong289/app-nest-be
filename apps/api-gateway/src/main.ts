@@ -2,11 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from '../interceptors/response.interceptor';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
+import { useSharedRedisAdapter } from 'libs/ws/src';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Enable CORS
-  app.enableCors();
+  app.enableCors({
+    origin: '*', // Hoặc origin cụ thể
+    credentials: true,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -25,7 +29,7 @@ async function bootstrap() {
       },
     }),
   );
-
+  useSharedRedisAdapter(app);
   app.useGlobalInterceptors(new ResponseInterceptor());
   // Global prefix
   app.setGlobalPrefix('api');

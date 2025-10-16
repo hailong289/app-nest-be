@@ -44,7 +44,10 @@ export class AuthService {
       return Response.error('Mật khẩu không chính xác', 400);
     }
 
-    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    const userData: Record<string, any> = Utils.omit(user.toObject(), [
+      'usr_salt',
+      '__v',
+    ]);
 
     const accessToken = this.jwtService.sign(userData, {
       secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
@@ -121,7 +124,10 @@ export class AuthService {
 
     try {
       await newUser.save();
-      const userData = Utils.omit(newUser.toObject(), ['usr_salt', '__v']);
+      const userData: Record<string, any> = Utils.omit(newUser.toObject(), [
+        'usr_salt',
+        '__v',
+      ]);
       const accessToken = this.jwtService.sign(userData, {
         secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
         expiresIn: '7d', // access token sống 7 ngày
@@ -158,7 +164,9 @@ export class AuthService {
 
   logout(userId: string) {
     // Xóa hết key của user khi logout
-    this.keyModel.deleteMany({ tkn_userId: new Types.ObjectId(userId) }).exec();
+    void this.keyModel
+      .deleteMany({ tkn_userId: new Types.ObjectId(userId) })
+      .exec();
     return Response.success(null, 'Đăng xuất thành công');
   }
 
@@ -168,7 +176,10 @@ export class AuthService {
     if (!user) {
       return Response.error('User not found', 404);
     }
-    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    const userData: Record<string, any> = Utils.omit(user.toObject(), [
+      'usr_salt',
+      '__v',
+    ]);
     const accessToken = this.jwtService.sign(userData, {
       secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
       expiresIn: '7d', // access token sống 7 ngày
@@ -228,13 +239,14 @@ export class AuthService {
       if (!user) {
         return Response.error('Tài khoản không tồn tại', 404);
       }
-      const accessToken = this.jwtService.sign(
-        Utils.omit(user.toObject(), ['usr_salt', '__v']),
-        {
-          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-          expiresIn: '30m', // access token sống 30 phút
-        },
-      );
+      const userData: Record<string, any> = Utils.omit(user.toObject(), [
+        'usr_salt',
+        '__v',
+      ]);
+      const accessToken = this.jwtService.sign(userData, {
+        secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+        expiresIn: '30m', // access token sống 30 phút
+      });
       return Response.success({ accessToken }, 'Xác thực OTP thành công');
     }
     // OTP hợp lệ, xóa entry sau khi sử dụng
@@ -310,13 +322,14 @@ export class AuthService {
         });
         return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
       }
-      const accessToken = this.jwtService.sign(
-        Utils.omit(user.toObject(), ['usr_salt', '__v']),
-        {
-          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-          expiresIn: '30m', // access token sống 30 phút
-        },
-      );
+      const userData: Record<string, any> = Utils.omit(user.toObject(), [
+        'usr_salt',
+        '__v',
+      ]);
+      const accessToken = this.jwtService.sign(userData, {
+        secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+        expiresIn: '30m', // access token sống 30 phút
+      });
       // Gửi token về email thông qua Notification Service
       await axios.post(`${this.gatewayUrl}/api/notifications/forgot-password`, {
         email: email,

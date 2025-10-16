@@ -2,6 +2,8 @@ import { Controller, Body } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { GrpcMethod } from '@nestjs/microservices';
 import {
+  ChangelinkAvatarRoomDto,
+  ChangeNameRoomDto,
   CreateRoomDto,
   GetRoomType,
   LeavingRoomDto,
@@ -32,5 +34,15 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'GetRooms')
   async GetRooms(@Body() payload: GetRoomType) {
     return this.roomsService.GetRooms(payload);
+  }
+
+  @GrpcMethod('ChatService', 'ChangeAvatar')
+  async ChangeAvatar(@Body() payload: ChangelinkAvatarRoomDto) {
+    return this.roomsService.changeLinkAvatarRoom(payload);
+  }
+
+  @GrpcMethod('ChatService', 'ChangeName')
+  async ChangeName(@Body() payload: ChangeNameRoomDto) {
+    return this.roomsService.changeNameRoom(payload);
   }
 }

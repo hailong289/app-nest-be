@@ -1,18 +1,19 @@
 import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
-import { GatewayController } from './gateway.controller';
-import { GatewayService } from './gateway.service';
+import { GatewayController } from './gateway/gateway.controller';
+import { GatewayService } from './gateway/gateway.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
 import { GatewayAuthController } from './auth/gateway-auth.controller';
-import { GatewayNotificationController } from './notification/gateway-notification.controller';
 import { SERVICES } from '@app/constants';
 import { JwtModule } from '@nestjs/jwt';
 import path, { join } from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
-import { KafkaClientModule } from './kafka.module';
 import { GatewayChatController } from './chat/gateway-chat.controller';
-// import * as grpc from '@grpc/grpc-js';
+import { KafkaClientModule } from './kafka/kafka.module';
+import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
+import { GatewayNotificationController } from './notification/gateway-notification.controller';
+import { WsSharedModule } from 'libs/ws/src';
+import { ChatGateway } from './ws/chat/chat-gatewayt';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { GatewayChatController } from './chat/gateway-chat.controller';
           ),
           url: (() => {
             const hostEnv = (process.env.GATEWAY_AUTH_HOST || '').trim();
-            const isDockerHost = hostEnv && hostEnv.includes('auth');
+            const isDockerHost = hostEnv?.includes('auth');
             const host =
               isDockerHost && process.env.NODE_ENV !== 'production'
                 ? 'localhost'
@@ -67,7 +68,7 @@ import { GatewayChatController } from './chat/gateway-chat.controller';
           ),
           url: (() => {
             const hostEnv = (process.env.GATEWAY_CHAT_HOST || '').trim();
-            const isDockerHost = hostEnv && hostEnv.includes('chat');
+            const isDockerHost = hostEnv?.includes('chat');
             const host =
               isDockerHost && process.env.NODE_ENV !== 'production'
                 ? 'localhost'
@@ -89,6 +90,7 @@ import { GatewayChatController } from './chat/gateway-chat.controller';
         },
       },
     ]),
+    WsSharedModule,
     JwtModule.register({}),
     // KafkaClientModule,
   ],
@@ -99,7 +101,7 @@ import { GatewayChatController } from './chat/gateway-chat.controller';
     // GatewayNotificationController,
     GatewayChatController,
   ],
-  providers: [GatewayService],
+  providers: [GatewayService, ChatGateway],
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
@@ -110,7 +112,7 @@ export class AppModule {
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
-        { path: 'chat/*', method: RequestMethod.ALL },
+        { path: 'chat/*path', method: RequestMethod.ALL },
       );
   }
 }
