@@ -7,7 +7,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ClientKafka, ClientProxy } from '@nestjs/microservices';
-import { GatewayService } from '../gateway.service';
+import { GatewayService } from '../services/gateway.service';
 import { SERVICES } from '@app/constants/services';
 
 @Controller('notifications')
