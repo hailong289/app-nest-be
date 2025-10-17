@@ -13,6 +13,7 @@ import { Server, Socket } from 'socket.io';
 
 interface SocketWithUser extends Socket {
   userId: string;
+  user: any;
 }
 
 @UseGuards(WsJwtGuard)
@@ -98,7 +99,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!user) return { ok: false };
 
     this.io.to(data.roomId).emit('message', {
-      userId: userId,
+      userId: user.id,
       username: user.username,
       text: data.text,
       sentAt: new Date().toISOString(),

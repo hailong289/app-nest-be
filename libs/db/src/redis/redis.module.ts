@@ -34,6 +34,18 @@ import { RedisService } from './redis.service';
           password: redisOptions.password,
           db: redisOptions.db,
           keyPrefix: redisOptions.keyPrefix,
+          retryStrategy: (times) => {
+            if (times > 10) {
+              // 10 lần thử lại nếu không dc end luôn không retry nữa
+              logger.error('❌ Redis failed too many times. Stop retrying.');
+              return null; // <- Dừng hẳn reconnect
+            }
+            const delay = Math.min(times * 500, 3000);
+            logger.warn(
+              `🔄 Redis reconnecting in ${delay}ms (attempt ${times})`,
+            );
+            return delay;
+          },
         });
 
         client.on('connect', () => logger.log('✅ Redis connected'));
