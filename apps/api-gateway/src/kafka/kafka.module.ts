@@ -3,8 +3,8 @@ import { Module, Global } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
-import { GatewayService } from '../services/gateway.service';
 import { GatewayNotificationController } from '../notification/gateway-notification.controller';
+import { GatewayService } from '../gateway/gateway.service';
 
 @Module({
   imports: [

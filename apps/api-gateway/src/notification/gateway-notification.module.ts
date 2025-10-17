@@ -4,7 +4,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
 import { GatewayNotificationController } from './gateway-notification.controller';
-import { GatewayService } from '../services/gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 
 @Module({
   imports: [

@@ -15,6 +15,7 @@ import { ChatGateway } from './ws/chat/chat-gatewayt';
 import { GatewayAuthModule } from './auth/gateway-auth.module';
 import { GatewayNotificationModule } from './notification/gateway-notification.module';
 import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
+import { GatewayChatModule } from './chat/gateway-chat.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -26,6 +27,7 @@ import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module'
     GatewayAuthModule,
     GatewayNotificationModule,
     GatewayFileSystemModule,
+    GatewayChatModule,
   ],
   providers: [ChatGateway],
   controllers: [GatewayController],
