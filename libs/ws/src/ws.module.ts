@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { RedisModule } from 'libs/db/src/redis/redis.module';
 import { WsJwtGuard } from './ws-jwt.guard';
 import { RedisService } from 'libs/db/src/redis/redis.service';
-import { RedisIoAdapter } from './redis-io.apdapter';
+import { RedisIoAdapter } from './redis-io.adapter';
 import { JwtModule } from '@nestjs/jwt';
 
 // Module rất nhẹ, chỉ export guard (và có sẵn RedisModule để Gateway dùng)
