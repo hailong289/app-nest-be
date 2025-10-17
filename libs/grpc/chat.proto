@@ -11,7 +11,7 @@ service ChatService {
   rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
   rpc AddMember(inputRmMbr) returns (outputRmMbr);
   rpc GetRooms(inputGetRooms)returns (outputGetRoms);
-  rpc ChangeAvatar(inputChangeAvater) returns (outputChange);
+  rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
   rpc ChangeName(inputChangeName) returns (outputChange);
 }
 
@@ -123,7 +123,7 @@ message membersType {
 }
 
 
-message inputChangeAvater{
+message inputChangeAvatar{
   string userId =1;
   string roomId =2;
   string link =3;
