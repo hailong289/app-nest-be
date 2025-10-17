@@ -12,8 +12,14 @@ import {
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { GatewayService } from '../services/gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
+
+interface UploadedFileType {
+  originalname: string;
+  buffer: Buffer;
+  mimetype: string;
+}
 
 interface FileSystemService {
   uploadSingleFile(data: {
@@ -22,10 +28,14 @@ interface FileSystemService {
     mimetype: string;
     folder: string;
   }): any;
-  uploadMultipleFiles(data: { files: Array<{ buffer: Buffer; originalname: string; mimetype: string }>; folder: string }): any;
+  uploadMultipleFiles(data: {
+    files: Array<{ buffer: Buffer; originalname: string; mimetype: string }>;
+    folder: string;
+  }): any;
   deleteFile(data: { fileName: string; folder?: string }): any;
   getPresignedUrl(data: { fileName: string }): any;
 }
+
 @Controller('filesystem')
 export class GatewayFilesystemController implements OnModuleInit {
   private filesystemService: FileSystemService;
@@ -43,7 +53,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Post('upload-single')
   @UseInterceptors(FileInterceptor('file'))
   async uploadSingleFile(
-    @UploadedFile() file: any,
+    @UploadedFile() file: UploadedFileType,
     @Body('folder') folder: string,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
@@ -60,7 +70,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Post('upload-multiple')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultipleFiles(
-    @UploadedFiles() files: any[],
+    @UploadedFiles() files: UploadedFileType[],
     @Body('folder') folder: string,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(

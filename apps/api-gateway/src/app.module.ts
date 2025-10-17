@@ -1,26 +1,30 @@
 import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
-import { GatewayController } from './gateway.controller';
-import { GatewayService } from './services/gateway.service';
+import { GatewayController } from './gateway/gateway.controller';
 import { JwtModule } from '@nestjs/jwt';
 import path from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
+import { WsSharedModule } from 'libs/ws/src';
 import { GatewayAuthModule } from './auth/gateway-auth.module';
 import { GatewayNotificationModule } from './notification/gateway-notification.module';
 import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
+import { GatewayChatModule } from './chat/gateway-chat.module';
+import { GatewayModule } from './gateway/gateway.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
     }),
+    WsSharedModule,
     JwtModule.register({}),
+    GatewayModule,
     GatewayAuthModule,
     GatewayNotificationModule,
     GatewayFileSystemModule,
+    GatewayChatModule,
   ],
-  controllers: [GatewayController],
-  providers: [GatewayService],
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
@@ -31,6 +35,7 @@ export class AppModule {
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
+        { path: 'chat/*path', method: RequestMethod.ALL },
       );
   }
 }

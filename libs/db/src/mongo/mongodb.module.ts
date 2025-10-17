@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Logger, Module } from '@nestjs/common';
 import mongodbConfig from './configs/mongo.config';
 
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -7,27 +7,33 @@ import { MongooseModule } from '@nestjs/mongoose';
 import messagesModel from './model/messages.model';
 import userModel from './model/user.model';
 import roomModel from './model/room.model';
-import eventModel from './model/event.model';
 import friendshipModel from './model/friendship.model';
 import keysModel from './model/keys.model';
 import otpModel from './model/otp.model';
 import AttachmentModel from './model/Attachment.model';
+import roomEventsModel from './model/room-events.model';
+import roomsStateModel from './model/rooms-state.model';
+import roomsUsersStateModel from './model/rooms-users-state.model';
+import messageReadsModel from './model/message-reads.model';
+import messageHidesModel from './model/message-hides.model';
+import messageReactionsModel from './model/message-reactions.model';
 @Global()
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), '.env'),
+      envFilePath: [
+        path.resolve(__dirname, '..', '.env'), // ./src/.env
+        path.resolve(__dirname, '../../.env'), // fallback
+      ],
       load: [mongodbConfig],
     }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
-        console.log('Environment Variables:', {
-          MONGODB_URI: configService.get<string>('mongodb.uri'),
-          DB_NAME: configService.get<string>('DB_NAME'),
-        });
+        const logger = new Logger('MongoModule');
+        logger.log(`DB_NAME: ${configService.get<string>('DB_NAME')}`);
         const uri = configService.get<string>('mongodb.uri');
         return {
           uri: uri,
@@ -43,11 +49,16 @@ import AttachmentModel from './model/Attachment.model';
       messagesModel,
       userModel,
       roomModel,
-      eventModel,
       friendshipModel,
       keysModel,
       otpModel,
       AttachmentModel,
+      roomEventsModel,
+      roomsStateModel,
+      roomsUsersStateModel,
+      messageReadsModel,
+      messageHidesModel,
+      messageReactionsModel,
     ]),
   ],
   exports: [

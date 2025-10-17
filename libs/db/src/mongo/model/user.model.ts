@@ -46,11 +46,7 @@ export class User {
 
   @Prop({
     type: String,
-    default: function() {
-      return this.usr_fullname ? 
-        `https://icotar.com/initials/${this.usr_fullname.charAt(0)}.png` : 
-        'https://icotar.com/initials/U.png';
-    }
+    default: 'https://example.com/default-avatar.png',
   })
   usr_avatar: string;
 
@@ -74,7 +70,7 @@ export class User {
   usr_status: string;
 }
 
-const UserSchema = SchemaFactory.createForClass(User);
+export const UserSchema = SchemaFactory.createForClass(User);
 
 export default {
   name: 'User',

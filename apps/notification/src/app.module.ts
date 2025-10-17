@@ -31,6 +31,8 @@ import appConfig from './config/app/app.config';
               user: configService.get<string>('mail.auth.user'),
               pass: configService.get<string>('mail.auth.pass'),
             },
+            logger: false, // Disable transport logger
+            debug: false, // Disable debug output
           },
           defaults: {
             from: '"IChat" <no-reply@ichat.com>',

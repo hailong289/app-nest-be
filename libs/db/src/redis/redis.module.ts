@@ -1,153 +1,61 @@
-// packages/redis/src/redis.module.ts
-import { Module, Global, DynamicModule } from '@nestjs/common';
-import { RedisService } from './redis.service';
-import Redis, { Redis as RedisInstance } from 'ioredis';
+import { Module, Global, Logger } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
+import redisConfig from './redis.config';
 import { RedisModuleOptions } from './types';
+import path from 'path';
+import { RedisService } from './redis.service';
 
-@Global()
+@Global() // để có thể inject RedisClient ở bất kỳ module nào
 @Module({
-  providers: [RedisService],
-  exports: [RedisService],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [
+        path.resolve(__dirname, '..', '.env'), // ./src/.env
+        path.resolve(__dirname, '../../.env'), // fallback
+      ],
+      load: [redisConfig],
+    }),
+  ],
+  providers: [
+    {
+      provide: 'REDIS_CLIENT',
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const redisOptions = configService.get<RedisModuleOptions>('redis');
+        const logger = new Logger('RedisModule');
+        if (!redisOptions) {
+          throw new Error('Redis configuration "redis" is missing');
+        }
+        const client = new Redis({
+          host: redisOptions.host,
+          port: redisOptions.port,
+          password: redisOptions.password,
+          db: redisOptions.db,
+          keyPrefix: redisOptions.keyPrefix,
+          retryStrategy: (times) => {
+            if (times > 10) {
+              // 10 lần thử lại nếu không dc end luôn không retry nữa
+              logger.error('❌ Redis failed too many times. Stop retrying.');
+              return null; // <- Dừng hẳn reconnect
+            }
+            const delay = Math.min(times * 500, 3000);
+            logger.warn(
+              `🔄 Redis reconnecting in ${delay}ms (attempt ${times})`,
+            );
+            return delay;
+          },
+        });
+
+        client.on('connect', () => logger.log('✅ Redis connected'));
+        client.on('error', (err) => logger.error('❌ Redis error', err));
+
+        return client;
+      },
+    },
+    RedisService,
+  ],
+  exports: ['REDIS_CLIENT', RedisService],
 })
-export class RedisModule {
-  static forRoot(opstions: RedisModuleOptions): DynamicModule {
-    return {
-      module: RedisModule,
-      global: true,
-      providers: [
-        {
-          provide: 'REDIS',
-          useFactory: () => {
-            // By default prefer immediate connect (lazyConnect = false)
-            const client = new Redis({
-              lazyConnect: opstions.lazyConnect ?? false,
-              ...opstions,
-            });
-
-            client.on('connect', () =>
-              console.log(
-                `✅ Redis connected to ${opstions.host}:${opstions.port}`,
-              ),
-            );
-            client.on('error', (err) =>
-              console.error(
-                '❌ Redis connection error:',
-                err instanceof Error ? err.message : String(err),
-              ),
-            );
-
-            // If the client was created with lazyConnect=false it will try to connect automatically.
-            // If lazyConnect=true we don't attempt to connect here to preserve the caller's intent.
-            if (!(opstions.lazyConnect ?? false)) {
-              // no-await here because this factory is sync; the client will connect in background
-              try {
-                const status = client.status;
-                if (status !== 'connecting' && status !== 'ready') {
-                  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                  client.connect();
-                }
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                console.error(
-                  '❌ Redis connect() failed during module init:',
-                  msg,
-                );
-              }
-            }
-
-            return client;
-          },
-        },
-      ],
-      exports: ['REDIS'],
-    };
-  }
-
-  static forRootAsync(options: {
-    useFactory: (
-      ...args: any[]
-    ) => RedisModuleOptions | Promise<RedisModuleOptions>;
-    inject?: any[];
-    global?: boolean;
-  }): DynamicModule {
-    return {
-      module: RedisModule,
-      global: options.global ?? true,
-      providers: [
-        {
-          provide: 'REDIS',
-          inject: options.inject || [],
-          useFactory: async (...args: any[]) => {
-            const opts = await options.useFactory(...args);
-            const client = new Redis({
-              lazyConnect: opts.lazyConnect ?? false,
-              ...opts,
-            });
-
-            client.on('connect', () =>
-              console.log(`✅ Redis connected to ${opts.host}:${opts.port}`),
-            );
-            client.on('error', (err) =>
-              console.error('❌ Redis connection error:', err.message),
-            );
-
-            // Helper: wait until client emits 'ready' or 'connect' or fails
-            function waitForReady(c: RedisInstance, timeout = 5000) {
-              return new Promise<void>((resolve, reject) => {
-                const onReady = () => {
-                  cleanup();
-                  resolve();
-                };
-
-                const onError = (e: unknown) => {
-                  cleanup();
-                  reject(e instanceof Error ? e : new Error(String(e)));
-                };
-
-                const onEnd = () => {
-                  cleanup();
-                  reject(new Error('redis connection ended'));
-                };
-
-                function cleanup() {
-                  c.off('ready', onReady);
-                  c.off('connect', onReady);
-                  c.off('error', onError);
-                  c.off('end', onEnd);
-                  clearTimeout(timer);
-                }
-
-                c.once('ready', onReady);
-                c.once('connect', onReady);
-                c.once('error', onError);
-                c.once('end', onEnd);
-
-                const timer = setTimeout(() => {
-                  cleanup();
-                  reject(new Error('timeout waiting for redis ready'));
-                }, timeout);
-              });
-            }
-
-            try {
-              // actively connect so the app logs success/failure during startup
-              const status = client.status;
-              if (status === 'connecting') {
-                // another part triggered connect(); wait for it to finish
-                await waitForReady(client, 5000);
-              } else if (status !== 'ready') {
-                await client.connect();
-              }
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              console.error('❌ Redis initial connect() failed:', msg);
-            }
-
-            return client;
-          },
-        },
-      ],
-      exports: ['REDIS'],
-    };
-  }
-}
+export class RedisModule {}
