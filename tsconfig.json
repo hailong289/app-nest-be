@@ -45,7 +45,13 @@
       ],
       "@app/helpers/*": [
         "libs/helpers/*"
-      ]
+      ],
+      "@app/schemas": [
+        "libs/schemas/src"
+      ],
+      "@app/database": [
+        "libs/database/mongodb/src"
+      ],
     }
   }
 }
