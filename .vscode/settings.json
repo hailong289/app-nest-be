@@ -2,5 +2,7 @@
   "editor.formatOnSave": true,
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
-  }
+  },
+  "editor.inlineSuggest.enabled": false,
+  "gitHub.copilot.inlineSuggest.enable": false
 }

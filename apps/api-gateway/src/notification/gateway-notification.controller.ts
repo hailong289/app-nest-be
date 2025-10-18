@@ -1,13 +1,15 @@
-import {
-  Body,
-  Controller,
-  Inject,
-  Post,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
-import { GatewayService } from '../services/gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
+import { Request } from 'express';
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    _id: string;
+    [key: string]: unknown;
+  };
+}
 
 @Controller('notifications')
 export class GatewayNotificationController {
@@ -18,7 +20,10 @@ export class GatewayNotificationController {
   ) {}
 
   @Post('send-otp')
-  async sendOtp(@Body() body: { email: string; otp: string }, @Req() req) {
+  async sendOtp(
+    @Body() body: { email: string; otp: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
     return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
       'send_otp',
@@ -45,7 +50,7 @@ export class GatewayNotificationController {
       title: string;
       message: string;
       fcmTokens: string[];
-      data?: Record<string, any>;
+      data?: Record<string, unknown>;
     },
   ) {
     return await this.gatewayService.dispatchServiceEvent(

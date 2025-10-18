@@ -70,6 +70,7 @@ export class SignatureMiddleware implements NestMiddleware {
 
       next();
     } catch (error) {
+      console.error('SignatureMiddleware error:', error);
       return res
         .status(500)
         .json(

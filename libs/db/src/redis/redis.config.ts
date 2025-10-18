@@ -3,7 +3,7 @@ import { registerAs } from '@nestjs/config';
 export default registerAs('redis', () => ({
   host: (() => {
     const hostEnv = (process.env.REDIS_HOST || '').trim();
-    const isDockerHost = hostEnv && hostEnv.includes('redis');
+    const isDockerHost = hostEnv?.includes('redis');
     if (hostEnv && !isDockerHost) return hostEnv;
     if (process.env.NODE_ENV === 'production') return hostEnv || 'redis:6379';
     return 'localhost';

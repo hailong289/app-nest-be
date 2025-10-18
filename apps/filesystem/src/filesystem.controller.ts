@@ -1,5 +1,10 @@
 import { Controller, Inject } from '@nestjs/common';
-import { ClientKafka, GrpcMethod, MessagePattern, Payload } from '@nestjs/microservices';
+import {
+  ClientKafka,
+  GrpcMethod,
+  MessagePattern,
+  Payload,
+} from '@nestjs/microservices';
 import { FilesystemService } from './filesystem.service';
 
 export interface FileUploadData {
@@ -21,14 +26,17 @@ export class FilesystemController {
   @GrpcMethod('FilesystemService', 'UploadSingleFile')
   async uploadSingleFile(@Payload() data: FileUploadData) {
     try {
-      if (!data || !data.buffer || !data.originalname) {
+      if (!data?.buffer || !data?.originalname) {
         return { success: false, message: 'File data is required' };
       }
-      const file = {
-        buffer: Buffer.from(data.buffer),
+      const file: FileUploadData = {
+        buffer: Buffer.isBuffer(data.buffer)
+          ? data.buffer
+          : Buffer.from(data.buffer),
         originalname: data.originalname,
         mimetype: data.mimetype,
-      } as any;
+        folder: data.folder,
+      };
       return await this.filesystemService.uploadSingleFile(
         file,
         data.folder || 'uploads',
