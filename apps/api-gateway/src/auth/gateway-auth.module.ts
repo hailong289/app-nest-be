@@ -1,26 +1,40 @@
-import { Module, Global } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { join } from 'path';
 import { GatewayAuthController } from './gateway-auth.controller';
-import { GatewayService } from '../services/gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
+import { ConfigService } from '@nestjs/config';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: SERVICES.AUTH,
-        transport: Transport.GRPC,
-        options: {
-          package: 'auth',
-          protoPath: join(
-            process.cwd(),
-            process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
-          ),
-          url: `${process.env.GATEWAY_AUTH_HOST || 'localhost'}:${process.env.GATEWAY_AUTH_PORT || '5001'}`,
-          // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
+        useFactory: (config: ConfigService) => {
+          const isSsl = process.env.NODE_ENV === 'production' ? true : false;
+          let options = {
+            package: 'auth',
+            protoPath: join(
+              process.cwd(),
+              process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
+            ),
+            url: (() => {
+              const host = (process.env.GATEWAY_AUTH_HOST || '').trim();
+              const port = process.env.GATEWAY_AUTH_PORT;
+              return `${host}:${port}`;
+            })(),
+            credentials: isSsl
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
+          };
+          return {
+            transport: Transport.GRPC,
+            options,
+          };
         },
-      }
+      },
     ]),
   ],
   controllers: [GatewayAuthController],

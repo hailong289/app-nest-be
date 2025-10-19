@@ -1,3 +1,13 @@
+import { INestMicroservice, Type } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import {
+  KafkaOptions,
+  MicroserviceOptions,
+  Transport,
+} from '@nestjs/microservices';
+import { Types } from 'mongoose';
+
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
 };
@@ -14,6 +24,9 @@ class Utils {
   static isNumber(value: any): value is number {
     return typeof value === 'number' && isFinite(value);
   }
+  static escapeRegex(str: string) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
   static isBoolean(value: any): value is boolean {
     return typeof value === 'boolean';
@@ -24,21 +37,20 @@ class Utils {
   }
 
   static isObject(value: any): value is object {
-    return value && typeof value === 'object' && !Array.isArray(value);
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 
-  static isFunction(value: any): value is Function {
+  static isFunction(value: any): value is (...args: any[]) => any {
     return typeof value === 'function';
   }
 
   static isEmail(email: string): boolean {
-    const re =
-      /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(String(email).toLowerCase());
   }
 
   static isPhone(phone: string): boolean {
-    const re = /^(\+84|84|0)(3|5|7|8|9)\d{8}$/; // E.164 format
+    const re = /^(\+84|84|0)[35789]\d{8}$/; // E.164 format
     return re.test(phone);
   }
 
@@ -61,7 +73,7 @@ class Utils {
     obj: T,
     keys: K[],
   ): Omit<T, K> {
-    const result = { ...obj } as T;
+    const result = { ...obj };
     keys.forEach((key) => {
       if (key in result) {
         delete result[key];
@@ -74,9 +86,15 @@ class Utils {
   static unprefix<T extends object, P extends string>(
     obj: T,
     prefix: P,
+    excludeFields: string[] = [],
   ): Partial<Unprefixed<T, P>> {
     const result = {} as Partial<Unprefixed<T, P>>;
     Object.keys(obj).forEach((key) => {
+      // Bỏ qua các trường ngoại lệ
+      if (excludeFields.includes(key)) {
+        return;
+      }
+
       if (key.startsWith(prefix)) {
         const newKey = key.slice(prefix.length) as keyof Unprefixed<T, P>;
         result[newKey] = obj[key as keyof T] as unknown as Unprefixed<
@@ -97,21 +115,27 @@ class Utils {
   static prefix<T extends object, P extends string>(
     obj: T,
     prefix: P,
+    excludeFields: string[] = [],
   ): { [K in keyof T as `${P}${string & K}`]: T[K] } {
     const result = {} as { [K in keyof T as `${P}${string & K}`]: T[K] };
     Object.keys(obj).forEach((key) => {
+      // Bỏ qua các trường ngoại lệ
+      if (excludeFields.includes(key)) {
+        return;
+      }
       const newKey = `${prefix}${key}` as keyof typeof result;
-      result[newKey] = obj[key as keyof T] as any;
+      result[newKey] = obj[key as keyof T] as (typeof result)[typeof newKey];
     });
     return result;
   }
 
-  static randomId = (() => {
+  static readonly randomId = (() => {
     let lastMs = 0;
     let seq = 0;
     const MAX_SEQ = 0xffffff; // ~16.7 triệu ID trong 1ms
 
-    const toHex = (n, width) => n.toString(16).padStart(width, '0');
+    const toHex = (n: number, width: number): string =>
+      n.toString(16).padStart(width, '0');
 
     return function () {
       let now = Date.now();
@@ -137,21 +161,79 @@ class Utils {
       const seqHex = toHex(seq, 6); // 24-bit seq
       const randHex = toHex((Math.random() * 0x10000) | 0, 4); // 16-bit random (không ảnh hưởng thứ tự)
 
-            return `${timeHex}${seqHex}${randHex}`;
-        };
-    })();
+      return `${timeHex}${seqHex}${randHex}`;
+    };
+  })();
 
-    static sleep(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+  static sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  static generateOtp(length: number = 6): string {
+    let otp = '';
+    for (let i = 0; i < length; i++) {
+      otp += Math.floor(Math.random() * 10).toString();
+    }
+    return otp;
+  }
+  static convertToObjectIdMongoose(id: string) {
+    return new Types.ObjectId(id);
+  }
+
+  static pairRoomId(a: string, b: string) {
+    const sa = String(a),
+      sb = String(b);
+    return sa < sb ? `${sa}.${sb}` : `${sb}.${sa}`;
+  }
+  // hàm tạo service
+  static async createKafkaMicroservice<T>(
+    module: Type<T>,
+    serviceName: string,
+  ): Promise<INestMicroservice> {
+    // Tạo context để lấy config
+    const appContext = await NestFactory.createApplicationContext(module);
+    const configService = appContext.get(ConfigService);
+
+    const client_id = configService.get('kafka.client_id');
+    const host = configService.get('kafka.host');
+    const port = configService.get('kafka.port');
+    const group_id = configService.get('kafka.group_id');
+    const isSasl = configService.get('kafka.is_sasl');
+    const mechanism = configService.get('kafka.mechanism');
+    const username = configService.get('kafka.username');
+    const password = configService.get('kafka.password');
+
+    const options: KafkaOptions['options'] = {
+      client: {
+        clientId: client_id,
+        brokers: [`${host}:${port}`],
+      },
+      consumer: {
+        groupId: group_id,
+      },
+    };
+
+    if (isSasl) {
+      options.client = {
+        ...options.client,
+        ssl: false,
+        sasl: {
+          mechanism: mechanism,
+          username: username,
+          password: password,
+        },
+        brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
+      };
     }
 
-    static generateOtp(length: number = 6): string {
-        let otp = '';
-        for (let i = 0; i < length; i++) {
-            otp += Math.floor(Math.random() * 10).toString();
-        }
-        return otp;
-    }
+    const microservice =
+      await NestFactory.createMicroservice<MicroserviceOptions>(module, {
+        transport: Transport.KAFKA,
+        options,
+      });
+
+    return microservice;
+  }
 }
 
 export default Utils;

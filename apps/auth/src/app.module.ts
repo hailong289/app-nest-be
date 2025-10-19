@@ -19,18 +19,6 @@ import keysModel from 'libs/db/src/mongo/model/keys.model';
       envFilePath: path.resolve(process.cwd(), 'apps/auth/.env'),
       load: [mongodbConfig],
     }),
-    // MongooseModule.forRootAsync({
-    //   inject: [ConfigService],
-    //   imports: [ConfigModule],
-    //   useFactory: (configService: ConfigService) => {
-    //     console.log('Environment Variables:', {
-    //       MONGODB_URI: configService.get<string>('mongodb.uri'),
-    //       DB_NAME: configService.get<string>('DB_NAME'),
-    //     });
-    //     const uri = configService.get<string>('mongodb.uri');
-    //     return { uri: uri, dbName: configService.get<string>('DB_NAME') };
-    //   },
-    // }),
     MongodbModule,
     JwtModule.register({}),
     MongooseModule.forFeature([userModel, otpModel, keysModel]),

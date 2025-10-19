@@ -7,7 +7,9 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "webpack": true,
-    "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
+    "tsConfigPath": "apps/api-gateway/tsconfig.app.json",
+    "watchAssets": true,
+    "assets": ["**/*.proto", "**/*.env", "**/*.yaml"]
   },
   "projects": {
     "api-gateway": {
@@ -16,6 +18,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/api-gateway/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
       }
     },
@@ -25,25 +29,31 @@
       "entryFile": "main",
       "sourceRoot": "apps/auth/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
-    "constants": {
-      "type": "library",
-      "root": "libs/constants",
-      "entryFile": "index",
-      "sourceRoot": "libs/constants/src",
+    "chat": {
+      "type": "application",
+      "root": "apps/chat",
+      "entryFile": "main",
+      "sourceRoot": "apps/chat/src",
       "compilerOptions": {
-        "tsConfigPath": "libs/constants/tsconfig.lib.json"
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
+        "tsConfigPath": "apps/chat/tsconfig.app.json"
       }
     },
-    "dto": {
-      "type": "library",
-      "root": "libs/dto",
-      "entryFile": "index",
-      "sourceRoot": "libs/dto/src",
+    "notification": {
+      "type": "application",
+      "root": "apps/notification",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification/src",
       "compilerOptions": {
-        "tsConfigPath": "libs/dto/tsconfig.lib.json"
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
+        "tsConfigPath": "apps/notification/tsconfig.app.json"
       }
     },
     "filesystem": {
@@ -52,7 +62,21 @@
       "entryFile": "main",
       "sourceRoot": "apps/filesystem/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "apps/filesystem/tsconfig.app.json"
+      }
+    },
+
+    "constants": {
+      "type": "library",
+      "root": "libs/constants",
+      "entryFile": "index",
+      "sourceRoot": "libs/constants/src",
+      "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
+        "tsConfigPath": "libs/constants/tsconfig.lib.json"
       }
     },
     "grpc": {
@@ -61,6 +85,8 @@
       "entryFile": "index",
       "sourceRoot": "libs/grpc/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "libs/grpc/tsconfig.lib.json"
       }
     },
@@ -70,16 +96,9 @@
       "entryFile": "index",
       "sourceRoot": "libs/helpers/src",
       "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
         "tsConfigPath": "libs/helpers/tsconfig.lib.json"
-      }
-    },
-    "notification": {
-      "type": "application",
-      "root": "apps/notification",
-      "entryFile": "main",
-      "sourceRoot": "apps/notification/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/notification/tsconfig.app.json"
       }
     },
     "scripts": {
@@ -89,6 +108,15 @@
       "sourceRoot": "libs/scripts/src",
       "compilerOptions": {
         "tsConfigPath": "libs/scripts/tsconfig.lib.json"
+      }
+    },
+    "db": {
+      "type": "library",
+      "root": "libs/db",
+      "entryFile": "index",
+      "sourceRoot": "libs/db/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/db/tsconfig.lib.json"
       }
     }
   }

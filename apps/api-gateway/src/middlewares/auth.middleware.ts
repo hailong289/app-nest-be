@@ -7,8 +7,8 @@ import { Response as ResponseHelper } from 'libs/helpers/response';
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
   constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
   use(req: Request, res: Response, next: NextFunction) {
@@ -27,17 +27,29 @@ export class AuthMiddleware implements NestMiddleware {
 
     const token = authHeader.replace('Bearer ', '');
     try {
-      const jwtSecret = this.configService.get<string>('GATEWAY_JWT_ACCESS_SECRET');
-      const payload = this.jwtService.verify(token, {
+      const jwtSecret = this.configService.get<string>(
+        'GATEWAY_JWT_ACCESS_SECRET',
+      );
+      interface JwtPayload {
+        userId: string;
+        username: string;
+        // add other expected properties here
+        [key: string]: any;
+      }
+      const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
-      (req as any).user = payload; // gắn user context vào request
+      (req as Record<string, any>).user = payload; // gắn user context vào request
       next();
     } catch {
       return res
         .status(401)
         .json(
-          ResponseHelper.error('Mã xác thực không hợp lệ hoặc đã hết hạn', 401, 'UNAUTHORIZED'),
+          ResponseHelper.error(
+            'Mã xác thực không hợp lệ hoặc đã hết hạn',
+            401,
+            'UNAUTHORIZED',
+          ),
         );
     }
   }
