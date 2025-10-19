@@ -10,8 +10,11 @@ export class Attachment {
   @Prop({ type: String, default: () => Utils.randomId() })
   id: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Room', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'Rooms', required: true })
   room_id: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  user_id: Types.ObjectId;
 
   @Prop({
     type: String,
