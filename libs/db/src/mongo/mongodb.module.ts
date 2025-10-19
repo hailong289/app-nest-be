@@ -2,7 +2,7 @@ import { Global, Logger, Module } from '@nestjs/common';
 import mongodbConfig from './configs/mongo.config';
 
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import path from 'path';
+import path, { join } from 'path';
 import { MongooseModule } from '@nestjs/mongoose';
 import messagesModel from './model/messages.model';
 import userModel from './model/user.model';
@@ -17,14 +17,17 @@ import roomsUsersStateModel from './model/rooms-users-state.model';
 import messageReadsModel from './model/message-reads.model';
 import messageHidesModel from './model/message-hides.model';
 import messageReactionsModel from './model/message-reactions.model';
+import { cwd } from 'process';
 @Global()
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [
-        path.resolve(__dirname, '..', '.env'), // ./src/.env
-        path.resolve(__dirname, '../../.env'), // fallback
+        // thay .env.production nếu có kết nối lên product (tạo thêm file nếu không có)
+        join(cwd(), '.env'), // nếu global env có
+        join(cwd(), 'apps', 'auth', '.env'),
+        join(cwd(), 'apps', 'chat', '.env'),
       ],
       load: [mongodbConfig],
     }),
@@ -35,6 +38,7 @@ import messageReactionsModel from './model/message-reactions.model';
         const logger = new Logger('MongoModule');
         logger.log(`DB_NAME: ${configService.get<string>('DB_NAME')}`);
         const uri = configService.get<string>('mongodb.uri');
+        console.log(uri);
         return {
           uri: uri,
           dbName: configService.get<string>('DB_NAME'),
