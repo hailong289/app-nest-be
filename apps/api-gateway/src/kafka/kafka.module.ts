@@ -3,28 +3,12 @@ import { Module, Global } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
-import { KafkaService } from './kafka.service';
+import { GatewayNotificationController } from '../notification/gateway-notification.controller';
+import { GatewayService } from '../gateway/gateway.service';
 
-@Global()
 @Module({
   imports: [
     ClientsModule.registerAsync([
-      {
-        name: SERVICES.FILESYSTEM,
-        inject: [ConfigService],
-        useFactory: (config: ConfigService) => ({
-          transport: Transport.KAFKA,
-          options: {
-            client: {
-              clientId: 'filesystem-service',
-              brokers: ['localhost:9092'],
-            },
-            consumer: {
-              groupId: 'filesystem-consumer',
-            },
-          },
-        }),
-      },
       {
         name: SERVICES.NOTIFICATION,
         inject: [ConfigService],
@@ -43,7 +27,8 @@ import { KafkaService } from './kafka.service';
       },
     ]),
   ],
-  providers: [KafkaService],
-  exports: [KafkaService, ClientsModule],
+  controllers: [GatewayNotificationController],
+  providers: [GatewayService],
+  exports: [ClientsModule],
 })
-export class KafkaClientModule {}
+export class GatewayNotificationModule {}

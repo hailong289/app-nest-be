@@ -25,7 +25,7 @@ export class Key {
   tkn_jit: string[];
 }
 
-const KeySchema = SchemaFactory.createForClass(Key);
+export const KeySchema = SchemaFactory.createForClass(Key);
 
 export default {
   name: 'Key',

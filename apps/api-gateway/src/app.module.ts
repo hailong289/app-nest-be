@@ -1,18 +1,15 @@
 import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
-import { GatewayController } from './gateway.controller';
-import { GatewayService } from './gateway.service';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { GatewayFilesystemController } from './filesystem/gateway-filesystem.controller';
-import { GatewayAuthController } from './auth/gateway-auth.controller';
-import { GatewayNotificationController } from './notification/gateway-notification.controller';
-import { SERVICES } from '@app/constants';
+import { GatewayController } from './gateway/gateway.controller';
 import { JwtModule } from '@nestjs/jwt';
-import path, { join } from 'path';
+import path from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
-import { KafkaClientModule } from './kafka.module';
-import { KafkaService } from './kafka.service';
-// import * as grpc from '@grpc/grpc-js';
+import { WsSharedModule } from 'libs/ws/src';
+import { GatewayAuthModule } from './auth/gateway-auth.module';
+import { GatewayNotificationModule } from './notification/gateway-notification.module';
+import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
+import { GatewayChatModule } from './chat/gateway-chat.module';
+import { GatewayModule } from './gateway/gateway.module';
 
 @Module({
   imports: [
@@ -20,39 +17,14 @@ import { KafkaService } from './kafka.service';
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
     }),
-    ClientsModule.register([
-      {
-        name: SERVICES.AUTH,
-        transport: Transport.GRPC,
-        options: {
-          package: 'auth',
-          protoPath: join(
-            process.cwd(),
-            process.env.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
-          ),
-          url: `${process.env.GATEWAY_AUTH_HOST || 'localhost'}:${process.env.GATEWAY_AUTH_PORT || '5001'}`,
-          // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
-        },
-      },
-      {
-        name: SERVICES.CHAT,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: 3002,
-        },
-      },
-    ]),
+    WsSharedModule,
     JwtModule.register({}),
-    KafkaClientModule,
+    GatewayModule,
+    GatewayAuthModule,
+    GatewayNotificationModule,
+    GatewayFileSystemModule,
+    GatewayChatModule,
   ],
-  controllers: [
-    GatewayController,
-    GatewayFilesystemController,
-    GatewayAuthController,
-    GatewayNotificationController,
-  ],
-  providers: [GatewayService],
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
@@ -63,6 +35,7 @@ export class AppModule {
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
+        { path: 'chat/*path', method: RequestMethod.ALL },
       );
   }
 }

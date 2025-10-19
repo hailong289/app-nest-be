@@ -70,7 +70,7 @@ export class User {
   usr_status: string;
 }
 
-const UserSchema = SchemaFactory.createForClass(User);
+export const UserSchema = SchemaFactory.createForClass(User);
 
 export default {
   name: 'User',

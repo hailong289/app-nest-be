@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package chat;
+
+import "google/protobuf/struct.proto";
+// 
+
+service ChatService {
+  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+  rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
+  rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
+  rpc AddMember(inputRmMbr) returns (outputRmMbr);
+  rpc GetRooms(inputGetRooms)returns (outputGetRoms);
+  rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
+  rpc ChangeName(inputChangeName) returns (outputChange);
+}
+
+// Requests and Responses
+message CreateRoomRequest {
+  string userId = 1;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated string memberIds = 5;
+}
+
+message CreateRoomResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RoomResponse metadata = 4;
+}
+
+message RoomResponse {
+  string id = 1;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated members members = 5;
+  string lastMessage = 6;
+  string room_id = 7;
+  
+}
+
+message members {
+  string user_id = 1;
+  string role = 2;
+  string joinedAt = 3;
+  string name = 4;
+  string id = 5;  
+}
+
+
+
+message inputLeavingRoom {
+  string userId = 1;
+  string roomId =2;
+}
+message outputLeavingRoom {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+message inputRmMbr {
+  string userId =1 ;
+  string roomId =2;
+  repeated string memberIds =3;
+}
+message outputRmMbr {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+
+message inputGetRooms {  
+  string userId =1; 
+  optionsType options =2;
+}
+
+message optionsType {
+  string q = 1;
+  int32 limit =2;
+  int32 offset =3;
+  string type =4;
+}
+
+
+message outputGetRoms {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+ repeated metadataGetRomsType metadata = 4;
+}
+
+
+message metadataGetRomsType{
+  string id =1;
+  string roomId=2;
+  string updatedAt =3;
+  string type = 4;
+  last_messageType last_message= 5;
+  string name =6;
+  bool is_read=7;
+  string avatar =8;
+  repeated membersType members=9;
+
+
+}
+message last_messageType{
+  string content =1;
+  string createdAt =2;
+  string id =3;
+}
+message membersType {
+  string id =1;
+  string name=2;
+  string role =3;
+  string avatar=4;
+}
+
+
+message inputChangeAvatar{
+  string userId =1;
+  string roomId =2;
+  string link =3;
+}
+
+
+message outputChange {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+message inputChangeName{
+  string userId =1;
+  string roomId =2;
+  string name =3;
+}

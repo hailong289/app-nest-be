@@ -12,11 +12,11 @@ export class KafkaService implements OnModuleInit {
     private readonly notificationClient: ClientKafka,
   ) {}
 
-  async onModuleInit() {
-    this.connectLater();
+  async onModuleInit(): Promise<void> {
+    await this.connectLater();
   }
 
-  private async connectLater() {
+  private async connectLater(): Promise<void> {
     try {
       await Promise.all([
         this.filesystemClient.connect(),
@@ -24,11 +24,15 @@ export class KafkaService implements OnModuleInit {
       ]);
       this.logger.log('✅ Kafka clients connected (filesystem & notification)');
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
         'Kafka connect failed, retrying in 5s...',
-        error.message,
+        errorMessage,
       );
-      setTimeout(() => this.connectLater(), 5000);
+      setTimeout(() => {
+        void this.connectLater();
+      }, 5000);
     }
   }
 
