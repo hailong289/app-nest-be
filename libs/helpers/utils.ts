@@ -1,3 +1,11 @@
+import { INestMicroservice, Type } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import {
+  KafkaOptions,
+  MicroserviceOptions,
+  Transport,
+} from '@nestjs/microservices';
 import { Types } from 'mongoose';
 
 type Unprefixed<T, P extends string> = {
@@ -176,6 +184,55 @@ class Utils {
     const sa = String(a),
       sb = String(b);
     return sa < sb ? `${sa}.${sb}` : `${sb}.${sa}`;
+  }
+  // hàm tạo service
+  static async createKafkaMicroservice<T>(
+    module: Type<T>,
+    serviceName: string,
+  ): Promise<INestMicroservice> {
+    // Tạo context để lấy config
+    const appContext = await NestFactory.createApplicationContext(module);
+    const configService = appContext.get(ConfigService);
+
+    const client_id = configService.get('kafka.client_id');
+    const host = configService.get('kafka.host');
+    const port = configService.get('kafka.port');
+    const group_id = configService.get('kafka.group_id');
+    const isSasl = configService.get('kafka.is_sasl');
+    const mechanism = configService.get('kafka.mechanism');
+    const username = configService.get('kafka.username');
+    const password = configService.get('kafka.password');
+
+    const options: KafkaOptions['options'] = {
+      client: {
+        clientId: client_id,
+        brokers: [`${host}:${port}`],
+      },
+      consumer: {
+        groupId: group_id,
+      },
+    };
+
+    if (isSasl) {
+      options.client = {
+        ...options.client,
+        ssl: false,
+        sasl: {
+          mechanism: mechanism,
+          username: username,
+          password: password,
+        },
+        brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
+      };
+    }
+
+    const microservice =
+      await NestFactory.createMicroservice<MicroserviceOptions>(module, {
+        transport: Transport.KAFKA,
+        options,
+      });
+
+    return microservice;
   }
 }
 
