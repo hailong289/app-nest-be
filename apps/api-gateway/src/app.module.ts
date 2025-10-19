@@ -15,7 +15,7 @@ import { GatewayModule } from './gateway/gateway.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
+      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'), // thay đổi file để load môi trường ví dụ .env.production
     }),
     WsSharedModule,
     JwtModule.register({}),
