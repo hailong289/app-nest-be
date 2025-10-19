@@ -7,7 +7,7 @@ import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { GatewayAiController } from './gateway-ai.controller';
-import { GatewayService } from '../services/gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 
 @Module({
   imports: [
@@ -21,7 +21,7 @@ import { GatewayService } from '../services/gateway.service';
             process.cwd(),
             process.env.GATEWAY_AI_PROTO_PATH || 'libs/grpc/ai.proto',
           ),
-          url: `${process.env.GATEWAY_AI_HOST || 'localhost'}:${process.env.GATEWAY_AI_PORT || '5001'}`,
+          url: `${process.env.GATEWAY_AI_HOST || 'localhost'}:${process.env.GATEWAY_AI_PORT || '5004'}`,
           // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
         },
       },

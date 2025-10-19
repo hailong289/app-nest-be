@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package ai;
+
+service AIService {
+  rpc moderation(Request) returns (ModerationResponse);
+}
+
+
+message ModerationRequest {
+    string text = 1;
+}
+
+message ModerationResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    any metadata = 4;
+}
+

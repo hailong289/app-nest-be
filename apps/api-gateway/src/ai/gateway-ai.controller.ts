@@ -3,15 +3,33 @@ https://docs.nestjs.com/controllers#controllers
 */
 
 import { SERVICES } from '@app/constants';
-import { Controller, Inject } from '@nestjs/common';
+import { Body, Controller, Inject, Post } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
+import { GatewayService } from '../gateway/gateway.service';
+import { ModerationDto } from '@app/dto/ai.dto';
 
-interface AiService {
+interface AiGrpcService {
   // Define AI service methods here
+  moderation(data: ModerationDto): any;
 }
 
 @Controller('ai')
 export class GatewayAiController {
-  private aiService: AiService;
-  constructor(@Inject(SERVICES.AI) private readonly aiClient: ClientGrpc) {}
+  private aiService: AiGrpcService;
+  constructor(
+    @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
+    private readonly gatewayService: GatewayService,
+  ) {}
+
+  onModuleInit() {
+    this.aiService = this.aiClient.getService<AiGrpcService>('AiService');
+  }
+
+  @Post('moderation')
+  async moderation(@Body() body: ModerationDto) {
+    return this.gatewayService.dispatchGrpcRequest(
+      this.aiService.moderation,
+      body,
+    );
+  }
 }
