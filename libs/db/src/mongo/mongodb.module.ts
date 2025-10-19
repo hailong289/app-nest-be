@@ -24,6 +24,7 @@ import { cwd } from 'process';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [
+        // thay .env.production nếu có kết nối lên product (tạo thêm file nếu không có)
         join(cwd(), '.env'), // nếu global env có
         join(cwd(), 'apps', 'auth', '.env'),
         join(cwd(), 'apps', 'chat', '.env'),
