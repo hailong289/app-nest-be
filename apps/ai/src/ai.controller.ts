@@ -6,8 +6,16 @@ import { GrpcMethod } from '@nestjs/microservices';
 export class AIController {
   constructor(private readonly service: AIService) {}
 
-  @GrpcMethod('AiService', 'moderation')
-  async moderation(@Body() body: { text: string; userId: string }) {
-    return await this.service.checkMessage(body.text, body.userId);
+  @GrpcMethod('AIService', 'Moderation')
+  async moderation(data: { text: string; userId: string }) {
+    console.log('AI Moderation called with data:', data);
+    const result = await this.service.checkMessage(data.text, data.userId);
+    
+    return {
+      message: 'Moderation completed successfully',
+      statusCode: 200,
+      reasonStatusCode: 'SUCCESS',
+      metadata: JSON.stringify(result)
+    };
   }
 }

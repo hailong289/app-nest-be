@@ -9,7 +9,7 @@ export class AIUsageLog {
   @Prop({ required: true })
   service: string; // 'moderation' | 'summarization' | 'translation' | 'stt' | 'ocr' | 'recommendation' ...
 
-  @Prop({ required: true })
+  @Prop({ required: true, default: 'google' })
   provider: string; // 'google' | 'openai' | 'anthropic' | 'local'
 
   @Prop({ required: true })

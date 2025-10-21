@@ -12,20 +12,22 @@ import { AIController } from './ai.controller';
 import { AIService } from './ai.service';
 import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
-('libs/db/src/mongo/model/AIUsageLogs.model');
+import { GoogleModerationProvider } from './google.provider';
+import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
+import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/ai/.env'),
-      load: [googleConfig],
+      load: [googleConfig, mongodbConfig],
     }),
     MongodbModule,
     JwtModule.register({}),
-    MongooseModule.forFeature([AIUsageLogSchema]),
+    MongooseModule.forFeature([AIUsageLogSchema, AIEmbeddingSchema]),
   ],
   controllers: [AIController],
-  providers: [AIService],
+  providers: [AIService, GoogleModerationProvider],
 })
-export class AiModule {}
+export class AppModule {}

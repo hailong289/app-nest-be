@@ -2,11 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'path';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
-import { AiModule } from './ai.module';
+import { AppModule } from './app.module';
 
 async function bootstrap() {
+  console.log(`Environment: HOST=${process.env.HOST}, PORT=${process.env.PORT}`);
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    AiModule,
+    AppModule,
     {
       transport: Transport.GRPC,
       options: {
@@ -15,7 +16,7 @@ async function bootstrap() {
           process.cwd(),
           process.env.PROTO_URL || 'libs/grpc/ai.proto',
         ),
-        url: `${process.env.HOST}:${process.env.PORT}`,
+        url: `${process.env.HOST}:${process.env.PORT}`
       },
     },
   );

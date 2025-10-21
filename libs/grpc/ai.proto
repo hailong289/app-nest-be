@@ -3,18 +3,18 @@ syntax = "proto3";
 package ai;
 
 service AIService {
-  rpc moderation(Request) returns (ModerationResponse);
+  rpc Moderation(ModerationRequest) returns (ModerationResponse);
 }
-
 
 message ModerationRequest {
     string text = 1;
+    string userId = 2;
 }
 
 message ModerationResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    any metadata = 4;
+    string metadata = 4;
 }
 

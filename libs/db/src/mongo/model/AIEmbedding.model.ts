@@ -9,7 +9,7 @@ export class AIEmbedding {
   @Prop({ required: true })
   service: string; // 'moderation' | 'chat' | 'document' | 'translation' ...
 
-  @Prop({ required: true })
+  @Prop({ required: true, default: 'google' })
   provider: string; // 'google' | 'openai' | 'local'
 
   @Prop({ required: true })
