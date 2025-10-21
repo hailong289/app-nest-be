@@ -24,9 +24,8 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      service-a: ${{ steps.filter.outputs.service-a }}
-      service-b: ${{ steps.filter.outputs.service-b }}
-      service-c: ${{ steps.filter.outputs.service-c }}
+      service-auth: ${{ steps.filter.outputs.service-auth }}
+      # service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -102,10 +101,11 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' &&
        (github.event.inputs.service == 'auth' || github.event.inputs.service == 'all')) ||
-      needs.detect-changes.outputs.service-auth == 'true'
+      needs.detect-changes.outputs.service-auth == 'true' ||
+      contains(github.event.head_commit.message, 'service/auth')
     runs-on: ubuntu-latest
-    # if: contains(github.event.head_commit.message, 'service/auth')
 
+    environment: AUTH_SERVICE
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -141,7 +141,7 @@ jobs:
             --cpu=1 \
             --memory=128Mi \
             --use-http2 \
-            --set-env-vars NODE_ENV=production \
+            --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars HOST=${{ secrets.AUTH_HOST }} \
             --set-env-vars PROTO_PATH=${{ secrets.AUTH_PROTO_PATH }} \
             --set-env-vars DB_CONNECTION=${{ secrets.AUTH_DB_CONNECTION }} \
