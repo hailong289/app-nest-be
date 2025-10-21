@@ -31,6 +31,9 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   fcmToken: string; // Thêm trường fcmToken
+  @IsOptional()
+  @IsString()
+  confirm: string;
 }
 
 export class AuthResponseDto {
