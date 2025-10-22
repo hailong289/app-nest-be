@@ -6,6 +6,7 @@ import {
   Payload,
 } from '@nestjs/microservices';
 import { FilesystemService } from './filesystem.service';
+import { Response } from '@app/helpers/response';
 
 export interface FileUploadData {
   buffer: Buffer;
@@ -23,7 +24,7 @@ export interface MultipleFileUploadData {
 export class FilesystemController {
   constructor(private readonly filesystemService: FilesystemService) {}
 
-  @GrpcMethod('FilesystemService', 'UploadSingleFile')
+  @GrpcMethod('FileSystemService', 'UploadSingleFile')
   async uploadSingleFile(@Payload() data: FileUploadData) {
     try {
       if (!data?.buffer || !data?.originalname) {
@@ -43,11 +44,16 @@ export class FilesystemController {
       );
     } catch (error) {
       console.error('Upload single file error:', error);
-      return { success: false, message: 'Upload single file failed' };
+      return Response.error(
+        'Tải hình ảnh thấ bạii',
+        400,
+        'ERROR_FILESYSTEM',
+        error,
+      );
     }
   }
 
-  @GrpcMethod('FilesystemService', 'UploadMultipleFiles')
+  @GrpcMethod('FileSystemService', 'UploadMultipleFiles')
   async uploadMultipleFiles(@Payload() data: MultipleFileUploadData) {
     try {
       if (!data || !data.files || data.files.length === 0) {
@@ -68,7 +74,7 @@ export class FilesystemController {
     }
   }
 
-  @GrpcMethod('FilesystemService', 'DeleteFile')
+  @GrpcMethod('FileSystemService', 'DeleteFile')
   async deleteFile(@Payload() data: { fileName: string; folder?: string }) {
     try {
       if (!data || !data.fileName) {
@@ -84,7 +90,7 @@ export class FilesystemController {
     }
   }
 
-  @GrpcMethod('FilesystemService', 'GetPresignedUrl')
+  @GrpcMethod('FileSystemService', 'GetPresignedUrl')
   async getPresignedUrl(@Payload() data: { fileName: string }) {
     try {
       if (!data || !data.fileName) {
