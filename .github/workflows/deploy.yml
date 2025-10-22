@@ -1,22 +1,20 @@
 name: Deploy Microservices
 
 on:
+  push:
+    branches: [ developer ]
   workflow_dispatch:
     inputs:
-      service:
-        description: "Select service to deploy"
+      target:
+        description: "Chọn để deploy"
         required: true
-        default: "auth"
+        default: "auth-service"
         type: choice
         options:
-          - auth
-          - api-gateway
-          - all
-
-  # push:
-  #   branches: [developer]
-  #   paths:
-  #     - 'apps/**'
+          - auth-service
+          - api-gateway-service
+          - notification-service
+          - filesystem-service
 
 jobs:
   # detect-changes:
@@ -44,7 +42,7 @@ jobs:
     #   ) ||
     #   needs.detect-changes.outputs.service-auth == 'true' ||
     #   contains(github.event.head_commit.message, 'service/auth')
-    if: github.event.inputs.service == 'auth' || github.event.inputs.service == 'all'
+    if: github.event.inputs.service == 'auth-service'
     uses: ./.github/workflows/deploy-auth.yml
     with:
       environment: AUTH_SERVICE
@@ -61,7 +59,7 @@ jobs:
     #   ) ||
     #   needs.detect-changes.outputs.service-api-gateway == 'true' ||
     #   contains(github.event.head_commit.message, 'service/api-gateway')
-    if: github.event.inputs.service == 'api-gateway' || github.event.inputs.service == 'all'
+    if: github.event.inputs.service == 'api-gateway-service'
     uses: ./.github/workflows/deploy-api-gateway.yml
     with:
       environment: GATEWAY_SERVICE
