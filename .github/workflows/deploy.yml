@@ -35,10 +35,7 @@ jobs:
 
   deploy-auth-service:
     needs: detect-changes
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'auth-service') ||
-      needs.detect-changes.outputs.service-auth == 'true' ||
-      contains(github.event.head_commit.message, 'service/auth')
+    if: contains(github.event.head_commit.message, 'service/auth')
     uses: ./.github/workflows/deploy-auth.yml
     with:
       environment: AUTH_SERVICE
@@ -47,10 +44,7 @@ jobs:
 
   deploy-gateway-service:
     needs: detect-changes
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'api-gateway-service') ||
-      needs.detect-changes.outputs.service-api-gateway == 'true' ||
-      contains(github.event.head_commit.message, 'service/api-gateway')
+    if: contains(github.event.head_commit.message, 'service/api-gateway')
     uses: ./.github/workflows/deploy-api-gateway.yml
     with:
       environment: GATEWAY_SERVICE
