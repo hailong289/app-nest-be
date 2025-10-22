@@ -88,15 +88,23 @@ export class FilesystemService {
     );
     const results = await Promise.all(uploadPromises);
 
-    return {
-      urls: results.map((result) => result.metadata.url),
-      messages: results.map((result) => result.message),
-      totalFiles: results.length,
-      successfulUploads: results.filter((result) => result.metadata.url !== '')
-        .length,
-      failedUploads: results.filter((result) => result.metadata.url === '')
-        .length,
-    };
+    return Response.success(
+      {
+        urls: results.map((result) => result.metadata.url),
+        messages: results.map(
+          (result, index) => `${result.message} ${index + 1}`,
+        ),
+        totalFiles: results.length,
+        successfulUploads: results.filter(
+          (result) => result.metadata.url !== '',
+        ).length,
+        failedUploads: results.filter((result) => result.metadata.url === '')
+          .length,
+      },
+      'Tải nhiều file',
+      400,
+      'ERROR_FILESYSTEM',
+    );
   }
 
   async deleteFile(fileName: string, folder: string = 'uploads') {
