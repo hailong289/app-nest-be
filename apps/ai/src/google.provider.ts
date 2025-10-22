@@ -7,6 +7,7 @@ import {
   GenerativeModel,
 } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
+import { Response } from '@app/helpers/response';
 
 @Injectable()
 export class GoogleModerationProvider {
@@ -21,19 +22,15 @@ export class GoogleModerationProvider {
       model: cfg.get<string>('google.model') ?? 'gemini-1.5-flash',
       safetySettings: [
         {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, // Tình dục
           threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
         },
         {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, // Nguy hiểm
           threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
         },
         {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, // Bất hợp pháp
           threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
         },
       ],
@@ -41,40 +38,23 @@ export class GoogleModerationProvider {
   }
 
   async moderate(text: string) {
-    const start = Date.now();
+    if (!text || text.length > 10000) {
+      return {
+        provider: 'google',
+        verdict: 'review',
+        error: 'Văn bản không hợp lệ',
+        categories: [],
+      };
+    }
+
     try {
+      const start = Date.now();
       const response = await this.model.generateContent(text);
       const latencyMs = Date.now() - start;
-
-      const safety = response.response.promptFeedback?.safetyRatings ?? [];
-      const scores = Object.fromEntries(
-        safety.map((r) => [r.category, r.probability ?? 0]),
-      );
-
-      const categories = safety
-        .filter((r) => {
-          const level = (r.probability ?? '').toString().toUpperCase();
-          return level === 'MEDIUM' || level === 'HIGH' || level === 'VERY_HIGH';
-        })
-        .map((r) => r.category);
-
-      return {
-        provider: 'google',
-        model: this.cfg.get<string>('google.model'),
-        scores,
-        categories,
-        verdict: categories.length ? 'block' : 'allow',
-        latencyMs,
-        rawResponse: safety,
-      };
+      return Response.success(response, 'Moderation completed successfully', 200, 'OK');
     } catch (err) {
-      this.logger.error('Moderation failed', err);
-      return {
-        provider: 'google',
-        model: this.cfg.get<string>('google.model'),
-        verdict: 'review',
-        error: err.message,
-      };
+      this.logger.error('Lỗi moderation:', err.message);
+      return Response.error('Lỗi xử lý', 400, 'Bad input');
     }
   }
 }

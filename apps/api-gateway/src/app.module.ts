@@ -11,6 +11,7 @@ import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module'
 import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import redisConfig from 'libs/db/src/redis/redis.config';
+import { GatewayAiModule } from './ai/gateway-ai.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import redisConfig from 'libs/db/src/redis/redis.config';
     GatewayNotificationModule,
     GatewayFileSystemModule,
     GatewayChatModule,
+    GatewayAiModule,
   ],
 })
 export class AppModule {

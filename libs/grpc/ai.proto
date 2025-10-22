@@ -15,6 +15,10 @@ message ModerationResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    string metadata = 4;
+    ModerationMetadata metadata = 4;
 }
 
+
+message ModerationMetadata {
+  // any
+}

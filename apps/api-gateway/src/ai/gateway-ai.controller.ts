@@ -22,7 +22,7 @@ export class GatewayAiController {
   ) {}
 
   onModuleInit() {
-    this.aiService = this.aiClient.getService<AiGrpcService>('AiService');
+    this.aiService = this.aiClient.getService<AiGrpcService>('AIService');
   }
 
   @Post('moderation')
