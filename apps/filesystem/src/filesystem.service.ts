@@ -9,6 +9,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { File as MulterFile } from 'multer';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Response } from '@app/helpers/response';
 
 @Injectable()
 export class FilesystemService {
@@ -58,15 +59,22 @@ export class FilesystemService {
     };
     try {
       await this.s3.send(new PutObjectCommand(uploadParams));
-      return {
-        url: `${this.configService.get<string>('s3.endpoint')}/${this.configService.get<string>('s3.bucketName')}/${folder}/${fileName}`,
-        message: 'File uploaded successfully',
-      };
+      return Response.success(
+        {
+          url: `${this.configService.get<string>('s3.endpoint')}/${this.configService.get<string>('s3.bucketName')}/${folder}/${fileName}`,
+        },
+        'Tải hình ảnh thành công',
+      );
     } catch (error) {
-      return {
-        url: '',
-        message: 'File upload failed ' + error.message,
-      };
+      return Response.success(
+        {
+          url: '',
+          message: 'Tải ảnh thất bại ' + error.message,
+        },
+        'Tải ảnh thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+      );
     }
   }
 
@@ -80,13 +88,23 @@ export class FilesystemService {
     );
     const results = await Promise.all(uploadPromises);
 
-    return {
-      urls: results.map((result) => result.url),
-      messages: results.map((result) => result.message),
-      totalFiles: results.length,
-      successfulUploads: results.filter((result) => result.url !== '').length,
-      failedUploads: results.filter((result) => result.url === '').length,
-    };
+    return Response.success(
+      {
+        urls: results.map((result) => result.metadata.url),
+        messages: results.map(
+          (result, index) => `${result.message} ${index + 1}`,
+        ),
+        totalFiles: results.length,
+        successfulUploads: results.filter(
+          (result) => result.metadata.url !== '',
+        ).length,
+        failedUploads: results.filter((result) => result.metadata.url === '')
+          .length,
+      },
+      'Tải nhiều file',
+      400,
+      'ERROR_FILESYSTEM',
+    );
   }
 
   async deleteFile(fileName: string, folder: string = 'uploads') {
