@@ -13,7 +13,6 @@ COPY . .
 # Build service gateway
 RUN npm run build:gateway
 
-
 # ---------- Stage 2: Runner ----------
 FROM node:20-alpine AS runner
 
@@ -26,7 +25,7 @@ RUN npm install --omit=dev
 # Copy dist từ builder
 COPY --from=builder /app/dist ./dist
 
-# Copy libs nếu runtime cần (DTO/proto/schema)
-COPY libs ./libs
+# Copy libs từ builder stage (không phải từ host)
+COPY --from=builder /app/libs ./libs
 
 CMD ["node", "dist/apps/api-gateway/main.js"]

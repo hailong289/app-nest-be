@@ -1,26 +1,28 @@
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { AppModule } from './app.module';
+import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     AppModule,
     {
-      transport: Transport.KAFKA,
+      transport: Transport.GRPC,
       options: {
-        client: {
-          clientId: 'filesystem-service',
-          brokers: ['localhost:9092'],
-        },
-        consumer: {
-          groupId: 'filesystem-consumer',
-        },
+        package: 'filesystem',
+        protoPath: join(
+          process.cwd(),
+          process.env.PROTO_URL || 'libs/grpc/filesystem.proto',
+        ),
+        url: `${process.env.HOST}:${process.env.PORT}`,
       },
     },
   );
 
   await app.listen();
-  console.log('Filesystem microservice is listening on port 3004');
+  console.log(
+    `Filesystem microservice is listening on port ${process.env.PORT}`,
+  );
 }
 
 bootstrap();
