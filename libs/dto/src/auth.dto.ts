@@ -1,10 +1,4 @@
-import {
-  IsBoolean,
-  IsEmpty,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 // Auth DTOs
 export class LoginDto {
@@ -37,6 +31,9 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   fcmToken: string; // Thêm trường fcmToken
+  @IsOptional()
+  @IsString()
+  confirm: string;
 }
 
 export class AuthResponseDto {
@@ -84,4 +81,20 @@ export class VerifyOtpDto {
   @IsOptional()
   @IsString()
   userId: string; // Thêm userId tùy chọn
+}
+
+// Type cho User data sau khi loại bỏ sensitive fields
+export interface UserTokenPayload {
+  _id: string;
+  usr_id: string;
+  usr_slug: string;
+  usr_fullname: string;
+  usr_email: string;
+  usr_phone: string;
+  usr_avatar: string;
+  usr_dateOfBirth: Date;
+  usr_gender: string;
+  usr_status: string;
+  createdAt?: Date;
+  updatedAt?: Date;
 }

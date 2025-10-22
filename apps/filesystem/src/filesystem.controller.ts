@@ -1,5 +1,10 @@
 import { Controller, Inject } from '@nestjs/common';
-import { ClientKafka, MessagePattern, Payload } from '@nestjs/microservices';
+import {
+  ClientKafka,
+  GrpcMethod,
+  MessagePattern,
+  Payload,
+} from '@nestjs/microservices';
 import { FilesystemService } from './filesystem.service';
 
 export interface FileUploadData {
@@ -18,17 +23,20 @@ export interface MultipleFileUploadData {
 export class FilesystemController {
   constructor(private readonly filesystemService: FilesystemService) {}
 
-  @MessagePattern('upload_single_file')
+  @GrpcMethod('FilesystemService', 'UploadSingleFile')
   async uploadSingleFile(@Payload() data: FileUploadData) {
     try {
-      if (!data || !data.buffer || !data.originalname) {
+      if (!data?.buffer || !data?.originalname) {
         return { success: false, message: 'File data is required' };
       }
-      const file = {
-        buffer: Buffer.from(data.buffer),
+      const file: FileUploadData = {
+        buffer: Buffer.isBuffer(data.buffer)
+          ? data.buffer
+          : Buffer.from(data.buffer),
         originalname: data.originalname,
         mimetype: data.mimetype,
-      } as any;
+        folder: data.folder,
+      };
       return await this.filesystemService.uploadSingleFile(
         file,
         data.folder || 'uploads',
@@ -39,7 +47,7 @@ export class FilesystemController {
     }
   }
 
-  @MessagePattern('upload_multiple_files')
+  @GrpcMethod('FilesystemService', 'UploadMultipleFiles')
   async uploadMultipleFiles(@Payload() data: MultipleFileUploadData) {
     try {
       if (!data || !data.files || data.files.length === 0) {
@@ -60,7 +68,7 @@ export class FilesystemController {
     }
   }
 
-  @MessagePattern('delete_file')
+  @GrpcMethod('FilesystemService', 'DeleteFile')
   async deleteFile(@Payload() data: { fileName: string; folder?: string }) {
     try {
       if (!data || !data.fileName) {
@@ -76,7 +84,7 @@ export class FilesystemController {
     }
   }
 
-  @MessagePattern('get_presigned_url')
+  @GrpcMethod('FilesystemService', 'GetPresignedUrl')
   async getPresignedUrl(@Payload() data: { fileName: string }) {
     try {
       if (!data || !data.fileName) {

@@ -10,44 +10,54 @@ import {
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { ClientKafka } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { GatewayService } from '../gateway.service';
+import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 
-@Controller()
+interface UploadedFileType {
+  originalname: string;
+  buffer: Buffer;
+  mimetype: string;
+}
+
+interface FileSystemService {
+  uploadSingleFile(data: {
+    originalname: string;
+    buffer: Buffer;
+    mimetype: string;
+    folder: string;
+  }): any;
+  uploadMultipleFiles(data: {
+    files: Array<{ buffer: Buffer; originalname: string; mimetype: string }>;
+    folder: string;
+  }): any;
+  deleteFile(data: { fileName: string; folder?: string }): any;
+  getPresignedUrl(data: { fileName: string }): any;
+}
+
+@Controller('filesystem')
 export class GatewayFilesystemController implements OnModuleInit {
+  private filesystemService: FileSystemService;
   constructor(
-    @Inject(SERVICES.FILESYSTEM) private readonly filesystemClient: ClientKafka,
+    @Inject(SERVICES.FILESYSTEM) private readonly filesystemClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
   ) {}
 
-  async onModuleInit() {
-    [
-      'upload_single_file',
-      'upload_multiple_files',
-      'delete_file',
-      'get_presigned_url',
-    ].forEach((key) => {
-      this.filesystemClient.subscribeToResponseOf(key);
-    });
-    try {
-      await this.filesystemClient.connect();
-    } catch (error) {
-      console.error('Filesystem service connection error:', error);
-    }
+  onModuleInit() {
+    this.filesystemService =
+      this.filesystemClient.getService<FileSystemService>('FileSystemService');
   }
 
   // Filesystem endpoints
-  @Post('filesystem/upload-single')
+  @Post('upload-single')
   @UseInterceptors(FileInterceptor('file'))
   async uploadSingleFile(
-    @UploadedFile() file: any,
+    @UploadedFile() file: UploadedFileType,
     @Body('folder') folder: string,
   ) {
-    return await this.gatewayService.dispatchServiceRequest(
-      this.filesystemClient,
-      'upload_single_file',
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.uploadSingleFile,
       {
         originalname: file.originalname,
         buffer: file.buffer,
@@ -57,15 +67,14 @@ export class GatewayFilesystemController implements OnModuleInit {
     );
   }
 
-  @Post('filesystem/upload-multiple')
+  @Post('upload-multiple')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultipleFiles(
-    @UploadedFiles() files: any[],
+    @UploadedFiles() files: UploadedFileType[],
     @Body('folder') folder: string,
   ) {
-    return await this.gatewayService.dispatchServiceRequest(
-      this.filesystemClient,
-      'upload_multiple_files',
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.uploadMultipleFiles,
       {
         files: files.map((file) => ({
           buffer: file.buffer,
@@ -77,20 +86,18 @@ export class GatewayFilesystemController implements OnModuleInit {
     );
   }
 
-  @Post('filesystem/delete')
+  @Post('delete')
   async deleteFile(@Body() data: { fileName: string; folder?: string }) {
-    return await this.gatewayService.dispatchServiceRequest(
-      this.filesystemClient,
-      'delete_file',
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.deleteFile,
       data,
     );
   }
 
-  @Get('filesystem/presigned-url')
+  @Get('presigned-url')
   async getPresignedUrl(@Query('fileName') fileName: string) {
-    return await this.gatewayService.dispatchServiceRequest(
-      this.filesystemClient,
-      'get_presigned_url',
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.getPresignedUrl,
       { fileName },
     );
   }

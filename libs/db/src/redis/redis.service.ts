@@ -3,7 +3,12 @@ import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService {
-  constructor(@Inject('REDIS') private readonly redis: Redis) {}
+  constructor(@Inject('REDIS_CLIENT') private readonly redis: Redis) {}
+
+  // Getter to access raw Redis instance for advanced usage (e.g., WebSocket adapter)
+  get client(): Redis {
+    return this.redis;
+  }
 
   async setOnline(userId: string) {
     await this.redis.set(`presence:${userId}`, 'online', 'EX', 60);

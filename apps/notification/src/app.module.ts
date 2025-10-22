@@ -10,13 +10,14 @@ import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
+import kafkaConfig from './config/app/kafka.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/notification/.env'),
-      load: [firebaseConfig, redisConfig, mailConfig, appConfig],
+      load: [firebaseConfig, redisConfig, mailConfig, appConfig, kafkaConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],
@@ -31,6 +32,8 @@ import appConfig from './config/app/app.config';
               user: configService.get<string>('mail.auth.user'),
               pass: configService.get<string>('mail.auth.pass'),
             },
+            logger: false, // Disable transport logger
+            debug: false, // Disable debug output
           },
           defaults: {
             from: '"IChat" <no-reply@ichat.com>',

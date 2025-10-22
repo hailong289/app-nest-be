@@ -1,0 +1,58 @@
+name: Deploy Microservices
+
+on:
+  push:
+    branches: [developer]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Chọn để deploy'
+        required: true
+        default: 'auth-service'
+        type: choice
+        options:
+          - auth-service
+          - api-gateway-service
+          - notification-service
+          - filesystem-service
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      service-auth: ${{ steps.filter.outputs.service-auth }}
+      service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            service-api-gateway:
+              - 'apps/api-gateway/**'
+            service-auth:
+              - 'apps/auth/**'
+
+  deploy-auth-service:
+    needs: detect-changes
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'auth-service') ||
+      needs.detect-changes.outputs.service-auth == 'true' ||
+      contains(github.event.head_commit.message, 'service/auth')
+    uses: ./.github/workflows/deploy-auth.yml
+    with:
+      environment: AUTH_SERVICE
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+
+  deploy-gateway-service:
+    needs: detect-changes
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'api-gateway-service') ||
+      needs.detect-changes.outputs.service-api-gateway == 'true' ||
+      contains(github.event.head_commit.message, 'service/api-gateway')
+    uses: ./.github/workflows/deploy-api-gateway.yml
+    with:
+      environment: GATEWAY_SERVICE
+    secrets:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
