@@ -17,20 +17,9 @@ import roomsUsersStateModel from './model/rooms-users-state.model';
 import messageReadsModel from './model/message-reads.model';
 import messageHidesModel from './model/message-hides.model';
 import messageReactionsModel from './model/message-reactions.model';
-import { cwd } from 'process';
 @Global()
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: [
-        // thay .env.production nếu có kết nối lên product (tạo thêm file nếu không có)
-        join(cwd(), '.env'), // nếu global env có
-        join(cwd(), 'apps', 'auth', '.env'),
-        join(cwd(), 'apps', 'chat', '.env'),
-      ],
-      load: [mongodbConfig],
-    }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],

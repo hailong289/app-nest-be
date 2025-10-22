@@ -1,23 +1,12 @@
 import { Module, Global, Logger } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import redisConfig from './redis.config';
 import { RedisModuleOptions } from './types';
-import path from 'path';
 import { RedisService } from './redis.service';
 
 @Global() // để có thể inject RedisClient ở bất kỳ module nào
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: [
-        path.resolve(__dirname, '..', '.env'), // ./src/.env
-        path.resolve(__dirname, '../../.env'), // fallback
-      ],
-      load: [redisConfig],
-    }),
-  ],
+  imports: [], // không cần imports ConfigModule vì mỗi service có config riêng nếu dùng như cũ nó xung đột env
   providers: [
     {
       provide: 'REDIS_CLIENT',

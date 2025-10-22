@@ -8,33 +8,14 @@ import { RedisModule } from 'libs/db/src/redis/redis.module';
 import path from 'path/win32';
 import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
 import redisConfig from './config/redis.config';
+import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/chat/.env'),
-      load: [redisConfig],
+      load: [redisConfig, mongodbConfig],
     }),
-
-    // MongooseModule.forRootAsync({
-    //   inject: [ConfigService],
-    //   imports: [ConfigModule],
-    //   useFactory: (configService: ConfigService) => {
-    //     console.log('Environment Variables:', {
-    //       MONGODB_URI: configService.get<string>('mongodb.uri'),
-    //       DB_NAME: configService.get<string>('DB_NAME'),
-    //     });
-    //     const uri = configService.get<string>('mongodb.uri');
-    //     return {
-    //       uri: uri,
-    //       dbName: configService.get<string>('DB_NAME'),
-    //       // Disable sessions/transactions for standalone MongoDB
-    //       autoIndex: true,
-    //       autoCreate: true,
-    //       directConnection: true, // Use direct connection to avoid replica set detection
-    //     };
-    //   },
-    // }),
     MongodbModule,
     RedisModule,
     RoomsModule,
