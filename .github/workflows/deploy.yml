@@ -1,14 +1,11 @@
 name: Deploy Microservices
 
 on:
-  push:
-    branches: [developer]
   workflow_dispatch:
     inputs:
-      target:
-        description: 'Chọn để deploy'
+      deploy-service:
+        description: 'Chọn service để deploy'
         required: true
-        default: 'auth-service'
         type: choice
         options:
           - auth-service
@@ -35,20 +32,14 @@ jobs:
 
   deploy-auth-service:
     needs: detect-changes
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'auth-service') ||
-      needs.detect-changes.outputs.service-auth == 'true' ||
-      contains(github.event.head_commit.message, 'service/auth')
+    if: ${{ inputs.deploy-service == 'auth-service' }}
     uses: ./.github/workflows/deploy-auth.yml
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
 
   deploy-gateway-service:
     needs: detect-changes
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'api-gateway-service') ||
-      needs.detect-changes.outputs.service-api-gateway == 'true' ||
-      contains(github.event.head_commit.message, 'service/api-gateway')
+    if: ${{ inputs.deploy-service == 'api-gateway-service' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
