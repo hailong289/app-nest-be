@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Inject,
+  Param,
   Patch,
   Post,
   Query,
@@ -16,6 +17,7 @@ import {
   ChangelinkAvatarRoomDto,
   ChangeNameRoomDto,
   CreateRoomDto,
+  GetRoomDto,
   GetRoomType,
   LeavingRoomDto,
   OptionsType,
@@ -28,8 +30,10 @@ interface ChatGrpcService {
   removeMember(data: any): any;
   addMember(data: any): any;
   getRooms(data: any): any;
+  getRoom(data: any): any;
   changeAvatar(data: any): any;
   changeName(data: any): any;
+  changeNickName(data: any): any;
 }
 
 @Controller('chat')
@@ -71,7 +75,7 @@ export class GatewayChatController {
     );
   }
 
-  @Patch('rooms/remove')
+  @Patch('rooms/members/remove')
   async removeMember(
     @Body()
     body: RemoveMemberRoomDto,
@@ -119,6 +123,21 @@ export class GatewayChatController {
     );
   }
 
+  @Get('room/:id')
+  async GetRoom(
+    @Req() req: { user?: { _id?: string } },
+    @Param('id') id: string,
+  ) {
+    const body: GetRoomDto = {
+      userId: req.user?._id,
+      roomId: id,
+    };
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.getRoom.bind(this.chatGrpcService),
+      body,
+    );
+  }
+
   @Patch('rooms/avatar')
   async ChangeAvatar(
     @Body()
@@ -141,6 +160,24 @@ export class GatewayChatController {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
       this.chatGrpcService.changeName.bind(this.chatGrpcService),
+      body,
+    );
+  }
+
+  @Patch('rooms/nick-name')
+  async ChangeNickName(
+    @Body()
+    body: {
+      roomId: string;
+      name: string;
+      memberId: string;
+      userId?: string;
+    },
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    body.userId = req.user?._id;
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.chatGrpcService.changeNickName.bind(this.chatGrpcService),
       body,
     );
   }

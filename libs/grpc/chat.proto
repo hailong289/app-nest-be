@@ -6,13 +6,16 @@ import "google/protobuf/struct.proto";
 // 
 
 service ChatService {
-  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+  rpc CreateRoom(CreateRoomRequest) returns (outputGetRoom);
   rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
   rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
   rpc AddMember(inputRmMbr) returns (outputRmMbr);
-  rpc GetRooms(inputGetRooms)returns (outputGetRoms);
+  rpc GetRooms(inputGetRooms)returns (outputGetRooms);
   rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
   rpc ChangeName(inputChangeName) returns (outputChange);
+  rpc ChangeNickName(inputChangeNickName) returns (outputChange);
+  rpc GetRoom(inputGetRoom)returns (outputGetRoom);
+
 }
 
 // Requests and Responses
@@ -81,6 +84,10 @@ message inputGetRooms {
   optionsType options =2;
 }
 
+message inputGetRoom {  
+  string userId =1; 
+  string roomId=2;
+}
 message optionsType {
   string q = 1;
   int32 limit =2;
@@ -89,15 +96,21 @@ message optionsType {
 }
 
 
-message outputGetRoms {
+message outputGetRooms {
  string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
- repeated metadataGetRomsType metadata = 4;
+ repeated metadataGetRoomsType metadata = 4;
+}
+message outputGetRoom {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  metadataGetRoomsType metadata = 4;
 }
 
 
-message metadataGetRomsType{
+message metadataGetRoomsType{
   string id =1;
   string roomId=2;
   string updatedAt =3;
@@ -140,4 +153,10 @@ message inputChangeName{
   string userId =1;
   string roomId =2;
   string name =3;
+}
+message inputChangeNickName{
+  string userId =1;
+  string roomId =2;
+  string name =3;
+  string memberId=4;
 }
