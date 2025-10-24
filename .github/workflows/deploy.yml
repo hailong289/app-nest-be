@@ -9,29 +9,34 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      service-auth: ${{ steps.filter.outputs.service-auth }}
-      service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
+      service-auth: ${{ steps.check-commit.outputs.service-auth }}
+      service-api-gateway: ${{ steps.check-commit.outputs.service-api-gateway }}
     steps:
       - uses: actions/checkout@v4
-      - id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            service-api-gateway:
-              - 'apps/api-gateway/**'
-            service-auth:
-              - 'apps/auth/**'
+      - id: check-commit
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if [[ "$COMMIT_MSG" == *"service/auth"* ]]; then
+            echo "service-auth=true" >> $GITHUB_OUTPUT
+          else
+            echo "service-auth=false" >> $GITHUB_OUTPUT
+          fi
+          if [[ "$COMMIT_MSG" == *"service/api-gateway"* ]]; then
+            echo "service-api-gateway=true" >> $GITHUB_OUTPUT
+          else
+            echo "service-api-gateway=false" >> $GITHUB_OUTPUT
+          fi
 
   deploy-auth-service:
     needs: detect-changes
-    if: ${{ inputs.deploy-service == 'auth-service' }}
+    if: ${{ needs.detect-changes.outputs.service-auth == 'true' }}
     uses: ./.github/workflows/deploy-auth.yml
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
 
   deploy-gateway-service:
     needs: detect-changes
-    if: ${{ inputs.deploy-service == 'api-gateway-service' }}
+    if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
