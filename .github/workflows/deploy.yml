@@ -31,12 +31,10 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.service-auth == 'true' }}
     uses: ./.github/workflows/deploy-auth.yml
-    secrets:
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+    secrets: inherit
 
   deploy-gateway-service:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
-    secrets:
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+    secrets: inherit

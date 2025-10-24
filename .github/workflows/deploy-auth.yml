@@ -2,9 +2,6 @@ name: Deploy Auth Service
 
 on:
   workflow_call:
-    secrets:
-      GCP_SA_KEY:
-        required: true
 
 jobs:
   deploy:
@@ -25,7 +22,7 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest"
           docker build -t $IMAGE -f apps/auth/Dockerfile .
           docker push $IMAGE
-      - run: echo "${{ secrets.TEST }}"
+      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy auth-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest \
@@ -37,7 +34,7 @@ jobs:
             --cpu=1 \
             --memory=128Mi \
             --port=8080 \
-            --timeout=300s \
+            --timeout=60s \
             --use-http2 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars HOST=${{ secrets.HOST }} \

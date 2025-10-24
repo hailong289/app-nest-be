@@ -25,7 +25,7 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest"
           docker build -t $IMAGE -f apps/api-gateway/Dockerfile .
           docker push $IMAGE
-      - run: echo "${{ secrets.TEST }}"
+      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy api-gateway-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest \
@@ -37,7 +37,7 @@ jobs:
             --cpu=1 \
             --memory=128Mi \
             --port=8080 \
-            --timeout=300s \
+            --timeout=60s \
             --use-http2 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars HOST=${{ secrets.GATEWAY_HOST }} \
