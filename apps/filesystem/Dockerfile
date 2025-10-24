@@ -26,6 +26,6 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 
 # Copy libs từ builder stage
-COPY --from=builder /app/libs ./libs
+COPY libs ./libs
 
 CMD ["node", "dist/apps/filesystem/main.js"]
