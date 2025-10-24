@@ -1,17 +1,9 @@
 name: Deploy Microservices
 
 on:
-  workflow_dispatch:
-    inputs:
-      deploy-service:
-        description: 'Chọn service để deploy'
-        required: true
-        type: choice
-        options:
-          - auth-service
-          - api-gateway-service
-          - notification-service
-          - filesystem-service
+  push:
+    branches:
+      - developer
 
 jobs:
   detect-changes:
