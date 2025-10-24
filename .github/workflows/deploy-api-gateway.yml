@@ -38,7 +38,6 @@ jobs:
             --memory=128Mi \
             --port=8080 \
             --timeout=60s \
-            --use-http2 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars HOST=${{ secrets.GATEWAY_HOST }} \
             --set-env-vars GATEWAY_AUTH_HOST=${{ secrets.GATEWAY_AUTH_HOST }} \
