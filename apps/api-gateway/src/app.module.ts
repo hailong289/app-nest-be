@@ -37,6 +37,8 @@ export class AppModule {
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
+        { path: 'auth/update-avatar', method: RequestMethod.POST },
+        { path: 'auth/update-profile', method: RequestMethod.POST },
         { path: 'chat/*path', method: RequestMethod.ALL },
       );
   }
