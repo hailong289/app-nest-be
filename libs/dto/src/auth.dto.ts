@@ -1,4 +1,9 @@
-import { IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { FileUploadData } from './filesystem.dto';
 import { Type } from 'class-transformer';
 
@@ -100,7 +105,6 @@ export interface UserTokenPayload {
   createdAt?: Date;
   updatedAt?: Date;
 }
-
 
 export class UpdateAvatarDto {
   @IsNotEmpty({ message: 'Ảnh đại diện không được để trống' })
