@@ -14,6 +14,7 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
+import { MultipleFilesUploadDto, SingleFileUploadDto } from '@app/dto';
 
 interface UploadedFileType {
   originalname: string;
@@ -22,16 +23,8 @@ interface UploadedFileType {
 }
 
 interface FileSystemService {
-  uploadSingleFile(data: {
-    originalname: string;
-    buffer: Buffer;
-    mimetype: string;
-    folder: string;
-  }): any;
-  uploadMultipleFiles(data: {
-    files: Array<{ buffer: Buffer; originalname: string; mimetype: string }>;
-    folder: string;
-  }): any;
+  uploadSingleFile(data: SingleFileUploadDto): any;
+  uploadMultipleFiles(data: MultipleFilesUploadDto): any;
   deleteFile(data: { fileName: string; folder?: string }): any;
   getPresignedUrl(data: { fileName: string }): any;
 }
@@ -59,9 +52,11 @@ export class GatewayFilesystemController implements OnModuleInit {
     return await this.gatewayService.dispatchGrpcRequest(
       this.filesystemService.uploadSingleFile,
       {
-        originalname: file.originalname,
-        buffer: file.buffer,
-        mimetype: file.mimetype,
+        file: {
+          originalname: file.originalname,
+          buffer: file.buffer,
+          mimetype: file.mimetype,
+        },
         folder: folder || 'uploads',
       },
     );

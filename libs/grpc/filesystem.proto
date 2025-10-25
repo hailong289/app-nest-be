@@ -9,18 +9,20 @@ service FileSystemService {
     rpc GetPresignedUrl(GetPresignedUrlRequest) returns (GetPresignedUrlResponse);
 }
 
-message UploadSingleFileRequest {
+message FileRequest {
     string originalname = 1;
     bytes buffer = 2;
     string mimetype = 3;
-    string folder = 4;
+}
+
+message UploadSingleFileRequest {
+    FileRequest file = 1;
+    string folder = 2;
 }
 
 message UploadMultipleFilesRequest {
-    string originalname = 1;
-    bytes buffer = 2;
-    string mimetype = 3;
-    string folder = 4;
+    repeated FileRequest files = 1;
+    string folder = 2;
 }
 
 message UploadSingleFileResponse {
@@ -34,7 +36,7 @@ message UploadMultipleFilesResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    repeated FileMetadata metadata = 4;
+    MultipleFilesMetaData metadata = 4;
 }
 
 message DeleteFileRequest {
@@ -65,6 +67,14 @@ message FileMetadata {
     string key = 2;
     string bucket = 3;
     string location = 4;
+}
+
+message MultipleFilesMetaData {
+    repeated string urls = 1;
+    repeated string messages = 2;
+    int32 totalFiles = 3;
+    int32 successfulUploads = 4;
+    int32 failedUploads = 5;
 }
 
 message DeleteFileMetadata {
