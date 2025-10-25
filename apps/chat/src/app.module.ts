@@ -9,6 +9,7 @@ import path from 'path/win32';
 import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
 import redisConfig from './config/redis.config';
 import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
+import { SocialModule } from './social/social.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -20,6 +21,7 @@ import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
     RedisModule,
     RoomsModule,
     HandleChatModule,
+    SocialModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

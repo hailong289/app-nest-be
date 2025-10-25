@@ -3,6 +3,7 @@ syntax = "proto3";
 package chat;
 
 import "google/protobuf/struct.proto";
+import "social.proto";
 // 
 
 service ChatService {

@@ -6,7 +6,9 @@ import {
   MicroserviceOptions,
   Transport,
 } from '@nestjs/microservices';
+import axios from 'axios';
 import { Types } from 'mongoose';
+import { Response } from './response';
 
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
@@ -233,6 +235,28 @@ class Utils {
       });
 
     return microservice;
+  }
+
+  static async callApiGateway(
+    url: string,
+    method: string,
+    body: any = {},
+    headers: any = {},
+    timeout: number = 5000,
+  ): Promise<any> {
+    // cho 5s
+    try {
+      const response = await axios.request({
+        url,
+        method,
+        data: body,
+        headers,
+        timeout,
+      });
+      return response.data;
+    } catch (error) {
+      return Response.error(error.message, 500, 'INTERNAL_SERVER_ERROR');
+    }
   }
 }
 

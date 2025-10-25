@@ -11,12 +11,20 @@ async function bootstrap() {
     {
       transport: Transport.GRPC,
       options: {
-        package: 'chat',
+        package: ['chat', 'social'],
         protoPath: join(
           process.cwd(),
           process.env.PROTO_URL || 'libs/grpc/chat.proto',
         ),
         url: `${process.env.HOST}:${process.env.PORT}`,
+        loader: {
+          keepCase: true,
+          longs: String,
+          enums: String,
+          defaults: false,
+          oneofs: true,
+          includeDirs: [join(process.cwd(), 'libs/grpc')],
+        },
       },
     },
   );

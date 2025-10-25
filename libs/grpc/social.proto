@@ -1,0 +1,211 @@
+syntax = "proto3";
+
+package social;
+
+service SocialService {
+  // Friend requests
+  rpc SendFriendRequest(SendFriendRequestRequest) returns (SendFriendRequestResponse);
+  rpc GetFriendRequests(GetFriendRequestsRequest) returns (GetFriendRequestsResponse);
+  rpc AcceptFriendRequest(AcceptFriendRequestRequest) returns (AcceptFriendRequestResponse);
+  rpc RejectFriendRequest(RejectFriendRequestRequest) returns (RejectFriendRequestResponse);
+  
+  // User search and friends
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  rpc GetFriends(GetFriendsRequest) returns (GetFriendsResponse);
+  rpc RemoveFriend(RemoveFriendRequest) returns (RemoveFriendResponse);
+}
+
+// Friend Request Messages
+message SendFriendRequestRequest {
+  string frpUserId1 = 1; // sender
+  string frpUserId2 = 2; // receiver
+  string frpActionUserId = 3; // user who performs the action
+}
+
+message SendFriendRequestResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  SendFriendRequestMetadata metadata = 4;
+}
+
+message GetFriendRequestsRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string type = 4; // "received", "sent" bao gồm người nhận và người gửi
+}
+
+message GetFriendRequestsResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetFriendRequestsMetadata metadata = 4;
+}
+
+message FriendRequest {
+  string id = 1;
+  string userId1 = 2;
+  string userId2 = 3;
+  string actionUserId = 4;
+  string status = 5; // "PENDING", "ACCEPTED", "REJECTED", "BLOCKED"
+  int64 createdAt = 6;
+  int64 updatedAt = 7;
+}
+
+message AcceptFriendRequestRequest {
+  string frpId = 1;
+  string frpUserId1 = 2;
+  string frpUserId2 = 3;
+  string frpActionUserId = 4;
+}
+
+message AcceptFriendRequestResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  AcceptFriendRequestMetadata metadata = 4;
+}
+
+message RejectFriendRequestRequest {
+  string frpId = 1;
+  string frpUserId1 = 2;
+  string frpUserId2 = 3;
+  string frpActionUserId = 4;
+}
+
+message RejectFriendRequestResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RejectFriendRequestMetadata metadata = 4;
+}
+
+// User Search Messages
+message SearchUsersRequest {
+  string search = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message SearchUsersResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  SearchUsersMetadata metadata = 4;
+}
+
+// Friends Messages
+message GetFriendsRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string search = 4;
+}
+
+message GetFriendsResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetFriendsMetadata metadata = 4;
+}
+
+message Friend {
+  string _id = 1;
+  string id = 2;
+  string fullname = 3;
+  string email = 4;
+  string phone = 5;
+  string gender = 6;
+  string dateOfBirth = 7;
+  string avatar = 8;
+  string status = 9;
+  int64 createdAt = 10;
+  int64 updatedAt = 11;
+}
+
+message RemoveFriendRequest {
+  string friendId = 1;
+  string actionUserId = 2;
+}
+
+message RemoveFriendResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RemoveFriendMetadata metadata = 4;
+}
+
+// Metadata Messages
+message SendFriendRequestMetadata {
+  string frpId = 1;
+  string frpStatus = 2; // "PENDING"
+  int64 createdAt = 3;
+}
+
+message GetFriendRequestsMetadata {
+  repeated FriendRequest friendRequests = 1;
+  int64 total = 2;
+  int64 page = 3;
+  int64 limit = 4;
+}
+
+message AcceptFriendRequestMetadata {
+  string frpId = 1;
+  string frpStatus = 2; // "ACCEPTED"
+  string acceptedAt = 3;
+  string friendshipId = 4;
+  RoomInfo room = 5;
+}
+
+message RoomInfo {
+  string id = 1;
+  string roomId = 2;
+  string name = 3;
+  string avatar = 4;
+  string type = 5;
+  bool is_read = 6;
+  int64 updatedAt = 7;
+  repeated RoomMember members = 8;
+  LastMessage last_message = 9;
+}
+
+message RoomMember {
+  string userId = 1;
+  string name = 2;
+  string avatar = 3;
+  string role = 4; // "member", "admin", "owner"
+  int64 joinedAt = 5;
+}
+
+message LastMessage {
+  string sender = 1;
+  string content = 2;
+  int64 timestamp = 3;
+}
+
+message RejectFriendRequestMetadata {
+  string frpId = 1;
+  string frpStatus = 2; // "REJECTED"
+  string rejectedAt = 3;
+}
+
+message SearchUsersMetadata {
+  repeated Friend users = 1;
+  int64 total = 2;
+  int64 page = 3;
+  int64 limit = 4;
+}
+
+message GetFriendsMetadata {
+  repeated Friend friends = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message RemoveFriendMetadata {
+  string frpId = 1;
+  string frpStatus = 2; // "BLOCKED" or "REJECTED"
+  int64 removedAt = 3;
+}
