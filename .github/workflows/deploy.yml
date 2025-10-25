@@ -4,28 +4,34 @@ on:
   push:
     branches:
       - developer
+    paths:
+      - 'apps/auth/**'
+      - 'apps/api-gateway/**'
+      - 'libs/**'
 
+      
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      service-auth: ${{ steps.check-commit.outputs.service-auth }}
-      service-api-gateway: ${{ steps.check-commit.outputs.service-api-gateway }}
+      service-auth: ${{steps.filter.outputs.service-auth }}
+      service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
     steps:
-      - uses: actions/checkout@v4
-      - id: check-commit
-        run: |
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          if [[ "$COMMIT_MSG" == *"service/auth"* ]]; then
-            echo "service-auth=true" >> $GITHUB_OUTPUT
-          else
-            echo "service-auth=false" >> $GITHUB_OUTPUT
-          fi
-          if [[ "$COMMIT_MSG" == *"service/api-gateway"* ]]; then
-            echo "service-api-gateway=true" >> $GITHUB_OUTPUT
-          else
-            echo "service-api-gateway=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Detect changed services
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # Mỗi key (service-api-gateway, service-auth) sẽ trở thành một output (true/false)
+          filters: |
+            service-api-gateway:
+              - 'apps/api-gateway/**'
+              - 'libs/**'
+            service-auth:
+              - 'apps/auth/**'
+              - 'libs/**'
 
   deploy-auth-service:
     needs: detect-changes
