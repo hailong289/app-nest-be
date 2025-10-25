@@ -2,13 +2,16 @@ import {
   ForgotPasswordDto,
   LoginDto,
   RegisterDto,
+  UpdateAvatarDto,
   UpdatePasswordDto,
+  UpdateProfileDto,
   VerifyOtpDto,
 } from '@app/dto';
-import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import { Body, Controller, Inject, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 interface AuthGrpcService {
   login(data: LoginDto): any;
@@ -19,6 +22,8 @@ interface AuthGrpcService {
   verifyOtp(data: VerifyOtpDto): any;
   forgotPassword(data: ForgotPasswordDto): any;
   resetPassword(data: { userId: string; newPassword: string }): any;
+  updateAvatar(data: UpdateAvatarDto): any;
+  updateProfile(data: UpdateProfileDto): any;
 }
 
 interface AuthenticatedRequest {
@@ -105,6 +110,35 @@ export class GatewayAuthController {
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.resetPassword.bind(this.authService),
+      {
+        ...body,
+        userId: req.user?._id,
+      },
+    );
+  }
+
+  @Post('update-avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  async updateAvatar(@Req() req: AuthenticatedRequest, @UploadedFile() file: any, @Body('folder') folder: string) {
+    console.log('UpdateAvatar request user:', req.user, file, folder);
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.updateAvatar.bind(this.authService),
+      {
+        file: {
+          originalname: file.originalname,
+          buffer: file.buffer,
+          mimetype: file.mimetype,
+        },
+        folder: folder || 'avatars/users',
+        userId: req.user?._id,
+      },
+    );
+  }
+
+  @Post('update-profile')
+  async updateProfile(@Req() req: AuthenticatedRequest, @Body() body: UpdateProfileDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.updateProfile.bind(this.authService),
       {
         ...body,
         userId: req.user?._id,
