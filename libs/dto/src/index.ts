@@ -4,3 +4,4 @@ export {
   CreateRoomDto as RoomCreateRoomDto,
   // add other exports from room.dto here as needed
 } from './room.dto';
+export * from './filesystem.dto';

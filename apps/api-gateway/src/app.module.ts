@@ -10,12 +10,14 @@ import { GatewayNotificationModule } from './notification/gateway-notification.m
 import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
 import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
-
+import redisConfig from 'libs/db/src/redis/redis.config';
+// test
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'),
+      envFilePath: path.resolve(process.cwd(), 'apps/api-gateway/.env'), // thay đổi file để load môi trường ví dụ .env.production
+      load: [redisConfig],
     }),
     WsSharedModule,
     JwtModule.register({}),
@@ -35,6 +37,8 @@ export class AppModule {
         { path: 'auth/refresh-token', method: RequestMethod.POST },
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
+        { path: 'auth/update-avatar', method: RequestMethod.POST },
+        { path: 'auth/update-profile', method: RequestMethod.POST },
         { path: 'chat/*path', method: RequestMethod.ALL },
       );
   }

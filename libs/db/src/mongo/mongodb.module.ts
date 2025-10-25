@@ -2,7 +2,7 @@ import { Global, Logger, Module } from '@nestjs/common';
 import mongodbConfig from './configs/mongo.config';
 
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import path from 'path';
+import path, { join } from 'path';
 import { MongooseModule } from '@nestjs/mongoose';
 import messagesModel from './model/messages.model';
 import userModel from './model/user.model';
@@ -20,14 +20,6 @@ import messageReactionsModel from './model/message-reactions.model';
 @Global()
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: [
-        path.resolve(__dirname, '..', '.env'), // ./src/.env
-        path.resolve(__dirname, '../../.env'), // fallback
-      ],
-      load: [mongodbConfig],
-    }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
@@ -35,6 +27,7 @@ import messageReactionsModel from './model/message-reactions.model';
         const logger = new Logger('MongoModule');
         logger.log(`DB_NAME: ${configService.get<string>('DB_NAME')}`);
         const uri = configService.get<string>('mongodb.uri');
+        console.log(uri);
         return {
           uri: uri,
           dbName: configService.get<string>('DB_NAME'),
