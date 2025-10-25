@@ -83,13 +83,12 @@ export class AuthController {
   }
 
   @GrpcMethod('AuthService', 'UpdateAvatar')
-  async updateAvatar(@Payload() data: UpdateAvatarDto) {
+  async updateAvatar(@Payload() data: UpdateAvatarDto & { userId: string }) {
     return await this.authService.updateAvatar(data);
   }
 
   @GrpcMethod('AuthService', 'UpdateProfile')
-  async updateProfile(@Payload() data: UpdateProfileDto) {
-    console.log('UpdateProfile gRPC data:', data);
+  async updateProfile(@Payload() data: UpdateProfileDto & { userId: string }) {
     return await this.authService.updateProfile(data);
   }
 }
