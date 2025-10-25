@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/any.proto";
+
 package social;
 
 service SocialService {
@@ -13,6 +15,8 @@ service SocialService {
   rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
   rpc GetFriends(GetFriendsRequest) returns (GetFriendsResponse);
   rpc RemoveFriend(RemoveFriendRequest) returns (RemoveFriendResponse);
+  rpc BlockFriend(BlockFriendRequest) returns (BlockFriendResponse);
+  rpc OpenBlockedFriend(OpenBlockedFriendRequest) returns (OpenBlockedFriendResponse);
 }
 
 // Friend Request Messages
@@ -208,4 +212,29 @@ message RemoveFriendMetadata {
   string frpId = 1;
   string frpStatus = 2; // "BLOCKED" or "REJECTED"
   int64 removedAt = 3;
+}
+
+message BlockFriendRequest {
+  string friendId = 1;
+  string actionUserId = 2;
+}
+
+message BlockFriendResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Any metadata = 4;
+}
+
+
+message OpenBlockedFriendRequest {
+  string friendId = 1;
+  string actionUserId = 2;
+}
+
+message OpenBlockedFriendResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Any metadata = 4;
 }

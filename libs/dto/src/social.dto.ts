@@ -101,15 +101,29 @@ export class GetFriendsDto {
 export class RemoveFriendDto {
   @IsString()
   @IsNotEmpty()
-  frpUserId1: string;
+  friendId: string;
 
   @IsString()
   @IsNotEmpty()
-  frpUserId2: string;
+  actionUserId: string;
+}
 
+export class BlockFriendDto {
   @IsString()
   @IsNotEmpty()
-  frpActionUserId: string;
+  friendId: string;
+  @IsString()
+  @IsNotEmpty()
+  actionUserId: string;
+}
+
+export class OpenBlockedFriendDto {
+  @IsString()
+  @IsNotEmpty()
+  friendId: string;
+  @IsString()
+  @IsNotEmpty()
+  actionUserId: string;
 }
 
 // Response DTOs

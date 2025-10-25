@@ -63,4 +63,17 @@ export class SocialController {
   async removeFriend(data: any) {
     return this.socialService.removeFriend(data.friendId, data.actionUserId);
   }
+
+  @GrpcMethod('SocialService', 'BlockFriend')
+  async blockFriend(data: any) {
+    return this.socialService.blockFriend(data.friendId, data.actionUserId);
+  }
+
+  @GrpcMethod('SocialService', 'OpenBlockedFriend')
+  async openBlockedFriend(data: any) {
+    return this.socialService.openBlockedFriend(
+      data.friendId,
+      data.actionUserId,
+    );
+  }
 }

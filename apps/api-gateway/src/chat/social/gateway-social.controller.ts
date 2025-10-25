@@ -8,6 +8,7 @@ import {
   Query,
   Inject,
   Req,
+  Patch,
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import type { Observable } from 'rxjs';
@@ -20,6 +21,8 @@ import {
   SearchUsersDto,
   GetFriendsDto,
   RemoveFriendDto,
+  BlockFriendDto,
+  OpenBlockedFriendDto,
 } from '@app/dto';
 import { GatewayService } from '../../gateway/gateway.service';
 import type { AuthenticatedRequest } from 'libs/types';
@@ -32,6 +35,8 @@ interface SocialGrpcService {
   SearchUsers(data: SearchUsersDto): Observable<any>;
   GetFriends(data: GetFriendsDto): Observable<any>;
   RemoveFriend(data: RemoveFriendDto): Observable<any>;
+  BlockFriend(data: BlockFriendDto): Observable<any>;
+  OpenBlockedFriend(data: OpenBlockedFriendDto): Observable<any>;
 }
 
 @Controller('social')
@@ -197,6 +202,36 @@ export class GatewaySocialController {
     };
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.RemoveFriend.bind(this.socialService),
+      data,
+    );
+  }
+
+  @Patch('friends/:friendId/block')
+  async blockFriend(
+    @Req() req: AuthenticatedRequest,
+    @Param('friendId') friendId: string,
+  ) {
+    const data = {
+      friendId: friendId,
+      actionUserId: req.user.usr_id,
+    };
+    return this.gatewayService.dispatchGrpcRequest(
+      this.socialService.BlockFriend.bind(this.socialService),
+      data,
+    );
+  }
+
+  @Patch('friends/:friendId/open-blocked')
+  async openBlockedFriend(
+    @Req() req: AuthenticatedRequest,
+    @Param('friendId') friendId: string,
+  ) {
+    const data = {
+      friendId: friendId,
+      actionUserId: req.user.usr_id,
+    };
+    return this.gatewayService.dispatchGrpcRequest(
+      this.socialService.OpenBlockedFriend.bind(this.socialService),
       data,
     );
   }

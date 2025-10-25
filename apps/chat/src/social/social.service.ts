@@ -372,16 +372,21 @@ export class SocialService {
   async removeFriend(friendId: string, actionUserId: string) {
     const friend = await this.userModel.findOne({ usr_id: friendId });
     if (!friend) {
-      return Response.error('Người dùng không tồn tại', 400);
+      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
     const friendship = await this.friendshipModel.findOne({
       $or: [
         { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
         { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
       ],
+      frp_status: 'ACCEPTED',
     });
     if (!friendship) {
-      return Response.error('Bạn không phải là bạn bè với người dùng này', 400);
+      return Response.error(
+        'Bạn đã xóa kết bạn với người dùng này',
+        400,
+        'DATA_NOT_FOUND',
+      );
     }
     await friendship.deleteOne();
     const pairRoomId1 = Utils.pairRoomId(friend.usr_id, actionUserId);
@@ -391,5 +396,53 @@ export class SocialService {
       $or: [{ room_id: pairRoomId1 }, { room_id: pairRoomId2 }],
     });
     return Response.success(friendship, 'Xóa bạn thành công');
+  }
+
+  async blockFriend(friendId: string, actionUserId: string) {
+    const friend = await this.userModel.findOne({ usr_id: friendId });
+    if (!friend) {
+      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+    }
+    const friendship = await this.friendshipModel.findOne({
+      $or: [
+        { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
+        { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
+      ],
+      frp_status: 'ACCEPTED',
+    });
+    if (!friendship) {
+      return Response.error(
+        'Bạn đã chặn người dùng này',
+        400,
+        'DATA_NOT_FOUND',
+      );
+    }
+    await friendship.updateOne({
+      frp_status: 'BLOCKED',
+      frp_actionUserId: actionUserId,
+    });
+    return Response.success(friendship, 'Chặn bạn thành công');
+  }
+
+  async openBlockedFriend(friendId: string, actionUserId: string) {
+    const friend = await this.userModel.findOne({ usr_id: friendId });
+    if (!friend) {
+      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+    }
+    const friendship = await this.friendshipModel.findOne({
+      $or: [
+        { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
+        { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
+      ],
+      frp_status: 'BLOCKED',
+    });
+    if (!friendship) {
+      return Response.error('Bạn đã mở chặn bạn bè này', 400, 'DATA_NOT_FOUND');
+    }
+    await friendship.updateOne({
+      frp_status: 'ACCEPTED',
+      frp_actionUserId: actionUserId,
+    });
+    return Response.success(friendship, 'Mở chặn thành công');
   }
 }
