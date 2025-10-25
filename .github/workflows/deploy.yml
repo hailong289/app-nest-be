@@ -31,13 +31,16 @@ jobs:
               - 'apps/auth/**'
 
   deploy-auth-service:
-    needs: detect-changes
+    needs: 
+      - detect-changes
     if: ${{ needs.detect-changes.outputs.service-auth == 'true' }}
     uses: ./.github/workflows/deploy-auth.yml
     secrets: inherit
 
   deploy-gateway-service:
-    needs: detect-changes
+    needs: 
+      - detect-changes
+      - deploy-auth-service
     if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit
