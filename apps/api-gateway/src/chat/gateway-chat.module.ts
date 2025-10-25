@@ -3,6 +3,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { join } from 'path';
 import { GatewayChatController } from './gateway-chat.controller';
+import { GatewaySocialController } from './social/gateway-social.controller';
 import { GatewayService } from '../gateway/gateway.service';
 
 @Module({
@@ -12,7 +13,7 @@ import { GatewayService } from '../gateway/gateway.service';
         name: SERVICES.CHAT,
         transport: Transport.GRPC,
         options: {
-          package: 'chat',
+          package: ['chat', 'social'],
           protoPath: join(
             process.cwd(),
             process.env.GATEWAY_CHAT_PROTO_PATH || 'libs/grpc/chat.proto',
@@ -42,7 +43,7 @@ import { GatewayService } from '../gateway/gateway.service';
       },
     ]),
   ],
-  controllers: [GatewayChatController],
+  controllers: [GatewayChatController, GatewaySocialController],
   providers: [GatewayService],
   exports: [ClientsModule],
 })

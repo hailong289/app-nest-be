@@ -24,7 +24,7 @@ import {
   RemoveMemberRoomDto,
 } from '@app/dto/room.dto';
 
-interface ChatGrpcService {
+export interface ChatGrpcService {
   createRoom(data: any): any;
   leavingRoom(data: any): any;
   removeMember(data: any): any;

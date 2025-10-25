@@ -38,6 +38,7 @@ export class AppModule {
         { path: 'auth/update-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
         { path: 'chat/*path', method: RequestMethod.ALL },
+        { path: 'social/*path', method: RequestMethod.ALL },
       );
   }
 }
