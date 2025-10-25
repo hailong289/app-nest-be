@@ -17,7 +17,7 @@ import kafkaConfig from './config/app/kafka.config';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/notification/.env'),
-      load: [firebaseConfig, redisConfig, mailConfig, appConfig, kafkaConfig],
+      load: [firebaseConfig, mailConfig, appConfig, kafkaConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],

@@ -15,6 +15,7 @@ jobs:
     outputs:
       service-auth: ${{steps.filter.outputs.service-auth }}
       service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
+      service-noti: ${{ steps.filter.outputs.service-noti }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -29,12 +30,21 @@ jobs:
               - 'apps/api-gateway/**'
             service-auth:
               - 'apps/auth/**'
+            service-noti:
+              - 'apps/notification/**'
 
   deploy-auth-service:
     needs: 
       - detect-changes
     if: ${{ needs.detect-changes.outputs.service-auth == 'true' }}
     uses: ./.github/workflows/deploy-auth.yml
+    secrets: inherit
+
+  deploy-noti-service:
+    needs: 
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-noti == 'true' }}
+    uses: ./.github/workflows/deploy-noti.yml
     secrets: inherit
 
   deploy-gateway-service:
