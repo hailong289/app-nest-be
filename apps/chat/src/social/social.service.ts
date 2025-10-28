@@ -345,6 +345,20 @@ export class SocialService {
       { $sort: { createdAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
+      {
+        $project: {
+          usr_id: 1,
+          usr_fullname: 1,
+          usr_email: 1,
+          usr_phone: 1,
+          usr_gender: 1,
+          usr_dateOfBirth: 1,
+          usr_avatar: 1,
+          usr_status: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
     ]);
 
     const totalAgg = await this.userModel.aggregate([
