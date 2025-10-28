@@ -187,6 +187,7 @@ export class GatewaySocialController {
       search: search || '',
       page: page || 1,
       limit: limit || 10,
+      userId: req.user.usr_id,
     };
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.SearchUsers.bind(this.socialService),

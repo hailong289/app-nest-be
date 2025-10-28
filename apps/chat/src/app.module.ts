@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
@@ -8,6 +8,8 @@ import path from 'node:path';
 import { SocialModule } from './social/social.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 import { mongoConfig, MongodbModule, RedisModule } from 'libs/db/src';
+import { kafkaConfig } from 'libs/config';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -16,13 +18,13 @@ import { mongoConfig, MongodbModule, RedisModule } from 'libs/db/src';
         process.cwd(),
         `apps/chat/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [redisConfig, mongoConfig],
+      load: [redisConfig, mongoConfig, kafkaConfig],
     }),
     MongodbModule,
     RedisModule,
     RoomsModule,
     HandleChatModule,
-    SocialModule,
+    forwardRef(() => SocialModule),
   ],
   controllers: [ChatController],
   providers: [ChatService],

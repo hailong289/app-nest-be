@@ -6,9 +6,14 @@ import friendshipModel from 'libs/db/src/mongo/model/friendship.model';
 import userModel from 'libs/db/src/mongo/model/user.model';
 import { RoomsService } from '../rooms/rooms.service';
 import roomModel from 'libs/db/src/mongo/model/room.model';
+import { KafkaModule } from 'libs/kafka/kafka.module';
+import { SERVICES } from '@app/constants';
 
 @Module({
-  imports: [MongooseModule.forFeature([friendshipModel, userModel, roomModel])],
+  imports: [
+    MongooseModule.forFeature([friendshipModel, userModel, roomModel]),
+    KafkaModule.register(SERVICES.NOTIFICATION),
+  ],
   controllers: [SocialController],
   providers: [SocialService, RoomsService],
   exports: [SocialService],

@@ -2,6 +2,7 @@ import { INestMicroservice, Logger, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
+  ClientKafka,
   KafkaOptions,
   MicroserviceOptions,
   Transport,
@@ -294,6 +295,35 @@ class Utils {
       const message = error instanceof Error ? error.message : 'Unknown error';
       return Response.error(message, 500, 'INTERNAL_SERVER_ERROR');
     }
+  }
+
+  static async dispatchEventKafka(
+    client: ClientKafka,
+    pattern: string,
+    data: Record<string, unknown> = {},
+  ): Promise<
+    ReturnType<typeof Response.success> | ReturnType<typeof Response.error>
+  > {
+    // bắt đầu connection kafka
+    try {
+      await client.connect();
+    } catch (error) {
+      return Response.error(
+        `Không thể kết nối đến Kafka: ${error.message}`,
+        503,
+        'SERVICE_UNAVAILABLE',
+      );
+    }
+    try {
+      await client.emit(pattern, data);
+    } catch (error) {
+      return Response.error(
+        `Không thể gửi event ${pattern}: ${error.message}`,
+        503,
+        'SERVICE_UNAVAILABLE',
+      );
+    }
+    return Response.success(true, 'Gửi event thành công');
   }
 }
 

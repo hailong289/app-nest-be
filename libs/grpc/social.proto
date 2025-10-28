@@ -90,6 +90,7 @@ message SearchUsersRequest {
   string search = 1;
   int32 page = 2;
   int32 limit = 3;
+  string userId = 4;
 }
 
 message SearchUsersResponse {
@@ -124,8 +125,20 @@ message Friend {
   string dateOfBirth = 7;
   string avatar = 8;
   string status = 9;
-  int64 createdAt = 10;
-  int64 updatedAt = 11;
+  string createdAt = 10;
+  string updatedAt = 11;
+  Friendship friendship = 12;
+}
+
+message Friendship {
+  string _id = 1; 
+  string frpId = 2; 
+  string userId1 = 3;
+  string userId2 = 4;
+  string actionUserId = 5;
+  string status = 6; // "PENDING", "ACCEPTED", "REJECTED", "BLOCKED"
+  string createdAt = 7;
+  string updatedAt = 8;
 }
 
 message RemoveFriendRequest {

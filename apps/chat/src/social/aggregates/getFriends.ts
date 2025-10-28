@@ -49,8 +49,13 @@ export const getFriendsAggregate = (
       },
     },
     {
+      $addFields: {
+        friendship: { $arrayElemAt: ['$friendship', 0] },
+      },
+    },
+    {
       $match: {
-        friendship: { $ne: [] },
+        friendship: { $ne: null },
         ...searchMatch,
       },
     },
@@ -60,5 +65,55 @@ export const getFriendsAggregate = (
     {
       $limit: limit,
     },
+  ];
+};
+
+export const searchUsersAggregate = (
+  search: string,
+  page: number,
+  limit: number,
+  userId: string,
+) => {
+  const matchSearch = search
+    ? {
+        $or: [
+          { usr_fullname: { $regex: search, $options: 'i' } },
+          { usr_email: { $regex: search, $options: 'i' } },
+          { usr_phone: { $regex: search, $options: 'i' } },
+        ],
+      }
+    : {};
+  return [
+    { $match: { ...matchSearch, usr_id: { $ne: userId } } },
+    {
+      $lookup: {
+        from: 'Friendships',
+        let: { currentUserId: userId, candidateId: '$usr_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  {
+                    $and: [
+                      { $eq: ['$frp_userId1', '$$currentUserId'] },
+                      { $eq: ['$frp_userId2', '$$candidateId'] },
+                    ],
+                  },
+                  {
+                    $and: [
+                      { $eq: ['$frp_userId2', '$$currentUserId'] },
+                      { $eq: ['$frp_userId1', '$$candidateId'] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'friendship',
+      },
+    },
+    { $match: { friendship: { $eq: [] } } },
   ];
 };

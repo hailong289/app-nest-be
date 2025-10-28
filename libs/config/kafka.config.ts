@@ -3,7 +3,8 @@ import { registerAs } from '@nestjs/config';
 export default registerAs('kafka', () => {
   const isSasl =
     process.env.NODE_ENV === 'production' ||
-    (process.env.KAFKA_SASL_USERNAME && process.env.KAFKA_SASL_PASSWORD);
+    !!(process.env.KAFKA_SASL_USERNAME && process.env.KAFKA_SASL_PASSWORD);
+
 
   return {
     // Broker configuration
