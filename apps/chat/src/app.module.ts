@@ -6,9 +6,10 @@ import { RoomsModule } from './rooms/rooms.module';
 import { HandleChatModule } from './handle-chat/handle-chat.module';
 import path from 'node:path';
 import { SocialModule } from './social/social.module';
-import kafkaConfig from './config/kafka.config';
 import redisConfig from 'libs/db/src/config/redis.config';
 import { mongoConfig, MongodbModule, RedisModule } from 'libs/db/src';
+import { kafkaConfig } from 'libs/config';
+
 @Module({
   imports: [
     ConfigModule.forRoot({

@@ -10,7 +10,7 @@ import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
-import kafkaConfig from './config/app/kafka.config';
+import { kafkaConfig } from 'libs/config';
 
 @Module({
   imports: [
