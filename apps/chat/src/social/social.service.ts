@@ -1,6 +1,6 @@
 import { SendFriendRequestDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import axios from 'axios';
 import friendshipModel, {
@@ -12,8 +12,13 @@ import { Response } from 'libs/helpers/response';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
-import { getFriendsAggregate } from './aggregates/getFriends';
+import {
+  getFriendsAggregate,
+  searchUsersAggregate,
+} from './aggregates/getFriends';
 import roomModel, { Room } from 'libs/db/src/mongo/model/room.model';
+import { SERVICES } from '@app/constants';
+import { ClientKafka } from '@nestjs/microservices';
 
 @Injectable()
 export class SocialService {
@@ -24,6 +29,8 @@ export class SocialService {
     @InjectModel(keysModel.name) private readonly keyModel: Model<Key>,
     @InjectModel(roomModel.name) private readonly roomModel: Model<Room>,
     private readonly roomService: RoomsService,
+    @Inject(SERVICES.NOTIFICATION)
+    private readonly notificationClient: ClientKafka,
   ) {}
 
   // Friend requests
@@ -59,30 +66,28 @@ export class SocialService {
     });
     // gửi notification cho người nhận
     const fcmTokens = await this.keyModel.find(
-      { tkn_userId: receiver.usr_id },
+      { tkn_userId: receiver._id },
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
-      await axios.post(
-        `${process.env.GATEWAY_URL}/api/notifications/push-notification`,
-        {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-          title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
-          message: 'Bạn có một lời mời kết bạn mới',
-          data: {
-            userId: receiver.usr_id,
-            senderId: user.usr_id,
-            senderName: user.usr_fullname,
-            senderAvatar: user.usr_avatar,
-            push_type: 'friend_request',
-          },
+      Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
+        fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+        title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
+        message: 'Bạn có một lời mời kết bạn mới',
+        data: {
+          userId: receiver.usr_id,
+          senderId: user.usr_id,
+          senderName: user.usr_fullname,
+          senderAvatar: user.usr_avatar,
+          push_type: 'friend_request',
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+      }).then((response) => {
+        if (response.statusCode !== 200) {
+          console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
+        } else {
+          console.log('🔥 Gửi notification thành công:', response);
+        }
+      });
     }
     return Response.success(friendship, 'Gửi lời mời kết bạn thành công');
   }
@@ -155,31 +160,24 @@ export class SocialService {
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
-      const response = await Utils.callApiGateway(
-        '/api/notifications/push-notification',
-        'POST',
-        {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-          title: `${user2.usr_fullname} đã chấp nhận lời mời kết bạn`,
-          message: 'Bạn đã được kết bạn với người dùng',
-          data: {
-            userId: user1._id,
-            senderId: user2._id,
-            senderName: user2.usr_fullname,
-            senderAvatar: user2.usr_avatar,
-            push_type: 'friend_request',
-          },
+      Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
+        fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+        title: `${user2.usr_fullname} đã chấp nhận lời mời kết bạn`,
+        message: 'Bạn đã được kết bạn với người dùng',
+        data: {
+          userId: user1._id,
+          senderId: user2._id,
+          senderName: user2.usr_fullname,
+          senderAvatar: user2.usr_avatar,
+          push_type: 'friend_request',
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-        5000, // 5s thời gian chờ
-      );
-      if (response.statusCode !== 200) {
-        console.error('🔥 Error sending notification:', response);
-      }
+      }).then((response) => {
+        if (response.statusCode !== 200) {
+          console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
+        } else {
+          console.log('🔥 Gửi notification thành công:', response);
+        }
+      });
     }
     const result = {
       frpId,
@@ -260,30 +258,24 @@ export class SocialService {
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
-      try {
-        await axios.post(
-          `${process.env.GATEWAY_URL}/api/notifications/push-notification`,
-          {
-            fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-            title: `${user2.usr_fullname} đã từ chối lời mời kết bạn`,
-            message: 'Bạn đã bị từ chối kết bạn với người dùng',
-            data: {
-              userId: user1._id,
-              senderId: user2._id,
-              senderName: user2.usr_fullname,
-              senderAvatar: user2.usr_avatar,
-              push_type: 'friend_request',
-            },
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-          },
-        );
-      } catch (error) {
-        console.error('🔥 Error sending notification:', error);
-      }
+      Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
+        fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+        title: `${user2.usr_fullname} đã từ chối lời mời kết bạn`,
+        message: 'Bạn đã bị từ chối kết bạn với người dùng',
+        data: {
+          userId: user1._id,
+          senderId: user2._id,
+          senderName: user2.usr_fullname,
+          senderAvatar: user2.usr_avatar,
+          push_type: 'friend_request',
+        },
+      }).then((response) => {
+        if (response.statusCode !== 200) {
+          console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
+        } else {
+          console.log('🔥 Gửi notification thành công:', response);
+        }
+      });
     }
     return Response.success(
       {
@@ -324,7 +316,12 @@ export class SocialService {
       },
     ]);
 
-    const data = friends.map((friend) => Utils.unprefix(friend, 'usr_'));
+    const data = friends.map((friend) => {
+      return {
+        ...Utils.unprefix(friend, 'usr_'),
+        friendship: Utils.unprefix(friend.friendship, 'frp_'),
+      };
+    });
 
     return Response.success(
       {
@@ -337,31 +334,29 @@ export class SocialService {
     );
   }
 
-  async searchUsers(search: string, page: number, limit: number) {
-    const users = await this.userModel
-      .find({
-        $or: [
-          { usr_fullname: { $regex: search, $options: 'i' } },
-          { usr_email: { $regex: search, $options: 'i' } },
-          { usr_phone: { $regex: search, $options: 'i' } },
-        ],
-      })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .sort({ createdAt: -1 });
+  async searchUsers(
+    search: string,
+    page: number,
+    limit: number,
+    userId: string,
+  ) {
+    const users = await this.userModel.aggregate([
+      ...searchUsersAggregate(search, page, limit, userId),
+      { $sort: { createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+    ]);
 
-    const sumTotal = await this.userModel.countDocuments({
-      $or: [
-        { usr_fullname: { $regex: search, $options: 'i' } },
-        { usr_email: { $regex: search, $options: 'i' } },
-        { usr_phone: { $regex: search, $options: 'i' } },
-      ],
-    });
-    const data = users.map((user) => Utils.unprefix(user.toObject(), 'usr_'));
+    const totalAgg = await this.userModel.aggregate([
+      ...searchUsersAggregate(search, page, limit, userId),
+      { $count: 'total' },
+    ]);
+
+    const data = users.map((user) => Utils.unprefix(user, 'usr_'));
     return Response.success(
       {
         users: data,
-        total: sumTotal,
+        total: totalAgg[0]?.total || 0,
         page: page,
         limit: limit,
       },

@@ -176,6 +176,7 @@ export class GatewaySocialController {
 
   @Get('users/search')
   async searchUsers(
+    @Req() req: AuthenticatedRequest,
     @Query('search') search: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
@@ -184,6 +185,7 @@ export class GatewaySocialController {
       search: search || '',
       page: page || 1,
       limit: limit || 10,
+      userId: req.user.usr_id,
     };
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.SearchUsers.bind(this.socialService),

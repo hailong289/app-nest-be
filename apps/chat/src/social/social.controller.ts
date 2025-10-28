@@ -46,7 +46,12 @@ export class SocialController {
 
   @GrpcMethod('SocialService', 'SearchUsers')
   async searchUsers(data: any) {
-    return this.socialService.searchUsers(data.search, data.page, data.limit);
+    return this.socialService.searchUsers(
+      data.search,
+      data.page,
+      data.limit,
+      data.userId,
+    );
   }
 
   @GrpcMethod('SocialService', 'GetFriends')
