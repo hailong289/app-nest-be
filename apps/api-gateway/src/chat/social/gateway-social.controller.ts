@@ -75,6 +75,7 @@ export class GatewaySocialController {
       frpUserId2: receiverId,
       frpActionUserId: req.user._id,
     };
+
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.SendFriendRequest.bind(this.socialService),
       data,
@@ -182,6 +183,7 @@ export class GatewaySocialController {
     @Query('limit') limit?: number,
   ) {
     const data = {
+      currentUserId: req.user.usr_id,
       search: search || '',
       page: page || 1,
       limit: limit || 10,

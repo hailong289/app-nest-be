@@ -12,10 +12,10 @@ async function bootstrap() {
       transport: Transport.GRPC,
       options: {
         package: ['chat', 'social'],
-        protoPath: join(
-          process.cwd(),
-          process.env.PROTO_URL || 'libs/grpc/chat.proto',
-        ),
+        protoPath: [
+          join(process.cwd(), 'libs/grpc/chat.proto'),
+          join(process.cwd(), 'libs/grpc/social.proto'),
+        ],
         url: `${process.env.HOST}:${process.env.PORT}`,
         loader: {
           keepCase: true,
@@ -32,6 +32,7 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionsFilter());
   // useSharedRedisAdapter(app);
   await app.listen();
+  console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
   logger.log(`chat gRPC microservice is listening on port ${process.env.PORT}`);
 }
 void bootstrap();

@@ -15,7 +15,7 @@ export class SendMessageDto {
   userName: string;
 }
 
-export class CreateRoomDto {
+export class CreateMessageRoomDto {
   name: string;
   description: string;
   createdBy: number;

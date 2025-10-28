@@ -16,13 +16,16 @@ import kafkaConfig from './config/app/kafka.config';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/notification/.env'),
+      envFilePath: path.resolve(
+        process.cwd(),
+        `apps/notification/.env.${process.env.NODE_ENV || 'development'}`,
+      ),
       load: [firebaseConfig, redisConfig, mailConfig, appConfig, kafkaConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => {
+      useFactory: (configService: ConfigService) => {
         const mailConfig = {
           transport: {
             host: configService.get<string>('mail.host'),
