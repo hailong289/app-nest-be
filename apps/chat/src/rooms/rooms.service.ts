@@ -15,8 +15,6 @@ import { Model, PipelineStage } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
-import { memberType, Room } from 'libs/db/src/mongo/model/room.model';
-import { User } from 'libs/db/src/mongo/model/user.model';
 import {
   AddMemberRoomDto,
   ChangelinkAvatarRoomDto,
@@ -27,10 +25,8 @@ import {
   RemoveMemberRoomDto,
 } from '@app/dto/room.dto';
 import removeAccents from 'remove-accents'; // npm i remove-accents
-import {
-  EventRoomType,
-  RoomEvent,
-} from 'libs/db/src/mongo/model/room-events.model';
+import { memberType, Room, RoomEvent, User, EventRoomType } from 'libs/db/src';
+
 @Injectable()
 export class RoomsService {
   private readonly utils = Utils;
@@ -625,6 +621,10 @@ export class RoomsService {
       ],
     });
     if (checkExistDB) {
+      await Promise.all([
+        this.redis.sAdd(this.key.ROOM_MEMBER + roomId, userId),
+        this.redis.sAdd(this.key.USER_ROOM + userId, roomId),
+      ]);
       return true;
     }
     return false;
@@ -1062,7 +1062,7 @@ export class RoomsService {
     return Response.success(true, 'Đổi tên thành công');
   }
 
-  async GetRoom(payload: GetRoomDto): Promise<any> {
+  async GetRoom(payload: GetRoomDto) {
     const { userId, roomId } = payload;
     if (!userId) {
       throw new NotFoundException('Không tìm thấy người dùng');
