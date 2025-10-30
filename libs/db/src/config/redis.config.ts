@@ -13,7 +13,7 @@ export default registerAs('redis', () => ({
   password: process.env.REDIS_PASSWORD || undefined,
   db: Number.parseInt(process.env.REDIS_DB || '0', 10),
   ttl: Number.parseInt(process.env.REDIS_TTL || '300', 10), // TTL mặc định 5 phút
-  keyPrefix: process.env.REDIS_KEY_PREFIX || 'chat:',
+  keyPrefix: process.env.REDIS_KEY_PREFIX || 'chats:',
   url:
     process.env.REDIS_URL ||
     (() => {

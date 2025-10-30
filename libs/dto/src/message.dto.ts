@@ -1,3 +1,5 @@
+import { MsgType } from 'libs/db/src';
+
 // Message DTOs
 export class MessageDto {
   id: number;
@@ -28,4 +30,14 @@ export class RoomDto {
   createdBy: number;
   participants: number[];
   createdAt: Date;
+}
+
+export class CreateMessage {
+  roomId: string;
+  userId: string;
+  type: MsgType;
+  content: string | null;
+  attachments: Array<string> | [];
+  replyTo: string | null;
+  pinned?: boolean;
 }

@@ -1,7 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ChatController } from './chat.controller';
-import { ChatService } from './chat.service';
 import { RoomsModule } from './rooms/rooms.module';
 import { HandleChatModule } from './handle-chat/handle-chat.module';
 import path from 'node:path';
@@ -26,7 +24,5 @@ import { kafkaConfig } from 'libs/config';
     HandleChatModule,
     forwardRef(() => SocialModule),
   ],
-  controllers: [ChatController],
-  providers: [ChatService],
 })
 export class AppModule {}

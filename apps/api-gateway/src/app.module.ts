@@ -9,6 +9,7 @@ import { GatewayNotificationModule } from './notification/gateway-notification.m
 import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
 import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
+import { ChatWebSocketModule } from './ws/chat/chat.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 
 @Module({
@@ -28,6 +29,7 @@ import redisConfig from 'libs/db/src/config/redis.config';
     GatewayNotificationModule,
     GatewayFileSystemModule,
     GatewayChatModule,
+    ChatWebSocketModule, // WebSocket Chat Gateway
   ],
 })
 export class AppModule {

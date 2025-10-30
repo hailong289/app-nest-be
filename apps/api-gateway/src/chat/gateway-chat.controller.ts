@@ -23,9 +23,11 @@ import {
   OptionsType,
   RemoveMemberRoomDto,
 } from '@app/dto/room.dto';
+import { ChatGateway } from '../ws/chat/chat-gateway';
+import { REDISKEY } from '@app/constants/RedisKey';
 
-export interface ChatGrpcService {
-  createRoom(data: any): any;
+export interface RoomGrpcService {
+  createRoom(data: any): Promise<{ metadata?: any }>;
   leavingRoom(data: any): any;
   removeMember(data: any): any;
   addMember(data: any): any;
@@ -38,15 +40,17 @@ export interface ChatGrpcService {
 
 @Controller('chat')
 export class GatewayChatController {
-  private chatGrpcService: ChatGrpcService;
+  private RoomGrpcService: RoomGrpcService;
+  private readonly key = REDISKEY;
 
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
+    private readonly chatGateway: ChatGateway,
   ) {}
   onModuleInit() {
-    this.chatGrpcService =
-      this.chatClient.getService<ChatGrpcService>('ChatService');
+    this.RoomGrpcService =
+      this.chatClient.getService<RoomGrpcService>('ChatService');
   }
   // Chat endpoints
   @Post('rooms')
@@ -56,10 +60,30 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.createRoom.bind(this.chatGrpcService),
+
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.createRoom.bind(this.RoomGrpcService),
       body,
-    );
+    )) as { metadata?: { members?: Array<{ id?: string }> } };
+
+    // Emit WebSocket event to room members
+    const room = result?.metadata;
+    if (room?.members && Array.isArray(room.members)) {
+      const memberIds: string[] = room.members
+        .filter(
+          (member): member is { id: string } =>
+            member != null && typeof member.id === 'string',
+        )
+        .map((member) => this.key.ROOM_CLIENT(member.id));
+
+      // Emit to each member individually
+      console.log('Room member keys:', memberIds);
+      memberIds.forEach((memberId: string) => {
+        this.chatGateway.io.to(memberId).emit('room-new', room);
+      });
+    }
+
+    return result;
   }
 
   @Patch('rooms/leaving')
@@ -70,7 +94,7 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.leavingRoom.bind(this.chatGrpcService),
+      this.RoomGrpcService.leavingRoom.bind(this.RoomGrpcService),
       body,
     );
   }
@@ -83,7 +107,7 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.removeMember.bind(this.chatGrpcService),
+      this.RoomGrpcService.removeMember.bind(this.RoomGrpcService),
       body,
     );
   }
@@ -96,7 +120,7 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.addMember.bind(this.chatGrpcService),
+      this.RoomGrpcService.addMember.bind(this.RoomGrpcService),
       body,
     );
   }
@@ -118,7 +142,7 @@ export class GatewayChatController {
       options: safeOptions,
     };
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.getRooms.bind(this.chatGrpcService),
+      this.RoomGrpcService.getRooms.bind(this.RoomGrpcService),
       data,
     );
   }
@@ -133,7 +157,7 @@ export class GatewayChatController {
       roomId: id,
     };
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.getRoom.bind(this.chatGrpcService),
+      this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
       body,
     );
   }
@@ -146,7 +170,7 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.changeAvatar.bind(this.chatGrpcService),
+      this.RoomGrpcService.changeAvatar.bind(this.RoomGrpcService),
       body,
     );
   }
@@ -159,7 +183,7 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.changeName.bind(this.chatGrpcService),
+      this.RoomGrpcService.changeName.bind(this.RoomGrpcService),
       body,
     );
   }
@@ -177,7 +201,7 @@ export class GatewayChatController {
   ) {
     body.userId = req.user?._id;
     return await this.gatewayService.dispatchGrpcRequest(
-      this.chatGrpcService.changeNickName.bind(this.chatGrpcService),
+      this.RoomGrpcService.changeNickName.bind(this.RoomGrpcService),
       body,
     );
   }

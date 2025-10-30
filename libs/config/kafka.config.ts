@@ -5,7 +5,6 @@ export default registerAs('kafka', () => {
     process.env.NODE_ENV === 'production' ||
     !!(process.env.KAFKA_SASL_USERNAME && process.env.KAFKA_SASL_PASSWORD);
 
-
   return {
     // Broker configuration
     host: process.env.KAFKA_HOST || 'localhost',

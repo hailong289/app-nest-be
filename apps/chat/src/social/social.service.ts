@@ -2,7 +2,6 @@ import { SendFriendRequestDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import axios from 'axios';
 import friendshipModel, {
   Friendship,
 } from 'libs/db/src/mongo/model/friendship.model';
