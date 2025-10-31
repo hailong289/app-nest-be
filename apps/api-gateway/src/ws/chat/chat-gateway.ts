@@ -16,7 +16,7 @@ import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
 import { SERVICES } from '@app/constants';
-import { resourceLimits } from 'node:worker_threads';
+
 interface JwtPayload {
   _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
   usr_fullname: string; // "Lê Thiên Trí"
@@ -39,6 +39,8 @@ interface SocketWithUser extends Socket {
 }
 export interface ChatGrpcService {
   CreateNewMsg(data: any): any;
+  getRoom(data: any): any;
+  GetOneMsg(data: any): any;
 }
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -193,7 +195,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { ok: true, user };
   }
 
-  @SubscribeMessage('message')
+  @SubscribeMessage('message:send')
   async onMessage(
     @MessageBody()
     data: {
@@ -220,23 +222,40 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
         data,
-      )) as { msg: Record<string, any>; members: [Record<string, any>] };
-
-      console.log('[MESSAGE] Created:', result);
+      )) as {
+        msgId: string;
+        members: [Record<string, any>];
+        roomId: string;
+      };
 
       // Emit message mới đến tất cả members trong room
-      this.io.to(this.key.ROOM_CLIENT(user.usr_id)).emit('message:upset', {
-        ...result.msg,
-      });
-      for (const i of result.members) {
-        if (i.id !== user.usr_id && result.msg) {
-          result.msg.isMine = false;
-          result.msg.isRead = false;
-        }
-        this.io.to(this.key.ROOM_CLIENT(i.id)).emit('message:upset', {
-          ...result.msg,
-        });
-      }
+      // Parallel processing để tăng performance
+      await Promise.all(
+        result.members.map(async (member) => {
+          // Clone message để tránh mutate shared object
+
+          // Get updated room data cho member
+          const roomUpset = (await this.gatewayService.dispatchGrpcRequest(
+            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+            {
+              userId: member.user_id as string,
+              roomId: result.roomId,
+            },
+          )) as Record<string, any>;
+          // get new message
+          const newMsg = await this.gatewayService.dispatchGrpcRequest(
+            this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+            {
+              userId: member.user_id as string,
+              msgId: result.msgId,
+            },
+          );
+          // Emit cả room và message updates đến member's socket room
+          const memberSocketRoom = this.key.ROOM_CLIENT(member.id);
+          this.io.to(memberSocketRoom).emit('room:upset', roomUpset.metadata);
+          this.io.to(memberSocketRoom).emit('message:upset', newMsg);
+        }),
+      );
 
       return { ok: true, data: result };
     } catch (error) {

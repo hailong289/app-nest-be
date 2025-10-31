@@ -37,18 +37,22 @@ export class HandleChatService {
   async createMessage(payload: CreateMessage) {
     const { roomId, userId, type, content, attachments, replyTo, pinned } =
       payload;
-    this.log.log('🚀 ~ HandleChatService ~ createMessage ~ payload:', payload);
 
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
       throw new NotFoundException('Bạn không thuộc thể gửi tin nhắn');
     }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('người dùng không tồn tại');
+    }
+
     // get info room
     const finInfo = await this.roomModel.findOne({
-      $or: [
-        { room_id: roomId },
-        { room_id: this.utils.pairRoomId(roomId, userId) },
-      ],
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
     });
     if (!finInfo) {
       throw new NotFoundException('Phòng không tồn tại');
@@ -143,11 +147,12 @@ export class HandleChatService {
       );
 
       // Get message details
-      const result = await this.getOneMsg(userId, createNewMsg._id.toString());
+      // const result = await this.getOneMsg(userId, createNewMsg._id.toString());
 
       return {
-        msg: result,
+        msgId: createNewMsg._id.toString(),
         members: finInfo.room_members,
+        roomId: finInfo.room_id,
       };
     } catch (error) {
       this.log.error('Error creating message:', error);
@@ -161,21 +166,17 @@ export class HandleChatService {
     const uid = this.utils.convertToObjectIdMongoose(userId);
     const rid = this.utils.convertToObjectIdMongoose(roomMongoId);
 
-    // Lấy room để có room.room_id (business id) map qua Messages.msg_roomId
-    const room = await this.roomModel
-      .findById(rid)
-      .select({ _id: 1, room_id: 1 })
-      .lean();
-    if (!room?.room_id) throw new Error('Room not found or missing room_id');
-
+    // lấy state hiện tại
     const state = await this.RoomsUsersState.findOne({
       room_id: rid,
       user_id: uid,
-    }).lean();
-    const lastAt = state?.last_read_at ?? null;
-    const clearTs = state?.clear_before_ts ?? null;
+    })
+      .select({ last_read_at: 1, clear_before_ts: 1 })
+      .lean();
 
     // mốc bắt đầu đếm: max(last_read_at, clear_before_ts)
+    const lastAt = state?.last_read_at ?? null;
+    const clearTs = state?.clear_before_ts ?? null;
     const baseTs =
       lastAt && clearTs
         ? lastAt > clearTs
@@ -184,21 +185,23 @@ export class HandleChatService {
         : lastAt || clearTs || null;
 
     const filter: FilterQuery<Message> = {
-      msg_roomId: room.room_id,
+      msg_roomId: rid, // ⛳ ObjectId ref Room (đã sửa)
       msg_sender: { $ne: uid },
       $or: [{ deletedAt: null }, { deletedAt: { $exists: false } }],
     };
     if (baseTs) filter.createdAt = { $gt: baseTs };
 
+    // đếm unread
     const unread = await this.messageModel.countDocuments(filter);
 
+    // cập nhật lại RoomsUsersState
     const updated = await this.RoomsUsersState.findOneAndUpdate(
       { room_id: rid, user_id: uid },
       { $set: { unread_count: unread } },
       { new: true, upsert: true },
-    );
+    ).select({ unread_count: 1 });
 
-    return { unread_count: updated.unread_count };
+    return { unread_count: updated ? updated.unread_count : 0 };
   }
 
   async getOneMsg(userId: string, msgId: string) {

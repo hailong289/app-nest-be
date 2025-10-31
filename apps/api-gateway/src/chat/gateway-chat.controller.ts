@@ -79,7 +79,7 @@ export class GatewayChatController {
       // Emit to each member individually
       console.log('Room member keys:', memberIds);
       memberIds.forEach((memberId: string) => {
-        this.chatGateway.io.to(memberId).emit('room-new', room);
+        this.chatGateway.io.to(memberId).emit('room:upset', room);
       });
     }
 

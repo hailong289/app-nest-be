@@ -123,6 +123,9 @@ message metadataGetRoomsType{
   bool is_read=7;
   string avatar =8;
   repeated membersType members=9;
+  int64 unread_count=10;
+  bool pinned=11;
+  bool muted=12;
 
 
 }
@@ -130,12 +133,15 @@ message last_messageType{
   string content =1;
   string createdAt =2;
   string id =3;
+  string sender_fullname=4;
+  string sender_id=5;
 }
 message membersType {
   string id =1;
   string name=2;
   string role =3;
   string avatar=4;
+  string joinedAt=5;
 }
 
 
@@ -276,10 +282,17 @@ message InputCreateMsg{
 
 
 message MessageCoreMetadata {
-  MessageCore msg = 1;
-  repeated membersType members = 2;
+  string msgId = 1;
+  repeated membersTypePrivate members = 2;
+  string roomId=3;
 }
-
+message membersTypePrivate {
+  string id =1;
+  string name=2;
+  string role =3;
+  string avatar=4;
+  string user_id=5;
+}
 message InputGetOneMsg{
   string userId=1;
   string msgId=2;

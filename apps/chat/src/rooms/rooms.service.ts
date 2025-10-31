@@ -53,49 +53,13 @@ export class RoomsService {
     // socket các hành động
   }
   private handlePipeline(userId: string): PipelineStage[] {
-    const objectId = this.utils.convertToObjectIdMongoose(userId);
-    const result: PipelineStage[] = [
-      /** 1) Lấy Rooms mà user là member (nếu muốn bao gồm cả phòng từng gửi, xem block (1b) + (1c)) */
-      {
-        $match: {
-          'room_members.user_id': objectId,
-        },
-      },
+    const uid = this.utils.convertToObjectIdMongoose(userId);
 
-      /** (1b) Tùy chọn: lấy phòng user từng gửi (kể cả không còn trong members)
-       *  -> Bỏ comment cả (1b) và (1c) nếu cần OR theo sent_by_me
-       */
-      // {
-      //   $lookup: {
-      //     from: "Messages",
-      //     let: { rid: "$_id" },
-      //     pipeline: [
-      //       {
-      //         $match: {
-      //           $expr: {
-      //             $and: [
-      //               { $eq: ["$msg_room", "$$rid"] },
-      //               { $eq: ["$msg_sender", objectId] },
-      //             ],
-      //           },
-      //         },
-      //       },
-      //       { $limit: 1 },
-      //     ],
-      //     as: "sent_by_me",
-      //   },
-      // },
-      /** (1c) OR theo members hoặc đã từng gửi */
-      // {
-      //   $match: {
-      //     $or: [
-      //       { "room_members.user_id": objectId },
-      //       { "sent_by_me.0": { $exists: true } },
-      //     ],
-      //   },
-      // },
+    const pipeline: PipelineStage[] = [
+      /** 1) Chỉ các phòng mà tôi là member */
+      { $match: { 'room_members.user_id': uid } },
 
-      /** 2) Map thông tin user (name, avatar) vào room_members (1 lookup duy nhất) */
+      /** 2) Map info user vào room_members (1 lookup) */
       {
         $lookup: {
           from: 'Users',
@@ -118,7 +82,7 @@ export class RoomsService {
                     name: {
                       $let: {
                         vars: {
-                          hit: {
+                          u: {
                             $first: {
                               $filter: {
                                 input: '$membersInfo',
@@ -128,13 +92,13 @@ export class RoomsService {
                             },
                           },
                         },
-                        in: '$$hit.usr_fullname',
+                        in: '$$u.usr_fullname',
                       },
                     },
                     avatar: {
                       $let: {
                         vars: {
-                          hit: {
+                          u: {
                             $first: {
                               $filter: {
                                 input: '$membersInfo',
@@ -144,7 +108,7 @@ export class RoomsService {
                             },
                           },
                         },
-                        in: '$$hit.usr_avatar',
+                        in: '$$u.usr_avatar',
                       },
                     },
                   },
@@ -156,18 +120,18 @@ export class RoomsService {
       },
       { $unset: 'membersInfo' },
 
-      /** 3) RoomsState (đúng khóa foreignField: room_id) */
+      /** 3) RoomsState (theo ObjectId) */
       {
         $lookup: {
           from: 'RoomsState',
-          localField: '_id', // _id của Rooms
-          foreignField: 'room_id', // room_id trong RoomsState
+          localField: '_id', // Room._id
+          foreignField: 'room_id', // RoomsState.room_id
           as: 'state',
         },
       },
       { $set: { state: { $first: '$state' } } },
 
-      /** 4) Tài liệu last_message (nếu cần thêm field ngoài snapshot) */
+      /** 4) last_message_doc & sender */
       {
         $lookup: {
           from: 'Messages',
@@ -177,12 +141,31 @@ export class RoomsService {
         },
       },
       { $set: { last_message_doc: { $first: '$last_message_doc' } } },
+      {
+        $lookup: {
+          from: 'Users',
+          let: {
+            sid: {
+              $ifNull: [
+                '$state.last_message_snapshot.sender_id',
+                '$last_message_doc.msg_sender',
+              ],
+            },
+          },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
+            { $project: { _id: 1, usr_id: 1, usr_fullname: 1, usr_avatar: 1 } },
+          ],
+          as: 'last_message_sender',
+        },
+      },
+      { $set: { last_message_sender: { $first: '$last_message_sender' } } },
 
-      /** 5) Trạng thái của tôi trong phòng (pin, last_read_at, ...) */
+      /** 5) RoomsUsersState của tôi */
       {
         $lookup: {
           from: 'RoomsUsersState',
-          let: { rid: '$_id', uid: objectId },
+          let: { rid: '$_id', uid: uid },
           pipeline: [
             {
               $match: {
@@ -195,24 +178,53 @@ export class RoomsService {
               },
             },
             { $limit: 1 },
+            {
+              $project: {
+                last_read_at: 1,
+                clear_before_ts: 1,
+                unread_count: 1,
+                muted: 1,
+                pinned: 1,
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
           ],
           as: 'my_state',
         },
       },
       { $set: { my_state: { $first: '$my_state' } } },
 
-      /** 6) Fallback: tôi đã read chính last_message chưa? */
+      /** 6) Tính lastMsgTs & lastMsgSender (doc ưu tiên snapshot fallback cả 2 chiều) */
+      {
+        $addFields: {
+          _lastMsgTs: {
+            $ifNull: [
+              '$last_message_doc.createdAt',
+              '$state.last_message_snapshot.createdAt',
+            ],
+          },
+          _lastMsgSender: {
+            $ifNull: [
+              '$last_message_doc.msg_sender',
+              '$state.last_message_snapshot.sender_id',
+            ],
+          },
+        },
+      },
+
+      /** 7) Read receipt cho chính last message */
       {
         $lookup: {
           from: 'MessageReads',
-          let: { lm: '$state.last_message_id' },
+          let: { lm: '$state.last_message_id', uid: uid },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
                     { $eq: ['$msg_id', '$$lm'] },
-                    { $eq: ['$user_id', objectId] },
+                    { $eq: ['$user_id', '$$uid'] },
                   ],
                 },
               },
@@ -224,70 +236,98 @@ export class RoomsService {
       },
       { $set: { my_lastmsg_read: { $first: '$my_lastmsg_read' } } },
 
-      /** 7) is_read:
-       *  - Không có last_message => true
-       *  - sender == tôi => true
-       *  - last_message.createdAt <= my_state.last_read_at => true
-       *  - có record trong MessageReads => true
-       */
+      /** 8) is_read: no last → true; mine → true; has receipt → true; lastMsgTs <= last_read_at → true */
       {
         $addFields: {
           is_read: {
-            $let: {
-              vars: { lm: '$last_message_doc' },
-              in: {
-                $cond: [
-                  { $not: ['$$lm'] },
-                  true,
+            $cond: [
+              { $not: ['$state.last_message_id'] },
+              true,
+              {
+                $or: [
+                  { $eq: ['$_lastMsgSender', uid] },
+                  { $ifNull: ['$my_lastmsg_read._id', false] },
                   {
-                    $or: [
-                      { $eq: ['$$lm.msg_sender', objectId] },
-                      {
-                        $and: [
-                          { $ifNull: ['$my_state.last_read_at', false] },
-                          {
-                            $lte: ['$$lm.createdAt', '$my_state.last_read_at'],
-                          },
-                        ],
-                      },
-                      { $ifNull: ['$my_lastmsg_read._id', false] },
+                    $and: [
+                      { $ifNull: ['$my_state.last_read_at', false] },
+                      { $lte: ['$_lastMsgTs', '$my_state.last_read_at'] },
                     ],
                   },
+                ],
+              },
+            ],
+          },
+        },
+      },
+
+      /** 9) unread_count_calc: baseTs = max(last_read_at, clear_before_ts) */
+      {
+        $addFields: {
+          _baseTs: {
+            $switch: {
+              branches: [
+                {
+                  case: {
+                    $and: [
+                      { $ifNull: ['$my_state.last_read_at', false] },
+                      { $ifNull: ['$my_state.clear_before_ts', false] },
+                      {
+                        $gt: [
+                          '$my_state.last_read_at',
+                          '$my_state.clear_before_ts',
+                        ],
+                      },
+                    ],
+                  },
+                  then: '$my_state.last_read_at',
+                },
+                {
+                  case: {
+                    $and: [
+                      { $ifNull: ['$my_state.last_read_at', false] },
+                      { $ifNull: ['$my_state.clear_before_ts', false] },
+                      {
+                        $lte: [
+                          '$my_state.last_read_at',
+                          '$my_state.clear_before_ts',
+                        ],
+                      },
+                    ],
+                  },
+                  then: '$my_state.clear_before_ts',
+                },
+              ],
+              default: {
+                $ifNull: [
+                  '$my_state.last_read_at',
+                  '$my_state.clear_before_ts',
                 ],
               },
             },
           },
         },
       },
-
-      /** 8) Đếm số tin chưa đọc (FAST) theo mốc last_read_at, exclude tin do tôi gửi */
       {
         $lookup: {
           from: 'Messages',
-          let: {
-            rid: '$_id',
-            lastAt: '$my_state.last_read_at',
-            uid: objectId,
-          },
+          let: { rid: '$_id', uid: uid, baseTs: '$_baseTs' },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ['$msg_room', '$$rid'] },
+                    { $eq: ['$msg_roomId', '$$rid'] },
                     { $ne: ['$msg_sender', '$$uid'] },
-                    // Nếu có soft-delete: chỉ đếm tin chưa xoá/thu hồi
                     {
                       $or: [
                         { $eq: ['$deletedAt', null] },
                         { $not: ['$deletedAt'] },
                       ],
                     },
-                    // Nếu có mốc last_read_at → chỉ lấy tin mới hơn mốc
                     {
                       $cond: [
-                        { $ifNull: ['$$lastAt', false] },
-                        { $gt: ['$createdAt', '$$lastAt'] },
+                        { $ifNull: ['$$baseTs', false] },
+                        { $gt: ['$createdAt', '$$baseTs'] },
                         true,
                       ],
                     },
@@ -300,10 +340,14 @@ export class RoomsService {
           as: 'unread',
         },
       },
-      { $set: { unread_count: { $ifNull: [{ $first: '$unread.cnt' }, 0] } } },
-      { $unset: 'unread' },
+      {
+        $set: {
+          unread_count_calc: { $ifNull: [{ $first: '$unread.cnt' }, 0] },
+        },
+      },
+      { $unset: ['unread', '_baseTs', '_lastMsgTs', '_lastMsgSender'] },
 
-      /** 9) Avatar hiển thị (private/group; fallback lấy 1 ảnh từ group nếu room_avatar rỗng) */
+      /** 10) Avatar & tên hiển thị (private fallback) */
       {
         $addFields: {
           _hasAvatar: { $ne: [{ $ifNull: ['$room_avatar', ''] }, ''] },
@@ -320,7 +364,7 @@ export class RoomsService {
                   $filter: {
                     input: '$members',
                     as: 'm',
-                    cond: { $ne: ['$$m.user_id', objectId] },
+                    cond: { $ne: ['$$m.user_id', uid] },
                   },
                 },
               },
@@ -347,32 +391,41 @@ export class RoomsService {
         },
       },
 
-      /** 10) Mốc sort: ưu tiên snapshot.createdAt, fallback updatedAt của Rooms */
+      /** 11) Sort key: last_message_doc.createdAt → snapshot.createdAt → state.updatedAt → room.updatedAt */
       {
         $addFields: {
           _lastTs: {
-            $ifNull: ['$state.last_message_snapshot.createdAt', '$updatedAt'],
+            $ifNull: [
+              '$last_message_doc.createdAt',
+              {
+                $ifNull: [
+                  '$state.last_message_snapshot.createdAt',
+                  { $ifNull: ['$state.updatedAt', '$updatedAt'] },
+                ],
+              },
+            ],
           },
         },
       },
       { $sort: { _lastTs: -1 } },
 
-      /** 11) Project ra output gọn cho UI */
+      /** 12) Project output gọn cho UI */
       {
         $project: {
           _id: 0,
-          // id hiển thị (giữ logic cũ của bạn)
+
           id: {
             $cond: [
               { $eq: ['$room_type', 'private'] },
               '$otherMember.id',
-              '$room_id', // business id chuỗi bạn tạo bằng Utils.randomId()
+              '$room_id',
             ],
           },
-          roomId: '$room_id', // business id
-          _mongoId: '$_id', // nếu client cần ObjectId thật
+          roomId: '$room_id',
+          _mongoId: '$_id',
           type: '$room_type',
-          updatedAt: 1,
+          updatedAt: '$_lastTs',
+
           name: {
             $cond: [
               { $eq: ['$room_type', 'private'] },
@@ -398,18 +451,32 @@ export class RoomsService {
           last_message: {
             id: '$state.last_message_id',
             content: '$state.last_message_snapshot.content',
-            createdAt: '$state.last_message_snapshot.createdAt',
-            sender: '$state.last_message_snapshot.sender_id',
+            createdAt: {
+              $ifNull: [
+                '$last_message_doc.createdAt',
+                '$state.last_message_snapshot.createdAt',
+              ],
+            },
+            sender: {
+              _id: '$last_message_sender._id',
+              usr_id: '$last_message_sender.usr_id',
+              name: '$last_message_sender.usr_fullname',
+              avatar: '$last_message_sender.usr_avatar',
+            },
           },
 
           is_read: 1,
-          unread_count: 1,
+          unread_count: {
+            $ifNull: ['$my_state.unread_count', '$unread_count_calc'],
+          },
           my_state: 1,
+          pinned: '$my_state.pinned',
+          muted: '$my_state.muted',
         },
       },
     ];
 
-    return result;
+    return pipeline;
   }
 
   private async getUserInfo(userId: string) {
@@ -601,39 +668,70 @@ export class RoomsService {
     return Response.success(result, 'Tạo phòng thành công');
   }
 
-  async checkExistedMemberRoom(userId: string, roomId: string) {
-    // check in redis
-    const checkExistRoomRedis = await this.redis.sIsMember(
-      this.key.ROOM_MEMBERS(roomId),
-      userId,
-    );
+  private toBoolRedis(
+    v: number | boolean | string | null | undefined,
+  ): boolean {
+    // ioredis thường trả 0/1; một số wrapper có thể trả boolean
+    // cũng xử lý luôn trường hợp string "0"/"1"
+    // eslint-disable-next-line eqeqeq
+    return v == 1 || v === true || v === '1';
+  }
 
-    if (checkExistRoomRedis) {
-      return true;
-    }
-    //check in mongose
+  private async primeRoomMembershipCache(
+    userId: string,
+    roomId: string,
+    pairId: string,
+  ) {
+    // Lưu cả 2 chiều để lần sau check OR không cần hit DB
+    await Promise.all([
+      this.redis.sAdd(this.key.ROOM_MEMBERS(roomId), userId),
+      this.redis.sAdd(this.key.ROOM_MEMBERS(pairId), userId),
+      this.redis.sAdd(this.key.USER_ROOMS(userId), roomId),
+      this.redis.sAdd(this.key.USER_ROOMS(userId), pairId),
+    ]);
+
+    // (tuỳ chọn) đặt TTL nhẹ để tự làm mới định kỳ, tránh cache mồ côi
+    // await Promise.all([
+    //   this.redis.expire(this.key.ROOM_MEMBERS(roomId), 24 * 3600),
+    //   this.redis.expire(this.key.ROOM_MEMBERS(pairId), 24 * 3600),
+    //   this.redis.expire(this.key.USER_ROOMS(userId), 24 * 3600),
+    // ]);
+  }
+
+  async checkExistedMemberRoom(userId: string, roomId: string) {
+    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ userId:', userId);
+    // 1) Xác thực user
     const userInfo = await this.getUserInfo(userId);
-    if (!userInfo) {
-      throw new NotFoundException('người dùng không tồn tại');
-    }
-    const checkExistDB = await this.roomModel.exists({
-      $or: [
-        {
-          room_id: roomId,
-        },
-        {
-          room_id: this.utils.pairRoomId(userInfo.usr_id, roomId),
-        },
-      ],
+    if (!userInfo) throw new NotFoundException('người dùng không tồn tại');
+
+    // Chuẩn bị pairId (room private dạng A|B & B|A)
+    const pairId = this.utils.pairRoomId(userInfo.usr_id, roomId);
+    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ pairId:', pairId);
+
+    // 2) Check Redis theo 2 key (song song)
+    const [a, b] = await Promise.all([
+      this.redis.sIsMember(this.key.ROOM_MEMBERS(roomId), userId),
+      this.redis.sIsMember(this.key.ROOM_MEMBERS(pairId), userId),
+    ]);
+    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ b:', b);
+    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ a:', a);
+    const checkExistRoomRedis = this.toBoolRedis(a) || this.toBoolRedis(b);
+    if (checkExistRoomRedis) return true;
+
+    // 3) Fallback DB (đúng field + đúng kiểu ObjectId)
+    const userObjId = this.utils.convertToObjectIdMongoose(userId);
+
+    const found = await this.roomModel.exists({
+      room_id: { $in: [roomId, pairId] }, // room business id (string)
+      room_members: { $elemMatch: { user_id: userObjId } }, // mảng subdoc: user_id là ObjectId
     });
-    if (checkExistDB) {
-      await Promise.all([
-        this.redis.sAdd(this.key.ROOM_MEMBERS(roomId), userId),
-        this.redis.sAdd(this.key.USER_ROOMS(userId), roomId),
-      ]);
-      return true;
-    }
-    return false;
+
+    if (!found) throw new NotFoundException('phòng không tồn tại');
+
+    // 4) Prime lại cache cho cả 2 key để lần sau khỏi hit DB
+    await this.primeRoomMembershipCache(userId, roomId, pairId);
+
+    return true;
   }
   async leavedRoom(payload: LeavingRoomDto) {
     const { userId, roomId } = payload;
@@ -1113,10 +1211,10 @@ export class RoomsService {
         $limit: 1,
       },
     ]);
+    // console.log('🚀 ~ RoomsService ~ getRoomInfo ~ listRooms:', listRooms);
     if (listRooms.length === 0) {
       throw new NotFoundException('không tìm thấy thông tin phòng');
     }
-
     return listRooms[0] as Record<string, any>;
   }
 

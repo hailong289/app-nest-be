@@ -14,7 +14,6 @@ export class HandleChatController {
     this.logger.log('[gRPC] CreateNewMsg called with payload:', payload);
     try {
       const result = await this.hdChat.createMessage(payload);
-      this.logger.log('[gRPC] CreateNewMsg success:', result);
       return result;
     } catch (error) {
       this.logger.error('[gRPC] CreateNewMsg error:', error);
