@@ -8,20 +8,7 @@ on:
       - 'apps/auth/**'
       - 'apps/api-gateway/**'
       - 'apps/notification/**'
-  workflow_dispatch:
-    inputs:
-      service:
-        description: 'Service to deploy'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - auth
-          - api-gateway
-          - notification
 
-      
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -47,23 +34,23 @@ jobs:
               - 'apps/notification/**'
 
   deploy-auth-service:
-    needs: 
+    needs:
       - detect-changes
-    if: ${{ needs.detect-changes.outputs.service-auth == 'true' || github.event.inputs.service == 'auth' || github.event.inputs.service == 'all' }}
+    if: ${{ needs.detect-changes.outputs.service-auth == 'true' }}
     uses: ./.github/workflows/deploy-auth.yml
     secrets: inherit
 
   deploy-noti-service:
-    needs: 
+    needs:
       - detect-changes
-    if: ${{ needs.detect-changes.outputs.service-noti == 'true' || github.event.inputs.service == 'notification' || github.event.inputs.service == 'all' }}
+    if: ${{ needs.detect-changes.outputs.service-noti == 'true' }}
     uses: ./.github/workflows/deploy-noti.yml
     secrets: inherit
 
   deploy-gateway-service:
-    needs: 
+    needs:
       - detect-changes
       - deploy-auth-service
-    if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' || github.event.inputs.service == 'api-gateway' || github.event.inputs.service == 'all' }}
+    if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit

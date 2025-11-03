@@ -1,0 +1,33 @@
+name: Deploy Microservices with Input
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - auth
+          - api-gateway
+          - notification
+
+jobs:
+  deploy-auth-service:
+    if: ${{ github.event.inputs.service == 'auth' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-auth.yml
+    secrets: inherit
+
+  deploy-noti-service:
+    if: ${{ github.event.inputs.service == 'notification' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-noti.yml
+    secrets: inherit
+
+  deploy-gateway-service:
+    needs:
+      - deploy-auth-service
+    if: ${{ github.event.inputs.service == 'api-gateway' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-api-gateway.yml
+    secrets: inherit
