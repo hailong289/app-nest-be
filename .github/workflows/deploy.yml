@@ -8,6 +8,7 @@ on:
       - 'apps/auth/**'
       - 'apps/api-gateway/**'
       - 'apps/notification/**'
+      - 'apps/filesystem/**'
 
 jobs:
   detect-changes:
@@ -32,6 +33,8 @@ jobs:
               - 'apps/auth/**'
             service-noti:
               - 'apps/notification/**'
+            service-filesystem:
+              - 'apps/filesystem/**'
 
   deploy-auth-service:
     needs:
@@ -47,10 +50,19 @@ jobs:
     uses: ./.github/workflows/deploy-noti.yml
     secrets: inherit
 
+  deploy-filesystem-service:
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-filesystem == 'true' }}
+    uses: ./.github/workflows/deploy-filesystem.yml
+    secrets: inherit
+
   deploy-gateway-service:
     needs:
       - detect-changes
       - deploy-auth-service
+      - deploy-noti-service
+      - deploy-filesystem-service
     if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit
