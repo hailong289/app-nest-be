@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import firebaseConfig from './config/app/firebase.config';
-import redisConfig from './config/queue/redis.config';
 import mailConfig from './config/app/mail.config';
 import { FirebaseService } from './firebase.service';
 import { NotificationController } from './notification.controller';
@@ -20,7 +19,7 @@ import { kafkaConfig } from 'libs/config';
         process.cwd(),
         `apps/notification/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [firebaseConfig, redisConfig, mailConfig, appConfig, kafkaConfig],
+      load: [firebaseConfig, mailConfig, appConfig, kafkaConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],

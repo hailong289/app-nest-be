@@ -25,7 +25,7 @@ RUN npm install --omit=dev
 # Copy dist từ builder
 COPY --from=builder /app/dist ./dist
 
-# Copy libs từ builder stage (không phải từ host)
-COPY --from=builder /app/libs ./libs
+# Copy libs
+COPY libs ./libs
 
 CMD ["node", "dist/apps/api-gateway/main.js"]

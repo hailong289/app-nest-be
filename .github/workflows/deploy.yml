@@ -2,51 +2,55 @@ name: Deploy Microservices
 
 on:
   push:
-    branches: [developer]
-  workflow_dispatch:
-    inputs:
-      target:
-        description: 'Chọn để deploy'
-        required: true
-        default: 'auth-service'
-        type: choice
-        options:
-          - auth-service
-          - api-gateway-service
-          - notification-service
-          - filesystem-service
+    branches:
+      - developer
+    paths:
+      - 'apps/auth/**'
+      - 'apps/api-gateway/**'
+      - 'apps/notification/**'
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      service-auth: ${{ steps.filter.outputs.service-auth }}
+      service-auth: ${{steps.filter.outputs.service-auth }}
       service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
+      service-noti: ${{ steps.filter.outputs.service-noti }}
     steps:
-      - uses: actions/checkout@v4
-      - id: filter
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Detect changed services
         uses: dorny/paths-filter@v3
+        id: filter
         with:
+          # Mỗi key (service-api-gateway, service-auth) sẽ trở thành một output (true/false)
           filters: |
             service-api-gateway:
               - 'apps/api-gateway/**'
             service-auth:
               - 'apps/auth/**'
+            service-noti:
+              - 'apps/notification/**'
 
   deploy-auth-service:
-    needs: detect-changes
-    if: contains(github.event.head_commit.message, 'service/auth')
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-auth == 'true' }}
     uses: ./.github/workflows/deploy-auth.yml
-    with:
-      environment: AUTH_SERVICE
-    secrets:
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+    secrets: inherit
+
+  deploy-noti-service:
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-noti == 'true' }}
+    uses: ./.github/workflows/deploy-noti.yml
+    secrets: inherit
 
   deploy-gateway-service:
-    needs: detect-changes
-    if: contains(github.event.head_commit.message, 'service/api-gateway')
+    needs:
+      - detect-changes
+      - deploy-auth-service
+    if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
-    with:
-      environment: GATEWAY_SERVICE
-    secrets:
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+    secrets: inherit

@@ -1,4 +1,9 @@
-import { LoginDto, RegisterDto } from '@app/dto';
+import {
+  LoginDto,
+  RegisterDto,
+  UpdateAvatarDto,
+  UpdateProfileDto,
+} from '@app/dto';
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -341,5 +346,55 @@ export class AuthService {
     }
 
     return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
+  }
+
+  async updateAvatar(data: UpdateAvatarDto & { userId: string }) {
+    const user = await this.userModel.findById(data.userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    try {
+      const formData = new FormData();
+      const blob = new Blob([new Uint8Array(data.file.buffer)], {
+        type: data.file.mimetype,
+      });
+      formData.append('file', blob, data.file.originalname);
+      formData.append('folder', `${data.folder}/${user.usr_id}`);
+      const result = await axios.post(
+        `${this.gatewayUrl}/api/filesystem/upload-single`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        },
+      );
+      user.usr_avatar = result.data.metadata.url;
+      await user.save();
+      return Response.success(
+        { url: result.data.metadata.url },
+        'Cập nhật ảnh đại diện thành công',
+      );
+    } catch (error) {
+      console.error('Error updating avatar:', error);
+      return Response.error(
+        'Cập nhật ảnh đại diện thất bại',
+        400,
+        'ERROR_UPDATE_AVATAR',
+        error,
+      );
+    }
+  }
+
+  async updateProfile(data: UpdateProfileDto & { userId: string }) {
+    const user = await this.userModel.findById(data.userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    user.usr_fullname = data.fullname;
+    user.usr_gender = data.gender;
+    user.usr_dateOfBirth = new Date(data.dateOfBirth);
+    await user.save();
+    return Response.success(null, 'Cập nhật thông tin thành công');
   }
 }

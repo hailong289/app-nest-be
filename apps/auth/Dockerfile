@@ -27,6 +27,6 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 
 # Copy libs nếu runtime cần (proto, schema, asset…)
-COPY --from=builder /app/libs ./libs
+COPY libs ./libs
 
 CMD ["node", "dist/apps/auth/main.js"]

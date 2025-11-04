@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { FileUploadData } from './filesystem.dto';
+import { Type } from 'class-transformer';
 
 // Auth DTOs
 export class LoginDto {
@@ -97,4 +104,29 @@ export interface UserTokenPayload {
   usr_status: string;
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+export class UpdateAvatarDto {
+  @IsNotEmpty({ message: 'Ảnh đại diện không được để trống' })
+  @ValidateNested()
+  @Type(() => FileUploadData)
+  file: FileUploadData;
+
+  @IsOptional()
+  @IsString()
+  folder: string;
+}
+
+export class UpdateProfileDto {
+  @IsNotEmpty({ message: 'Họ và tên không được để trống' })
+  @IsString()
+  fullname: string;
+
+  @IsNotEmpty({ message: 'Giới tính không được để trống' })
+  @IsString()
+  gender: string;
+
+  @IsNotEmpty({ message: 'Ngày sinh không được để trống' })
+  @IsString()
+  dateOfBirth: string;
 }

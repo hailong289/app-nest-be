@@ -2,10 +2,6 @@ name: Deploy API Gateway
 
 on:
   workflow_call:
-    inputs:
-      environment:
-        required: true
-        type: string
     secrets:
       GCP_SA_KEY:
         required: true
@@ -14,7 +10,8 @@ jobs:
   deploy:
     name: Deploy Gateway to Cloud Run
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: 
+      name: GATEWAY_SERVICE
     steps:
       - uses: actions/checkout@v3
       - uses: google-github-actions/auth@v2
@@ -28,6 +25,7 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest"
           docker build -t $IMAGE -f apps/api-gateway/Dockerfile .
           docker push $IMAGE
+      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy api-gateway-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest \
@@ -39,9 +37,8 @@ jobs:
             --cpu=1 \
             --memory=128Mi \
             --port=8080 \
-            --timeout=300s \
-            --use-http2 \
-            --set-env-vars NODE_ENV=production \
+            --timeout=60s \
+            --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars HOST=${{ secrets.GATEWAY_HOST }} \
             --set-env-vars GATEWAY_AUTH_HOST=${{ secrets.GATEWAY_AUTH_HOST }} \
             --set-env-vars GATEWAY_AUTH_PORT=${{ secrets.GATEWAY_AUTH_PORT }} \
