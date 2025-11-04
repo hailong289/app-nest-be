@@ -479,7 +479,7 @@ export class RoomsService {
     return pipeline;
   }
 
-  private async getUserInfo(userId: string) {
+  public async getUserInfo(userId: string) {
     const user = await this.userModel
       .findOne({
         _id: this.utils.convertToObjectIdMongoose(userId),
