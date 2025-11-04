@@ -11,6 +11,7 @@ import { Body, Controller, Inject, Post, Req, UploadedFile, UseInterceptors } fr
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
+import type { AuthenticatedRequest } from 'libs/types';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 interface AuthGrpcService {
@@ -24,13 +25,6 @@ interface AuthGrpcService {
   resetPassword(data: { userId: string; newPassword: string }): any;
   updateAvatar(data: UpdateAvatarDto): any;
   updateProfile(data: UpdateProfileDto): any;
-}
-
-interface AuthenticatedRequest {
-  user?: {
-    _id?: string;
-    id?: string;
-  };
 }
 
 @Controller('auth')
@@ -69,7 +63,7 @@ export class GatewayAuthController {
     console.log('Logout request user:', req.user);
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.logout.bind(this.authService),
-      { userId: req.user?.id },
+      { userId: req.user?.usr_id },
     );
   }
 

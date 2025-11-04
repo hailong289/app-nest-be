@@ -22,6 +22,7 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionsFilter());
   await app.listen();
+  console.log('NODE_ENV:', process.env.NODE_ENV);
   console.log(
     `Auth gRPC microservice is listening on port ${process.env.PORT}`,
   );

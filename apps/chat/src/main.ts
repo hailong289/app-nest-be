@@ -1,5 +1,5 @@
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { join } from 'path';
+import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
@@ -11,12 +11,20 @@ async function bootstrap() {
     {
       transport: Transport.GRPC,
       options: {
-        package: 'chat',
-        protoPath: join(
-          process.cwd(),
-          process.env.PROTO_URL || 'libs/grpc/chat.proto',
-        ),
+        package: ['chat', 'social'],
+        protoPath: [
+          join(process.cwd(), 'libs/grpc/chat.proto'),
+          join(process.cwd(), 'libs/grpc/social.proto'),
+        ],
         url: `${process.env.HOST}:${process.env.PORT}`,
+        loader: {
+          keepCase: true,
+          longs: String,
+          enums: String,
+          defaults: false,
+          oneofs: true,
+          includeDirs: [join(process.cwd(), 'libs/grpc')],
+        },
       },
     },
   );
@@ -24,6 +32,7 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionsFilter());
   // useSharedRedisAdapter(app);
   await app.listen();
+  console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
   logger.log(`chat gRPC microservice is listening on port ${process.env.PORT}`);
 }
 void bootstrap();

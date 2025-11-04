@@ -2,12 +2,12 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type MessageDocument = HydratedDocument<Message>;
-export type MsgType = 'text' | 'image' | 'file' | 'system';
+export type MsgType = 'text' | 'image' | 'file' | 'system' | 'video' | 'audio';
 
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {
   @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })
-  msg_room: Types.ObjectId;
+  msg_roomId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   msg_sender: Types.ObjectId;
