@@ -13,7 +13,8 @@ export type EventRoomType =
   | 'member.deleted'
   | 'member.unPinded'
   | 'member.change.name'
-  | 'member.change.avatar';
+  | 'member.change.avatar'
+  | 'member.change.nickName';
 
 @Schema({ timestamps: true, collection: 'RoomEvents' })
 export class RoomEvent {

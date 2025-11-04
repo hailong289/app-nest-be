@@ -135,3 +135,30 @@ export class CreateRoomEvent {
   message_id?: Types.ObjectId;
   payload?: Record<string, any>;
 }
+
+export class GetRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+}
+
+export class ChangeNickNameMemberDto {
+  @IsString()
+  userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  memberId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}

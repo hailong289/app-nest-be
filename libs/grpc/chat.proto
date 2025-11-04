@@ -1,18 +1,24 @@
 syntax = "proto3";
 
 package chat;
-
+import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
+import "social.proto";
 // 
 
 service ChatService {
-  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+  rpc CreateRoom(CreateRoomRequest) returns (outputGetRoom);
   rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
   rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
   rpc AddMember(inputRmMbr) returns (outputRmMbr);
-  rpc GetRooms(inputGetRooms)returns (outputGetRoms);
+  rpc GetRooms(inputGetRooms)returns (outputGetRooms);
   rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
   rpc ChangeName(inputChangeName) returns (outputChange);
+  rpc ChangeNickName(inputChangeNickName) returns (outputChange);
+  rpc GetRoom(inputGetRoom)returns (outputGetRoom);
+  rpc CreateNewMsg(InputCreateMsg)returns (MessageCoreMetadata);
+  rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
+
 }
 
 // Requests and Responses
@@ -81,6 +87,10 @@ message inputGetRooms {
   optionsType options =2;
 }
 
+message inputGetRoom {  
+  string userId =1; 
+  string roomId=2;
+}
 message optionsType {
   string q = 1;
   int32 limit =2;
@@ -89,15 +99,21 @@ message optionsType {
 }
 
 
-message outputGetRoms {
+message outputGetRooms {
  string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
- repeated metadataGetRomsType metadata = 4;
+ repeated metadataGetRoomsType metadata = 4;
+}
+message outputGetRoom {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  metadataGetRoomsType metadata = 4;
 }
 
 
-message metadataGetRomsType{
+message metadataGetRoomsType{
   string id =1;
   string roomId=2;
   string updatedAt =3;
@@ -107,6 +123,9 @@ message metadataGetRomsType{
   bool is_read=7;
   string avatar =8;
   repeated membersType members=9;
+  int64 unread_count=10;
+  bool pinned=11;
+  bool muted=12;
 
 
 }
@@ -114,12 +133,15 @@ message last_messageType{
   string content =1;
   string createdAt =2;
   string id =3;
+  string sender_fullname=4;
+  string sender_id=5;
 }
 message membersType {
   string id =1;
   string name=2;
   string role =3;
   string avatar=4;
+  string joinedAt=5;
 }
 
 
@@ -140,4 +162,138 @@ message inputChangeName{
   string userId =1;
   string roomId =2;
   string name =3;
+}
+message inputChangeNickName{
+  string userId =1;
+  string roomId =2;
+  string name =3;
+  string memberId=4;
+}
+
+
+//chat
+
+enum MsgType {
+  MSG_TYPE_UNSPECIFIED = 0;
+  MSG_TYPE_TEXT  = 1;
+  MSG_TYPE_IMAGE = 2;
+  MSG_TYPE_FILE  = 3;
+  MSG_TYPE_SYSTEM = 4;
+  MSG_TYPE_CALL  = 5;
+  MSG_TYPE_VIDEO = 6;
+  MSG_TYPE_AUDIO = 7;
+}
+
+enum AttachmentKind {
+  ATTACHMENT_KIND_UNSPECIFIED = 0;
+  ATTACHMENT_KIND_PHOTO = 1;
+  ATTACHMENT_KIND_VIDEO = 2;
+  ATTACHMENT_KIND_FILE  = 3;
+  ATTACHMENT_KIND_DOC   = 4;
+  ATTACHMENT_KIND_JSON  = 5;
+}
+
+enum AttachmentStatus {
+  ATTACHMENT_STATUS_UNSPECIFIED = 0;
+  ATTACHMENT_UPLOADED   = 1;
+  ATTACHMENT_PROCESSING = 2;
+  ATTACHMENT_FAILED     = 3;
+}
+
+/* ===================== DTOs ===================== */
+message UserSummary {
+  string _id = 1;           // Mongo ObjectId (string)
+  string fullname = 2;      // Users.usr_fullname
+  string avatar = 3;        // Users.usr_avatar
+  string id = 4;            // Users.usr_id (business id)
+}
+
+message Attachment {
+  string id = 1;            // Attachment _id (ObjectId string)
+  AttachmentKind kind = 2;
+  string url = 3;
+  string name = 4;
+  int64 size = 5;
+  string mime_type = 6;
+  string thumb_url = 7;
+  int32 width = 8;
+  int32 height = 9;
+  int32 duration = 10;      // seconds
+  AttachmentStatus status = 11;
+}
+
+message Reaction {
+  string emoji = 1;                 // ví dụ: "😂", "❤️"
+  int32 count = 2;                  // số người đã react emoji này
+  repeated UserSummary users = 3;   // danh sách user đã react
+}
+
+message ReplySummary {
+  string _id = 1;                             // message _id được reply (ObjectId as string)
+  string type = 2;                            // msg_type của reply
+  string content = 3;                         // msg_content của reply
+  string createdAt = 4;                       // createdAt của reply (ISO string)
+  UserSummary sender = 5;                     // sender rút gọn
+}
+
+/* ===================== Core output ===================== */
+/** Kết quả 1 dòng message sau khi chạy buildMessageCorePipeline */
+message MessageCore {
+  // ==== message base ====
+  string id = 1;                              // Messages._id (as string)
+  string roomId = 2;                          // Rooms.room_id hoặc otherMember.id
+  string type = 3;                            // msg_type
+  string content = 4;                         // msg_content
+  string createdAt = 5;                       // createdAt (ISO string)
+  string editedAt = 6;                        // editedAt (ISO string, nullable)
+  string deletedAt = 7;                       // deletedAt (ISO string, nullable)
+  bool pinned = 8;
+
+  // ==== denormalized ====
+  UserSummary sender = 9;                     // map từ Users
+  repeated Attachment attachments = 10;       // map từ Attachments
+  ReplySummary reply = 11;                    // reply rút gọn (nullable)
+  repeated Reaction reactions = 12;           // group theo emoji
+
+  // ==== state theo current user ====
+  bool isMine = 13;                           // msg_sender == current user
+  bool isRead = 14;                           // đã đọc? (reads/logic)
+  bool hiddenByMe = 15;                       // user đã hide message này? (nullable)
+  string hiddenAt = 16;                       // thời điểm hide (ISO string, nullable)
+}
+
+/** Nếu bạn muốn trả list: gói trong wrapper này (optional) */
+message MessageCoreList {
+  repeated MessageCore items = 1;
+}
+
+
+message InputCreateMsg{
+  
+  string roomId=1;
+  string type=2;
+  repeated string attachments=3;
+  string content=4;
+  string replyTo=5;
+  bool pinned =6;
+  string userId=7;
+}
+
+
+
+message MessageCoreMetadata {
+  string msgId = 1;
+  repeated membersTypePrivate members = 2;
+  string roomId=3;
+}
+message membersTypePrivate {
+  string id =1;
+  string name=2;
+  string role =3;
+  string avatar=4;
+  string user_id=5;
+}
+message InputGetOneMsg{
+  string userId=1;
+  string msgId=2;
 }

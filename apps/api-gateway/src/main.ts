@@ -35,6 +35,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   console.log('Global prefix set to /api', process.env.PORT || 5000);
   await app.listen(process.env.PORT || 5000);
+  console.log('NODE_ENV:', process.env.NODE_ENV);
   console.log(
     `API Gateway is running on: http://localhost:${process.env.PORT || 5000}`,
   );

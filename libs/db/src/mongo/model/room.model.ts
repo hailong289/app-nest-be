@@ -4,7 +4,7 @@ import { HydratedDocument, Types } from 'mongoose';
 
 export type RoomDocument = HydratedDocument<Room>;
 export type roomType = 'private' | 'group' | 'channel';
-export type roleMember = 'member' | 'admin' | 'owner';
+export type roleMember = 'member' | 'admin' | 'owner' | 'guest';
 export type memberType = {
   user_id: Types.ObjectId;
   role: roleMember;

@@ -1,7 +1,7 @@
 import { Module, Global, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import { RedisModuleOptions } from './types';
+import { RedisModuleOptions } from '../config/types/types.redis';
 import { RedisService } from './redis.service';
 
 @Global() // để có thể inject RedisClient ở bất kỳ module nào
@@ -20,6 +20,7 @@ import { RedisService } from './redis.service';
         const client = new Redis({
           host: redisOptions.host,
           port: redisOptions.port,
+          username: redisOptions.username,
           password: redisOptions.password,
           db: redisOptions.db,
           keyPrefix: redisOptions.keyPrefix,

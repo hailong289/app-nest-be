@@ -14,6 +14,7 @@ import * as grpc from '@grpc/grpc-js';
         name: SERVICES.AUTH,
         useFactory: (config: ConfigService) => {
           const isSsl = process.env.NODE_ENV === 'production' ? true : false;
+
           let options = {
             package: 'auth',
             protoPath: join(

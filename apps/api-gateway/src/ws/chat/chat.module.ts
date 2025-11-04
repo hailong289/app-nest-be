@@ -1,15 +1,19 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule } from '@nestjs/config';
+import { ChatGateway } from './chat-gateway';
+import { GatewayNotificationModule } from '../../notification/gateway-notification.module';
+import { GatewayModule } from '../../gateway/gateway.module';
+import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import { join } from 'path';
-import { GatewayChatController } from './gateway-chat.controller';
-import { GatewaySocialController } from './social/gateway-social.controller';
-import { GatewayService } from '../gateway/gateway.service';
-import { ChatWebSocketModule } from '../ws/chat/chat.module';
 
 @Module({
   imports: [
-    ChatWebSocketModule, // Import WebSocket module để có thể inject ChatGateway
+    ConfigModule, // WsJwtGuard cần ConfigService
+    JwtModule.register({}), // WsJwtGuard cần JwtService
+    GatewayNotificationModule, // Import để có thể inject ClientKafka
+    GatewayModule, // Import để có thể inject GatewayService
     ClientsModule.register([
       {
         name: SERVICES.CHAT,
@@ -45,8 +49,7 @@ import { ChatWebSocketModule } from '../ws/chat/chat.module';
       },
     ]),
   ],
-  controllers: [GatewayChatController, GatewaySocialController],
-  providers: [GatewayService],
-  exports: [ClientsModule],
+  providers: [ChatGateway],
+  exports: [ChatGateway],
 })
-export class GatewayChatModule {}
+export class ChatWebSocketModule {}
