@@ -32,8 +32,6 @@ jobs:
     secrets: inherit
 
   deploy-gateway-service:
-    needs:
-      - deploy-auth-service
     if: ${{ github.event.inputs.service == 'api-gateway' || github.event.inputs.service == 'all' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit

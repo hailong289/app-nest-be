@@ -60,9 +60,6 @@ jobs:
   deploy-gateway-service:
     needs:
       - detect-changes
-      - deploy-auth-service
-      - deploy-noti-service
-      - deploy-filesystem-service
     if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit
