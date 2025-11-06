@@ -30,7 +30,6 @@ async function bootstrap() {
   );
   const logger = new Logger();
   app.useGlobalFilters(new HttpExceptionsFilter());
-  // useSharedRedisAdapter(app);
   await app.listen();
   console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
   logger.log(`chat gRPC microservice is listening on port ${process.env.PORT}`);

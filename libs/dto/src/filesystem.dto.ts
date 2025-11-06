@@ -6,6 +6,15 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { File } from 'node:buffer';
+export interface MulterFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 export class FileUploadData {
   @IsNotEmpty({ message: 'Buffer không được để trống' })
@@ -39,4 +48,22 @@ export class MultipleFilesUploadDto {
   @IsOptional()
   @IsString()
   folder: string;
+}
+
+export class uploadSingleFileByUserDTo {
+  id?: string;
+  userId: string;
+  file: MulterFile;
+  roomId: string;
+}
+
+export class UploadSingleFileForUserDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FileUploadData)
+  files: FileUploadData[];
+
+  @IsOptional()
+  @IsString()
+  roomId: string;
 }

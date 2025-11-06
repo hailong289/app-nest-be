@@ -10,6 +10,7 @@ import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
 import { kafkaConfig } from 'libs/config';
+import { redisConfig, RedisModule } from 'libs/db/src';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { kafkaConfig } from 'libs/config';
         return mailConfig;
       },
     }),
+    RedisModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService, FirebaseService],

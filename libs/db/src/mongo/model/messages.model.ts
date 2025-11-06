@@ -25,8 +25,11 @@ export class Message {
   @Prop({ type: String, default: '' })
   msg_content_norm: string; // search không dấu
 
-  @Prop({ type: [String], default: [] })
-  attachment_ids: string[]; // id từ Upload Service
+  @Prop({
+    type: [{ type: Types.ObjectId, ref: 'Attachment' }],
+    default: [],
+  })
+  attachment_ids: Types.ObjectId[]; // id từ Attachments collection
 
   @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
   reply_to: Types.ObjectId | null;
@@ -49,6 +52,8 @@ export class Message {
 
   @Prop({ type: Date, default: null })
   editedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 export const MessageSchema = SchemaFactory.createForClass(Message);
 

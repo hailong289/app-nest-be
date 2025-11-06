@@ -33,11 +33,18 @@ export class RoomDto {
 }
 
 export class CreateMessage {
+  id?: string;
   roomId: string;
   userId: string;
   type: MsgType;
   content: string | null;
-  attachments: Array<string> | [];
+  attachments?: string[]; // ✅ Optional array of strings
   replyTo: string | null;
   pinned?: boolean;
+}
+
+export class markReadUpToDto {
+  roomId: string;
+  userId: string;
+  lastMessageId: string;
 }

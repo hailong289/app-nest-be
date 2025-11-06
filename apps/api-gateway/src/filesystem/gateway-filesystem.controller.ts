@@ -3,9 +3,11 @@ import {
   Controller,
   Get,
   Inject,
+  NotFoundException,
   OnModuleInit,
   Post,
   Query,
+  Req,
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
@@ -14,7 +16,12 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
-import { MultipleFilesUploadDto, SingleFileUploadDto } from '@app/dto';
+import type { MulterFile } from '@app/dto';
+import {
+  MultipleFilesUploadDto,
+  SingleFileUploadDto,
+  UploadSingleFileForUserDto,
+} from '@app/dto';
 
 interface UploadedFileType {
   originalname: string;
@@ -27,6 +34,7 @@ interface FileSystemService {
   uploadMultipleFiles(data: MultipleFilesUploadDto): any;
   deleteFile(data: { fileName: string; folder?: string }): any;
   getPresignedUrl(data: { fileName: string }): any;
+  UploadSingleFileForUser(data: UploadSingleFileForUserDto): any;
 }
 
 @Controller('filesystem')
@@ -46,11 +54,11 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Post('upload-single')
   @UseInterceptors(FileInterceptor('file'))
   async uploadSingleFile(
-    @UploadedFile() file: UploadedFileType,
+    @UploadedFile() file: MulterFile,
     @Body('folder') folder: string,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
-      this.filesystemService.uploadSingleFile,
+      this.filesystemService.uploadSingleFile.bind(this.filesystemService),
       {
         file: {
           originalname: file.originalname,
@@ -58,6 +66,38 @@ export class GatewayFilesystemController implements OnModuleInit {
           mimetype: file.mimetype,
         },
         folder: folder || 'uploads',
+      },
+    );
+  }
+  @Post('upload-single-user')
+  @UseInterceptors(FileInterceptor('file'))
+  async UploadFileByUser(
+    @UploadedFile() file: MulterFile,
+    @Body()
+    body: {
+      roomId: string;
+      id?: string;
+    },
+    @Req() req: { user?: { _id?: string; usr_id?: string } },
+  ) {
+    console.log('� Upload request from user:', {
+      userId: req.user?._id,
+      body,
+      fileName: file?.originalname,
+    });
+
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.UploadSingleFileForUser.bind(
+        this.filesystemService,
+      ),
+      {
+        file,
+        ...body,
+        userId: req.user._id, // ✅ Dùng _id (ObjectId) thay vì usr_id (string)
       },
     );
   }

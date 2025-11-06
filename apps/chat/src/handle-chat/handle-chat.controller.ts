@@ -1,7 +1,7 @@
 import { Body, Controller, Logger } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { HandleChatService } from './handle-chat.service';
-import { CreateMessage } from '@app/dto';
+import { CreateMessage, markReadUpToDto } from '@app/dto';
 
 @Controller('handle-chat')
 export class HandleChatController {
@@ -11,19 +11,21 @@ export class HandleChatController {
 
   @GrpcMethod('ChatService', 'CreateNewMsg')
   async NewMsg(@Body() payload: CreateMessage) {
-    this.logger.log('[gRPC] CreateNewMsg called with payload:', payload);
-    try {
-      const result = await this.hdChat.createMessage(payload);
-      return result;
-    } catch (error) {
-      this.logger.error('[gRPC] CreateNewMsg error:', error);
-      throw error;
-    }
+    const result = await this.hdChat.createMessage(payload);
+    return result;
   }
 
   @GrpcMethod('ChatService', 'GetOneMsg')
   async GetOneMsg(@Body() payload: { userId: string; msgId: string }) {
     this.logger.log('[gRPC] GetOneMsg called with payload:', payload);
-    return this.hdChat.getOneMsg(payload.userId, payload.msgId);
+    const result = await this.hdChat.getOneMsg(payload.userId, payload.msgId);
+    console.log('🚀 ~ HandleChatController ~ GetOneMsg ~ result:', result);
+    return result;
+  }
+  @GrpcMethod('ChatService', 'MarkReadUpTo')
+  async MarkReadUpTo(@Body() payload: markReadUpToDto) {
+    const result = await this.hdChat.markReadUpTo(payload);
+    console.log('🚀 ~ HandleChatController ~ MarkReadUpTo ~ result:', result);
+    return result;
   }
 }
