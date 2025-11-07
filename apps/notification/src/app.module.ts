@@ -20,7 +20,7 @@ import { redisConfig, RedisModule } from 'libs/db/src';
         process.cwd(),
         `apps/notification/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [firebaseConfig, mailConfig, appConfig, kafkaConfig],
+      load: [firebaseConfig, mailConfig, appConfig, kafkaConfig, redisConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],

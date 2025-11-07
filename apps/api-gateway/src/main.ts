@@ -29,7 +29,7 @@ async function bootstrap() {
       },
     }),
   );
-  useSharedRedisAdapter(app);
+  await useSharedRedisAdapter(app);
   app.useGlobalInterceptors(new ResponseInterceptor());
   // Global prefix
   app.setGlobalPrefix('api');
