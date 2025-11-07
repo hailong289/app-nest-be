@@ -1,5 +1,5 @@
 import { REDISKEY } from '@app/constants/RedisKey';
-import { CreateMessage, markReadUpToDto } from '@app/dto';
+import { CreateMessage, GetMsgFromRoomDTO, markReadUpToDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import { Injectable, Logger, NotAcceptableException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -11,7 +11,7 @@ import {
   MessageRead,
   RoomsUsersState,
 } from 'libs/db/src';
-import { FilterQuery, Model } from 'mongoose';
+import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { buildMessageCorePipeline } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
@@ -291,6 +291,10 @@ export class HandleChatService {
 
     // get info room
 
+    console.log(
+      '🚀 ~ HandleChatService ~ markReadUpTo ~ lastMessageId:',
+      lastMessageId,
+    );
     const [messgeInfo, roomInfro] = await Promise.all([
       this.messageModel.findById(
         this.utils.convertToObjectIdMongoose(lastMessageId),
@@ -350,5 +354,71 @@ export class HandleChatService {
       },
       'Đã đọc tin nhắn',
     );
+  }
+
+  async getMsgFromRoom({
+    roomId,
+    userId,
+    limit = 100,
+    type = null,
+    msgId = null,
+  }: GetMsgFromRoomDTO) {
+    const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
+    if (!check) {
+      this.log.error('User không thuộc room:', { userId, roomId });
+      return {
+        msgId: null,
+        members: [],
+        roomId: null,
+      };
+    }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      this.log.error('Người dùng không tồn tại:', userId);
+      return {
+        msgId: null,
+        members: [],
+        roomId: null,
+      };
+    }
+
+    // get info room
+    const roomInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!roomInfo) {
+      throw new NotAcceptableException('Phòng không tồn taij');
+    }
+
+    // Build comparison filter based on pagination type
+    const compare: Record<string, any> = {};
+    if (type != null && msgId != null) {
+      const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
+      if (type === 'new') {
+        // Load tin nhắn mới hơn msgId (để load real-time updates)
+        compare._id = { $gt: msgObjectId };
+      } else if (type === 'old') {
+        // Load tin nhắn cũ hơn msgId (để pagination lùi về quá khứ)
+        compare._id = { $lt: msgObjectId };
+      }
+    }
+
+    const pipeLine = buildMessageCorePipeline(userId);
+    const result = await this.messageModel.aggregate([
+      {
+        $match: {
+          msg_roomId: roomInfo._id,
+          ...compare,
+        },
+      },
+      ...pipeLine,
+      { $sort: { createdAt: -1 } }, // Sắp xếp giảm dần (mới nhất lên đầu)
+      { $limit: Number(limit) }, // Giới hạn số lượng
+      { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
+    ]);
+    return Response.success(result, 'Tin nhắn mới thành công');
   }
 }

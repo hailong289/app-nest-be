@@ -48,3 +48,10 @@ export class markReadUpToDto {
   userId: string;
   lastMessageId: string;
 }
+export class GetMsgFromRoomDTO {
+  roomId: string;
+  userId: string;
+  limit: number;
+  type?: 'new' | 'old' | null;
+  msgId?: string | null;
+}

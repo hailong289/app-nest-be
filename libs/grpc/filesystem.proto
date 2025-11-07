@@ -102,7 +102,12 @@ message UploadSingleFileForUserCore{
     string url=2;
     string kind=3;
     string name=4;
-    string mineType=5;
+    string mimeType=5;
+    int64 size=6;
+    string status=7;
+    optional int32 width=8;
+    optional int32 height=9;
+    optional double duration=10;
 }
 message UploadSingleFileForUserResponse {
     string message = 1;

@@ -19,6 +19,7 @@ service ChatService {
   rpc CreateNewMsg(InputCreateMsg)returns (CreateMessageOutput);
   rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
   rpc MarkReadUpTo(InputMarkReadUp)returns (CreateMessageOutput);
+  rpc GetMsgFromRoom(GetMsgFromRoomInput)returns(GetMsgs);
 
 }
 
@@ -127,7 +128,7 @@ message metadataGetRoomsType{
   int64 unread_count=10;
   bool pinned=11;
   bool muted=12;
-
+  string last_read_id = 13;  
 
 }
 message last_messageType{
@@ -293,7 +294,7 @@ message MessageCore {
   string hiddenAt = 16;                       // Hidden timestamp (nullable)
   repeated MessageReadBy read_by = 17;        // List of users who read
   int32 read_by_count = 18;   
-  string last_read_id = 19;                // Count of users who read
+              // Count of users who read
 }
 
 /** Nếu bạn muốn trả list: gói trong wrapper này (optional) */
@@ -342,4 +343,19 @@ message InputMarkReadUp{
   string roomId=2;
   string lastMessageId=3;
 
+}
+
+message GetMsgFromRoomInput{
+  string userId=1;
+  string roomId=2;
+  int64 limit=3;
+  string type=4;
+  string msgId=5;
+
+}
+message GetMsgs {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+ repeated MessageCore metadata = 4;
 }

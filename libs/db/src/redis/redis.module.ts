@@ -24,22 +24,93 @@ import { RedisService } from './redis.service';
           password: redisOptions.password,
           db: redisOptions.db,
           keyPrefix: redisOptions.keyPrefix,
-          retryStrategy: (times) => {
-            if (times > 10) {
-              // 10 lần thử lại nếu không dc end luôn không retry nữa
-              logger.error('❌ Redis failed too many times. Stop retrying.');
-              return null; // <- Dừng hẳn reconnect
-            }
-            const delay = Math.min(times * 500, 3000);
-            logger.warn(
-              `🔄 Redis reconnecting in ${delay}ms (attempt ${times})`,
+          lazyConnect: true, // Don't connect immediately, wait for manual connect()
+          maxRetriesPerRequest: 3,
+          enableReadyCheck: true,
+          enableOfflineQueue: true,
+          reconnectOnError: (err) => {
+            const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT'];
+            return targetErrors.some((targetError) =>
+              err.message.includes(targetError),
             );
+          },
+          retryStrategy: (times) => {
+            if (times > 20) {
+              // Increased retry limit for better resilience
+              logger.error('❌ Redis failed too many times. Stop retrying.');
+              return null;
+            }
+            // Exponential backoff: 500ms, 1s, 1.5s, 2s, 2.5s, max 5s
+            const delay = Math.min(times * 500, 5000);
+            if (times % 5 === 1) {
+              // Log every 5 attempts to reduce spam
+              logger.warn(
+                `🔄 Redis reconnecting in ${delay}ms (attempt ${times})`,
+              );
+            }
             return delay;
           },
         });
 
-        client.on('connect', () => logger.log('✅ Redis connected'));
-        client.on('error', (err) => logger.error('❌ Redis error', err));
+        let isReconnecting = false;
+        let lastErrorTime = 0;
+
+        client.on('connect', () => {
+          isReconnecting = false;
+          logger.log('✅ Redis connected');
+        });
+
+        client.on('ready', () => {
+          logger.log('✅ Redis ready to accept commands');
+        });
+
+        client.on('error', (err) => {
+          const now = Date.now();
+          const errorCode =
+            typeof err === 'object' && err !== null && 'code' in err && err.code
+              ? String((err as { code: unknown }).code)
+              : err.message;
+
+          // Suppress ECONNRESET errors during reconnection to reduce log spam
+          if (errorCode === 'ECONNRESET' && isReconnecting) {
+            return; // Silent during reconnection
+          }
+
+          // Rate limit error logging (max 1 per 5 seconds)
+          if (now - lastErrorTime < 5000) {
+            return;
+          }
+
+          lastErrorTime = now;
+
+          if (errorCode === 'ECONNRESET') {
+            isReconnecting = true;
+            logger.warn(
+              '⚠️ Redis connection reset. Attempting to reconnect...',
+            );
+          } else {
+            logger.error(`❌ Redis error [${errorCode}]:`, err.message);
+          }
+        });
+
+        client.on('close', () => {
+          isReconnecting = true;
+          logger.warn('⚠️ Redis connection closed');
+        });
+
+        client.on('reconnecting', (delay) => {
+          isReconnecting = true;
+          logger.log(`🔄 Redis reconnecting after ${delay}ms...`);
+        });
+
+        // Connect after setup
+        client.connect().catch((err) => {
+          const errorMessage =
+            typeof err === 'object' && err !== null && 'message' in err
+              ? (err as { message: string }).message
+              : String(err);
+          logger.error('❌ Redis initial connection failed:', errorMessage);
+        });
 
         return client;
       },
