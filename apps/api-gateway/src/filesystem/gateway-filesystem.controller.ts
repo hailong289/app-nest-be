@@ -109,7 +109,7 @@ export class GatewayFilesystemController implements OnModuleInit {
     @Body('folder') folder: string,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
-      this.filesystemService.uploadMultipleFiles,
+      this.filesystemService.uploadMultipleFiles.bind(this.filesystemService),
       {
         files: files.map((file) => ({
           buffer: file.buffer,
@@ -124,7 +124,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Post('delete')
   async deleteFile(@Body() data: { fileName: string; folder?: string }) {
     return await this.gatewayService.dispatchGrpcRequest(
-      this.filesystemService.deleteFile,
+      this.filesystemService.deleteFile.bind(this.filesystemService),
       data,
     );
   }
@@ -132,7 +132,7 @@ export class GatewayFilesystemController implements OnModuleInit {
   @Get('presigned-url')
   async getPresignedUrl(@Query('fileName') fileName: string) {
     return await this.gatewayService.dispatchGrpcRequest(
-      this.filesystemService.getPresignedUrl,
+      this.filesystemService.getPresignedUrl.bind(this.filesystemService),
       { fileName },
     );
   }

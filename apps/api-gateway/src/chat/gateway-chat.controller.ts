@@ -36,6 +36,7 @@ export interface RoomGrpcService {
   changeAvatar(data: any): any;
   changeName(data: any): any;
   changeNickName(data: any): any;
+  getMsgFromRoom(data: any): any;
 }
 
 @Controller('chat')
@@ -203,6 +204,29 @@ export class GatewayChatController {
     return await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.changeNickName.bind(this.RoomGrpcService),
       body,
+    );
+  }
+
+  @Get('messages/:roomId')
+  async GetMsgFromRoom(
+    @Req() req: { user?: { _id?: string } },
+    @Param('roomId') roomId: string,
+    @Query()
+    query: {
+      limit?: number;
+      type?: 'new' | 'old';
+      msgId?: string;
+    },
+  ) {
+    const data = {
+      userId: req.user?._id,
+      roomId,
+      ...query,
+    };
+    console.log('🚀 ~ GatewayChatController ~ GetMsgFromRoom ~ data:', data);
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.getMsgFromRoom.bind(this.RoomGrpcService),
+      data,
     );
   }
 }
