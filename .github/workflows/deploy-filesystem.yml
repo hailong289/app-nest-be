@@ -43,3 +43,8 @@ jobs:
             --set-env-vars S3_REGION=${{ secrets.S3_REGION }} \
             --set-env-vars S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }} \
             --set-env-vars S3_ENDPOINT=${{ secrets.S3_ENDPOINT }} \
+            --set-env-vars DB_CONNECTION=${{ secrets.DB_CONNECTION }} \
+            --set-env-vars DB_HOST=${{ secrets.DB_HOST }} \
+            --set-env-vars DB_NAME=${{ secrets.DB_NAME }} \
+            --set-env-vars DB_USER=${{ secrets.DB_USER }} \
+            --set-env-vars DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
