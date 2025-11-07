@@ -13,6 +13,7 @@ on:
           - auth
           - api-gateway
           - notification
+          - filesystem
 
 jobs:
   deploy-auth-service:
@@ -25,9 +26,12 @@ jobs:
     uses: ./.github/workflows/deploy-noti.yml
     secrets: inherit
 
+  deploy-filesystem-service:
+    if: ${{ github.event.inputs.service == 'filesystem' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-filesystem.yml
+    secrets: inherit
+
   deploy-gateway-service:
-    needs:
-      - deploy-auth-service
     if: ${{ github.event.inputs.service == 'api-gateway' || github.event.inputs.service == 'all' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit

@@ -1,0 +1,45 @@
+name: Deploy Filesystem Service
+
+on:
+  workflow_call:
+
+jobs:
+  deploy:
+    name: Deploy Filesystem to Cloud Run
+    runs-on: ubuntu-latest
+    environment: 
+      name: FILESYSTEM_SERVICE
+    steps:
+      - uses: actions/checkout@v3
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: app-chat-2b616
+      - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+      - run: |
+          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/filesystem:latest"
+          docker build -t $IMAGE -f apps/filesystem/Dockerfile .
+          docker push $IMAGE
+      - run: |
+          gcloud run deploy filesystem-service \
+            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/filesystem:latest \
+            --region asia-southeast1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=3 \
+            --cpu=1 \
+            --memory=128Mi \
+            --port=8080 \
+            --timeout=60s \
+            --use-http2 \
+            --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
+            --set-env-vars HOST=${{ secrets.HOST }} \
+            --set-env-vars PROTO_URL=${{ secrets.PROTO_URL }} \
+            --set-env-vars S3_ACCESS_KEY_ID=${{ secrets.S3_ACCESS_KEY_ID }} \
+            --set-env-vars S3_SECRET_ACCESS_KEY=${{ secrets.S3_SECRET_ACCESS_KEY }} \
+            --set-env-vars S3_REGION=${{ secrets.S3_REGION }} \
+            --set-env-vars S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }} \
+            --set-env-vars S3_ENDPOINT=${{ secrets.S3_ENDPOINT }} \

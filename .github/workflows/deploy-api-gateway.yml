@@ -35,7 +35,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \
-            --memory=128Mi \
+            --memory=256Mi \
             --port=8080 \
             --timeout=60s \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
@@ -44,4 +44,7 @@ jobs:
             --set-env-vars GATEWAY_AUTH_PORT=${{ secrets.GATEWAY_AUTH_PORT }} \
             --set-env-vars GATEWAY_AUTH_PROTO_PATH=${{ secrets.GATEWAY_AUTH_PROTO_PATH }} \
             --set-env-vars GATEWAY_AUTH_JWT_ACCESS_SECRET=${{ secrets.GATEWAY_AUTH_JWT_ACCESS_SECRET }} \
-            --set-env-vars GATEWAY_AUTH_JWT_REFRESH_SECRET=${{ secrets.GATEWAY_AUTH_JWT_REFRESH_SECRET }}
+            --set-env-vars GATEWAY_AUTH_JWT_REFRESH_SECRET=${{ secrets.GATEWAY_AUTH_JWT_REFRESH_SECRET }} \
+            --set-env-vars GATEWAY_FILESYSTEM_HOST=${{ secrets.GATEWAY_FILESYSTEM_HOST }} \
+            --set-env-vars GATEWAY_FILESYSTEM_PORT=${{ secrets.GATEWAY_FILESYSTEM_PORT }} \
+            --set-env-vars GATEWAY_FILESYSTEM_PROTO_PATH=${{ secrets.GATEWAY_FILESYSTEM_PROTO_PATH }}
