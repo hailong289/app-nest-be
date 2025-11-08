@@ -2,6 +2,7 @@ import { REDISKEY } from '@app/constants/RedisKey';
 import { CreateMessage, GetMsgFromRoomDTO, markReadUpToDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotAcceptableException,
@@ -88,7 +89,9 @@ export class HandleChatService {
     }
     // create new message (without transaction for standalone MongoDB)
     const createNewMsg = await this.messageModel.create(data);
-
+    if (!createNewMsg) {
+      throw new BadRequestException('không tạo được tin nhắn');
+    }
     // Generate content snapshot based on message type
     let contentSnap: string;
     switch (type) {
