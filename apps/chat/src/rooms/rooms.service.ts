@@ -182,6 +182,7 @@ export class RoomsService {
               $project: {
                 last_read_at: 1,
                 clear_before_ts: 1,
+                last_read_msg_id: 1,
                 unread_count: 1,
                 muted: 1,
                 pinned: 1,
@@ -470,6 +471,9 @@ export class RoomsService {
             $ifNull: ['$my_state.unread_count', '$unread_count_calc'],
           },
           my_state: 1,
+          last_read_id: {
+            $toString: '$my_state.last_read_msg_id',
+          },
           pinned: '$my_state.pinned',
           muted: '$my_state.muted',
         },
@@ -699,22 +703,22 @@ export class RoomsService {
   }
 
   async checkExistedMemberRoom(userId: string, roomId: string) {
-    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ userId:', userId);
+    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ userId:', userId);
     // 1) Xác thực user
     const userInfo = await this.getUserInfo(userId);
     if (!userInfo) throw new NotFoundException('người dùng không tồn tại');
 
     // Chuẩn bị pairId (room private dạng A|B & B|A)
     const pairId = this.utils.pairRoomId(userInfo.usr_id, roomId);
-    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ pairId:', pairId);
+    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ pairId:', pairId);
 
     // 2) Check Redis theo 2 key (song song)
     const [a, b] = await Promise.all([
       this.redis.sIsMember(this.key.ROOM_MEMBERS(roomId), userId),
       this.redis.sIsMember(this.key.ROOM_MEMBERS(pairId), userId),
     ]);
-    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ b:', b);
-    console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ a:', a);
+    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ b:', b);
+    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ a:', a);
     const checkExistRoomRedis = this.toBoolRedis(a) || this.toBoolRedis(b);
     if (checkExistRoomRedis) return true;
 

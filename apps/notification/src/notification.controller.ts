@@ -36,4 +36,18 @@ export class NotificationController {
     await this.firebaseService.pushNotification(data);
     return Response.success(null, 'Push notification sent successfully');
   }
+
+  @MessagePattern('push_notification_users')
+  async pushNotificationForUser(
+    @Payload()
+    data: {
+      title: string;
+      message: string;
+      userIds: string[];
+      data?: Record<string, any>;
+    },
+  ) {
+    await this.firebaseService.pushNotificationForUsers(data);
+    return Response.success(null, 'Push notification sent successfully');
+  }
 }

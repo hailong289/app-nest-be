@@ -13,7 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
-import type { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
 import { SERVICES } from '@app/constants';
 
@@ -41,6 +41,7 @@ export interface ChatGrpcService {
   CreateNewMsg(data: any): any;
   getRoom(data: any): any;
   GetOneMsg(data: any): any;
+  MarkReadUpTo(data: any): any;
 }
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -54,6 +55,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
+    @Inject(SERVICES.NOTIFICATION)
+    private readonly notificationClient: ClientKafka,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
@@ -213,57 +216,174 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-    console.log(user._id);
 
     data.userId = user._id;
-    console.log('data::', data);
+
     try {
-      // Gọi gRPC service để tạo message
+      // Tạo message qua gRPC
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
         data,
-      )) as {
-        msgId: string;
-        members: [Record<string, any>];
-        roomId: string;
-      };
+      )) as ChatGatewayResponse;
 
-      // Emit message mới đến tất cả members trong room
-      // Parallel processing để tăng performance
-      await Promise.all(
-        result.members.map(async (member) => {
-          // Clone message để tránh mutate shared object
+      const { msgId, roomId, members } = result.metadata;
 
-          // Get updated room data cho member
-          const roomUpset = (await this.gatewayService.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            {
-              userId: member.user_id as string,
-              roomId: result.roomId,
-            },
-          )) as Record<string, any>;
-          // get new message
-          const newMsg = await this.gatewayService.dispatchGrpcRequest(
-            this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-            {
-              userId: member.user_id as string,
-              msgId: result.msgId,
-            },
-          );
-          // Emit cả room và message updates đến member's socket room
-          const memberSocketRoom = this.key.ROOM_CLIENT(member.id);
-          this.io.to(memberSocketRoom).emit('room:upset', roomUpset.metadata);
-          this.io.to(memberSocketRoom).emit('message:upset', newMsg);
+      // Lấy danh sách userId của members khác (để gửi notification)
+      const otherMemberUserIds = members
+        .filter((m) => m.user_id !== user._id)
+        .map((m) => m.user_id as string);
+
+      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
+      const memberUpdates = await Promise.all(
+        members.map(async (member) => {
+          const memberUserId = member.user_id as string;
+
+          // Gọi song song getRoom và GetOneMsg
+          const [roomData, msgData] = await Promise.all([
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+              { userId: memberUserId, roomId },
+            ) as Promise<ChatGatewayResponse>,
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+              { userId: memberUserId, msgId },
+            ),
+          ]);
+
+          return {
+            socketRoom: this.key.ROOM_CLIENT(member.id),
+            roomData: roomData.metadata,
+            msgData,
+          };
         }),
       );
 
+      // Emit events đến từng member
+      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
+        this.io.to(socketRoom).emit('room:upset', roomData);
+        this.io.to(socketRoom).emit('message:upset', msgData);
+      });
+
+      // Gửi push notification (fire-and-forget, không chặn response)
+      if (otherMemberUserIds.length > 0) {
+        this.gatewayService
+          .dispatchServiceEvent(
+            this.notificationClient,
+            'push_notification_users',
+            {
+              title: 'Tin nhắn mới',
+              message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+              userIds: otherMemberUserIds,
+              data,
+            },
+          )
+          .catch((err) =>
+            this.logger.error('[MESSAGE] Notification error:', err),
+          );
+      }
+
       return { ok: true, data: result };
     } catch (error) {
-      this.logger.error(`[MESSAGE] Error creating message:`, error);
+      this.logger.error('[MESSAGE] Error creating message:', error);
       client.emit('error', {
-        message: 'Không thể gửi tin nhắn',
+        message: 'Gửi tin nhắn thất bại',
+        error: error instanceof Error ? error.message : String(error),
       });
-      return { ok: false };
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
+
+  @SubscribeMessage('mark:read')
+  async MarkRead(
+    @MessageBody()
+    data: {
+      userId?: string;
+      roomId: string;
+      lastMessageId: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+
+    data.userId = user._id;
+
+    try {
+      // Đánh dấu đã đọc qua gRPC
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayResponse;
+
+      const { msgId, roomId, members } = result.metadata;
+
+      // Emit ngay cho chính user đã đọc (không cần đợi)
+      this.io.to(this.key.ROOM_CLIENT(user.usr_id)).emit('mark:readed', {
+        lastMessageId: data.lastMessageId,
+        roomId: data.roomId,
+      });
+
+      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
+      const memberUpdates = await Promise.all(
+        members.map(async (member) => {
+          const memberUserId = member.user_id as string;
+
+          // Gọi song song getRoom và GetOneMsg
+          const [roomData, msgData] = await Promise.all([
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+              { userId: memberUserId, roomId },
+            ) as Promise<ChatGatewayResponse>,
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+              { userId: memberUserId, msgId },
+            ),
+          ]);
+
+          return {
+            socketRoom: this.key.ROOM_CLIENT(member.id),
+            roomData: roomData.metadata,
+            msgData,
+          };
+        }),
+      );
+
+      // Emit events đến từng member
+      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
+        this.io.to(socketRoom).emit('room:upset', roomData);
+        this.io.to(socketRoom).emit('message:upset', msgData);
+      });
+
+      return { ok: true, data: result };
+    } catch (error) {
+      this.logger.error('[MARK_READ] Error marking message as read:', error);
+      client.emit('error', {
+        message: 'Đánh dấu đã đọc thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+}
+
+interface ChatGatewayResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: {
+    msgId: string;
+    members: Array<Record<string, any>>;
+    roomId: string;
+    // Có thể bổ sung các trường khác nếu cần
+  };
 }

@@ -45,6 +45,7 @@ export class AppModule {
         { path: 'auth/update-profile', method: RequestMethod.POST },
         { path: 'chat/*path', method: RequestMethod.ALL },
         { path: 'social/*path', method: RequestMethod.ALL },
+        { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
       );
   }
 }

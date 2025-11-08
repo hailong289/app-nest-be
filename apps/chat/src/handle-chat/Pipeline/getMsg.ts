@@ -5,18 +5,18 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
   const uid = Utils.convertToObjectIdMongoose(userId);
 
   const stages: PipelineStage[] = [
-    /** 0) Map sang Room (để lấy room_type, room_id, room_members) */
+    /** 0) Map Room (room_type, room_id, room_members) */
     {
       $lookup: {
         from: 'Rooms',
-        localField: 'msg_roomId', // ObjectId
-        foreignField: '_id', // Room._id
+        localField: 'msg_roomId', // ObjectId -> Room._id
+        foreignField: '_id',
         as: 'roomDoc',
       },
     },
     { $set: { roomDoc: { $first: '$roomDoc' } } },
 
-    /** 0.1) Tìm otherMember trong phòng private */
+    /** 0.1) otherMember (private) */
     {
       $addFields: {
         otherMember: {
@@ -37,17 +37,19 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         from: 'Users',
         localField: 'msg_sender',
         foreignField: '_id',
-        pipeline: [{ $project: { _id: 1, usr_fullname: 1, usr_avatar: 1 } }],
+        pipeline: [
+          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
+        ],
         as: 'sender',
       },
     },
     { $set: { sender: { $first: '$sender' } } },
 
-    /** 2) Attachments */
+    /** 2) Attachments (array ObjectId -> Attachments._id) */
     {
       $lookup: {
         from: 'Attachments',
-        localField: 'attachments',
+        localField: 'attachment_ids',
         foreignField: '_id',
         pipeline: [
           {
@@ -67,6 +69,22 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
           },
         ],
         as: 'attachments',
+      },
+    },
+    // ✅ Ensure attachments is always an array (never null)
+    {
+      $addFields: {
+        attachments: { $ifNull: ['$attachments', []] },
+        // 🔍 DEBUG: Log attachment info
+        _debug_has_attachment_ids: {
+          $gt: [{ $size: { $ifNull: ['$attachment_ids', []] } }, 0],
+        },
+        _debug_attachment_ids_count: {
+          $size: { $ifNull: ['$attachment_ids', []] },
+        },
+        _debug_attachments_found_count: {
+          $size: { $ifNull: ['$attachments', []] },
+        },
       },
     },
 
@@ -130,7 +148,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 5) Hides (flag user đã ẩn message này chưa) */
+    /** 5) Hides (current user) */
     {
       $lookup: {
         from: 'MessageHides',
@@ -159,7 +177,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 6) isMine + isRead */
+    /** 6) isMine + isRead (current user) */
     { $addFields: { isMine: { $eq: ['$msg_sender', uid] } } },
     {
       $lookup: {
@@ -192,19 +210,64 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 7) Project: thêm roomId theo rule bạn yêu cầu */
+    /** 6.1) 🔥 Read list (toàn bộ ai đã đọc message này) */
+    {
+      $lookup: {
+        from: 'MessageReads',
+        let: { mid: '$_id', sender: '$msg_sender' }, // ✅ Truyền msg_sender vào
+        pipeline: [
+          { $match: { $expr: { $eq: ['$msg_id', '$$mid'] } } },
+          // ✅ Loại bỏ người gửi khỏi danh sách read
+          { $match: { $expr: { $ne: ['$user_id', '$$sender'] } } },
+          {
+            $lookup: {
+              from: 'Users',
+              localField: 'user_id',
+              foreignField: '_id',
+              pipeline: [
+                {
+                  $project: {
+                    _id: 1,
+                    usr_fullname: 1,
+                    usr_avatar: 1,
+                    usr_id: 1,
+                  },
+                },
+              ],
+              as: 'u',
+            },
+          },
+          { $set: { u: { $first: '$u' }, readAt: '$readAt' } },
+          {
+            $project: {
+              _id: 0,
+              readAt: 1,
+              user: {
+                _id: '$u._id',
+                id: '$u.usr_id',
+                fullname: '$u.usr_fullname',
+                avatar: '$u.usr_avatar',
+              },
+            },
+          },
+        ],
+        as: 'read_list',
+      },
+    },
+
+    /** 7) Project (roomId theo rule bạn yêu cầu) */
     {
       $project: {
-        // ---- roomId theo điều kiện ----
+        // roomId hiển thị
         roomId: {
           $cond: [
             { $eq: ['$roomDoc.room_type', 'private'] },
-            '$otherMember.id', // id hiển thị của thành viên còn lại
-            '$roomDoc.room_id', // business id của room
+            '$otherMember.id', // id hiển thị của member còn lại
+            '$roomDoc.room_id', // business id chuỗi
           ],
         },
 
-        // ---- message fields ----
+        // message fields
         id: '$_id',
         type: '$msg_type',
         content: '$msg_content',
@@ -212,7 +275,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         editedAt: '$editedAt',
         deletedAt: '$deletedAt',
         pinned: '$pinned',
-        // ---- denormalized ----
+
+        // denormalized
         sender: {
           _id: '$sender._id',
           fullname: '$sender.usr_fullname',
@@ -238,16 +302,28 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
           ],
         },
 
-        // ---- user state ----
+        // user state
         isMine: '$isMine',
         isRead: '$isRead',
         hiddenByMe: '$hiddenByMe',
         hiddenAt: '$hiddenAt',
+
+        // 🔥 read list + count
+        read_by: '$read_list',
+        read_by_count: { $size: '$read_list' },
       },
     },
 
-    /** 8) Dọn rác internal */
-    { $unset: ['readByMe', 'hiddenByMeDoc', 'reply_doc', 'reply_sender'] },
+    /** 8) Cleanup */
+    {
+      $unset: [
+        'readByMe',
+        'hiddenByMeDoc',
+        'reply_doc',
+        'reply_sender',
+        'read_list',
+      ],
+    },
   ];
 
   return stages;

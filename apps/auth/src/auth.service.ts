@@ -15,14 +15,19 @@ import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
 import { Otp } from 'libs/db/src/mongo/model/otp.model';
+import { RedisService } from 'libs/db/src';
+import { REDISKEY } from '@app/constants/RedisKey';
 
 @Injectable()
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
+
+  private readonly key = REDISKEY;
   constructor(
     @InjectModel(Userschema.name) private readonly userModel: Model<User>,
     @InjectModel('Key') private readonly keyModel: Model<Key>,
     @InjectModel('Otp') private readonly otpModel: Model<Otp>,
+    private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
   ) {}
 
@@ -71,6 +76,11 @@ export class AuthService {
         tkn_fcmToken: loginDto.fcmToken,
         tkn_createdAt: new Date(),
       });
+      // save info redis
+      await this.redis.sAdd(
+        this.key.USER_FCM_TOKENS(user._id.toString()),
+        loginDto.fcmToken,
+      );
     }
 
     return Response.success(
@@ -124,7 +134,6 @@ export class AuthService {
       usr_salt: hashedPassword,
       usr_gender: registerDto.gender || 'other',
       usr_date_of_birth: registerDto.dateOfBirth || '',
-      usr_avatar: `https://avatar.iran.liara.run/public/username?username=${registerDto.fullname.toLocaleLowerCase().replace(/\s+/g, '')}`,
     });
 
     try {
@@ -150,6 +159,11 @@ export class AuthService {
           tkn_fcmToken: registerDto.fcmToken,
           tkn_createdAt: new Date(),
         });
+        // save to redis
+        await this.redis.sAdd(
+          this.key.USER_FCM_TOKENS(newUser._id.toString()),
+          registerDto.fcmToken,
+        );
       }
 
       return Response.success(

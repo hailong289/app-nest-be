@@ -9,15 +9,21 @@ import { JwtModule } from '@nestjs/jwt';
 import userModel from 'libs/db/src/mongo/model/user.model';
 import otpModel from 'libs/db/src/mongo/model/otp.model';
 import keysModel from 'libs/db/src/mongo/model/keys.model';
-import { mongoConfig, MongodbModule } from 'libs/db/src';
+import {
+  mongoConfig,
+  MongodbModule,
+  redisConfig,
+  RedisModule,
+} from 'libs/db/src';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/auth/.env.development'),
-      load: [mongoConfig],
+      load: [mongoConfig, redisConfig],
     }),
+    RedisModule,
     MongodbModule,
     JwtModule.register({}),
     MongooseModule.forFeature([userModel, otpModel, keysModel]),

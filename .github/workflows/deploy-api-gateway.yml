@@ -25,7 +25,6 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest"
           docker build -t $IMAGE -f apps/api-gateway/Dockerfile .
           docker push $IMAGE
-      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy api-gateway-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest \

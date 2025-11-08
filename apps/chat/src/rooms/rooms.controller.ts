@@ -40,7 +40,9 @@ export class RoomsController {
 
   @GrpcMethod('ChatService', 'GetRoom')
   async GetRoom(@Body() payload: GetRoomDto) {
-    return this.roomsService.GetRoom(payload);
+    const result = await this.roomsService.GetRoom(payload);
+    console.log('🚀 ~ RoomsController ~ GetRoom ~ result:', result);
+    return result;
   }
 
   @GrpcMethod('ChatService', 'ChangeAvatar')

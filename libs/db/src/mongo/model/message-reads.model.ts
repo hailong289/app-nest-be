@@ -22,6 +22,6 @@ export class MessageRead {
 }
 export const MessageReadSchema = SchemaFactory.createForClass(MessageRead);
 // Index removed: uniq already has unique: true in @Prop
-MessageReadSchema.index({ user_id: 1, room_id: 1, msg_id: 1 });
+MessageReadSchema.index({ room_id: 1, user_id: 1 }, { unique: true });
 
 export default { name: 'MessageRead', schema: MessageReadSchema };

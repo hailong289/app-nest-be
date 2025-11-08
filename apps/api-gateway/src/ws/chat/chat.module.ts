@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ChatGateway } from './chat-gateway';
 import { GatewayNotificationModule } from '../../notification/gateway-notification.module';
 import { GatewayModule } from '../../gateway/gateway.module';
 import { join } from 'node:path';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule, KafkaOptions, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
+import notificationConfig from '../../config/notification.config';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { SERVICES } from '@app/constants';
     JwtModule.register({}), // WsJwtGuard cần JwtService
     GatewayNotificationModule, // Import để có thể inject ClientKafka
     GatewayModule, // Import để có thể inject GatewayService
+    ConfigModule.forFeature(notificationConfig),
     ClientsModule.register([
       {
         name: SERVICES.CHAT,
@@ -45,6 +47,50 @@ import { SERVICES } from '@app/constants';
               join(process.cwd(), 'libs/grpc'), // để resolve google/protobuf/struct.proto
             ],
           },
+        },
+      },
+    ]),
+    ClientsModule.registerAsync([
+      {
+        name: SERVICES.NOTIFICATION,
+        inject: [ConfigService],
+        useFactory: (config: ConfigService) => {
+          const client_id = config.get('notification.client_id');
+          const host = config.get('notification.host');
+          const port = config.get('notification.port');
+          const group_id = config.get('notification.group_id');
+          const isSasl = config.get('notification.is_sasl');
+          const mechanism = config.get('notification.mechanism');
+          const username = config.get('notification.username');
+          const password = config.get('notification.password');
+          const options: KafkaOptions['options'] = {
+            client: {
+              clientId: client_id,
+              brokers: [`${host}:${port}`],
+            },
+            consumer: {
+              groupId: group_id,
+            },
+          };
+
+          if (isSasl) {
+            options.client = {
+              ...options.client,
+              ssl: false,
+              sasl: {
+                mechanism: mechanism,
+                username: username,
+                password: password,
+              },
+              brokers: options.client?.brokers || [`${host}:${port}`],
+            };
+          }
+
+          console.log('options kafka', options);
+          return {
+            transport: Transport.KAFKA,
+            options,
+          };
         },
       },
     ]),
