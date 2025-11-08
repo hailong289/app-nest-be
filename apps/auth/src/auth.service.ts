@@ -374,7 +374,7 @@ export class AuthService {
       });
       formData.append('file', blob, data.file.originalname);
       formData.append('folder', `${data.folder}/${user.usr_id}`);
-      const result = await axios.post(
+      const result = await axios.post<{ metadata: { url: string } }>(
         `${this.gatewayUrl}/api/filesystem/upload-single`,
         formData,
         {

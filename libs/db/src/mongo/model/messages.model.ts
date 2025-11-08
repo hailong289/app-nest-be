@@ -21,7 +21,6 @@ export class Message {
 
   @Prop({
     type: String,
-    enum: ['text', 'image', 'file', 'system'],
     default: 'text',
   })
   msg_type: MsgType;
@@ -80,8 +79,13 @@ function normalizeVi(s = '') {
     .toLowerCase();
 }
 MessageSchema.pre('save', function (next) {
-  if (this.isModified('msg_content')) {
-    this.msg_content_norm = normalizeVi(this.msg_content || '');
+  // Chỉ normalize khi msg_content có nội dung
+  // Với gif, image, video, audio thì msg_content có thể rỗng
+  if (this.isModified('msg_content') && this.msg_content) {
+    this.msg_content_norm = normalizeVi(this.msg_content);
+  } else if (!this.msg_content) {
+    // Nếu content rỗng thì msg_content_norm cũng rỗng
+    this.msg_content_norm = '';
   }
   next();
 });

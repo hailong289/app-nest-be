@@ -321,6 +321,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
+      // Kiểm tra result có metadata không
+      if (!result || !result.metadata) {
+        this.logger.error(
+          '[MARK_READ] Invalid response from MarkReadUpTo:',
+          result,
+        );
+        client.emit('error', { message: 'Failed to mark as read' });
+        return { ok: false };
+      }
+
       const { msgId, roomId, members } = result.metadata;
 
       // Emit ngay cho chính user đã đọc (không cần đợi)

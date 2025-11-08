@@ -1,7 +1,13 @@
 import { REDISKEY } from '@app/constants/RedisKey';
 import { CreateMessage, GetMsgFromRoomDTO, markReadUpToDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
-import { Injectable, Logger, NotAcceptableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotAcceptableException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
   Room,
@@ -40,22 +46,12 @@ export class HandleChatService {
 
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
-      this.log.error('User không thuộc room:', { userId, roomId });
-      return {
-        msgId: null,
-        members: [],
-        roomId: null,
-      };
+      throw new NotFoundException('Bạn không thể gửi tin nhắn');
     }
     //check user
     const userInfo = await this.roomService.getUserInfo(userId);
     if (!userInfo) {
-      this.log.error('Người dùng không tồn tại:', userId);
-      return {
-        msgId: null,
-        members: [],
-        roomId: null,
-      };
+      throw new NotFoundException('không tìm thấy thông tin người dùng');
     }
 
     // get info room
@@ -65,7 +61,7 @@ export class HandleChatService {
       },
     });
     if (!finInfo) {
-      throw new NotAcceptableException('Phòng không tồn taij');
+      throw new NotAcceptableException('Phòng không tồn tại');
     }
 
     const data: {
@@ -89,12 +85,13 @@ export class HandleChatService {
       pinned: pinned,
     };
     if (id) {
-      console.log('🔍 ID truyền vào:', id);
       data._id = this.utils.convertToObjectIdMongoose(id);
-      console.log('🔍 data._id sau khi gán:', data._id);
     }
     // create new message (without transaction for standalone MongoDB)
     const createNewMsg = await this.messageModel.create(data);
+    if (!createNewMsg) {
+      throw new BadRequestException('không tạo được tin nhắn');
+    }
     // Generate content snapshot based on message type
     let contentSnap: string;
     switch (type) {
@@ -116,6 +113,10 @@ export class HandleChatService {
       }
       case 'audio': {
         contentSnap = '[Tin nhắn thoại]';
+        break;
+      }
+      case 'gif': {
+        contentSnap = 'Đã gửi gif';
         break;
       }
       default: {

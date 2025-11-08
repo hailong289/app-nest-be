@@ -12,6 +12,7 @@ export class HandleChatController {
   @GrpcMethod('ChatService', 'CreateNewMsg')
   async NewMsg(@Body() payload: CreateMessage) {
     const result = await this.hdChat.createMessage(payload);
+    // console.log('🚀 ~ HandleChatController ~ NewMsg ~ result:', result);
     return result;
   }
 
@@ -19,7 +20,7 @@ export class HandleChatController {
   async GetOneMsg(@Body() payload: { userId: string; msgId: string }) {
     this.logger.log('[gRPC] GetOneMsg called with payload:', payload);
     const result = await this.hdChat.getOneMsg(payload.userId, payload.msgId);
-    console.log('🚀 ~ HandleChatController ~ GetOneMsg ~ result:', result);
+    // console.log('🚀 ~ HandleChatController ~ GetOneMsg ~ result:', result);
     return result;
   }
   @GrpcMethod('ChatService', 'MarkReadUpTo')
@@ -30,7 +31,7 @@ export class HandleChatController {
   @GrpcMethod('ChatService', 'GetMsgFromRoom')
   async GetMsgFromRoom(@Body() payload: GetMsgFromRoomDTO) {
     const result = await this.hdChat.getMsgFromRoom(payload);
-    console.log('🚀 ~ HandleChatController ~ GetMsgFromRoom ~ result:', result);
+    // console.log('🚀 ~ HandleChatController ~ GetMsgFromRoom ~ result:', result);
     return result;
   }
 }
