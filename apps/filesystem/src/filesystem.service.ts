@@ -5,11 +5,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
@@ -19,31 +15,16 @@ import { Model } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import { MulterFile, uploadSingleFileByUserDTo } from '@app/dto';
 
-// Metadata extraction interfaces
-interface ImageMetadata {
-  width?: number;
-  height?: number;
-  format?: string;
-}
-
-interface VideoMetadata {
-  duration?: number;
-  width?: number;
-  height?: number;
-  codec?: string;
-}
-
-interface AudioMetadata {
-  duration?: number;
-  bitrate?: number;
-  sampleRate?: number;
-}
-
-interface FileMetadata {
-  image?: ImageMetadata;
-  video?: VideoMetadata;
-  audio?: AudioMetadata;
-}
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
+import * as crypto from 'node:crypto';
+import {
+  FileMetadata,
+  ImageMetadata,
+  VideoMetadata,
+  AudioMetadata,
+} from './types';
 
 @Injectable()
 export class FilesystemService {
@@ -146,101 +127,338 @@ export class FilesystemService {
   /**
    * Extract metadata from file based on type
    */
-  private async extractFileMetadata(file: MulterFile): Promise<FileMetadata> {
-    const metadata: FileMetadata = {};
+  private safeNumber(n: unknown): number | undefined {
+    const x = Number(n);
+    return Number.isFinite(x) ? x : undefined;
+  }
 
+  private getExtFromName(name: string): string | undefined {
+    const ext = path.extname(name || '').toLowerCase();
+    return ext ? ext.replace('.', '') : undefined;
+  }
+
+  private computeSHA1(buf: Buffer): string {
+    return crypto.createHash('sha1').update(buf).digest('hex');
+  }
+
+  private async detectMimeAndExt(buf: Buffer, fallbackExt?: string) {
     try {
-      // Extract image metadata
-      if (file.mimetype.startsWith('image/')) {
+      const fileTypeModule = await import('file-type');
+      const fileType = await fileTypeModule.fileTypeFromBuffer(buf);
+      if (fileType) {
+        return { mime: fileType.mime, ext: fileType.ext };
+      }
+    } catch {
+      // Ignore error if file-type not available
+    }
+    return { mime: undefined, ext: fallbackExt };
+  }
+
+  private classifyType(
+    mimeFromServer?: string,
+    mimeDetected?: string,
+  ): 'image' | 'video' | 'audio' | 'other' {
+    const m = (mimeDetected || mimeFromServer || '').toLowerCase();
+    if (m.startsWith('image/')) return 'image';
+    if (m.startsWith('video/')) return 'video';
+    if (m.startsWith('audio/')) return 'audio';
+    return 'other';
+  }
+
+  private async extractImage(buf: Buffer): Promise<ImageMetadata | undefined> {
+    // 1) sharp (nếu có)
+    try {
+      const sharpMod = await import('sharp').catch(() => null);
+      if (sharpMod) {
+        const meta = await sharpMod.default(buf).metadata();
+        const out: ImageMetadata = {
+          width: this.safeNumber(meta.width),
+          height: this.safeNumber(meta.height),
+          format: meta.format ?? undefined,
+          orientation: this.safeNumber(
+            (meta as unknown as Record<string, unknown>).orientation,
+          ),
+        };
+
+        // EXIF bằng exifr (nếu có, và sharp không parse đủ)
         try {
-          // Try using sharp (if available)
-          const sharp = await import('sharp').catch(() => null);
-          if (sharp) {
-            const imageMetadata = await sharp.default(file.buffer).metadata();
-            metadata.image = {
-              width: imageMetadata.width,
-              height: imageMetadata.height,
-              format: imageMetadata.format,
-            };
-            console.log('📐 Image metadata extracted:', metadata.image);
-          } else {
-            // Fallback: probe-image-size
-            const probe: typeof import('probe-image-size') | null =
-              await import('probe-image-size').catch(() => null);
-            if (probe) {
-              interface ProbeImageSizeResult {
-                width: number;
-                height: number;
-                type: string;
-              }
-              const result = (await probe.default(
-                file.buffer,
-              )) as ProbeImageSizeResult;
-              metadata.image = {
-                width: result.width,
-                height: result.height,
-                format: result.type,
+          const exifr = await import('exifr').catch(() => null);
+          if (exifr?.parse) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const exif = await exifr
+              .parse(buf, { tiff: true, exif: true, gps: true })
+              .catch(() => null);
+            if (exif && typeof exif === 'object') {
+              const exifData = exif as Record<string, unknown>;
+              out.exif = {
+                make: (exifData.Make ?? exifData.make ?? undefined) as
+                  | string
+                  | undefined,
+                model: (exifData.Model ?? exifData.model ?? undefined) as
+                  | string
+                  | undefined,
+                dateTimeOriginal:
+                  (exifData.DateTimeOriginal as Date)?.toISOString?.() ??
+                  (exifData.DateTimeOriginal as string | undefined) ??
+                  undefined,
+                latitude:
+                  typeof exifData.latitude === 'number'
+                    ? exifData.latitude
+                    : undefined,
+                longitude:
+                  typeof exifData.longitude === 'number'
+                    ? exifData.longitude
+                    : undefined,
               };
-              console.log(
-                '📐 Image metadata extracted (probe):',
-                metadata.image,
-              );
+              if (
+                !out.orientation &&
+                typeof exifData.Orientation === 'number'
+              ) {
+                out.orientation = exifData.Orientation;
+              }
             }
           }
-        } catch (err) {
-          console.warn('⚠️ Failed to extract image metadata:', err);
+        } catch {
+          /* ignore */
         }
-      }
 
-      // Extract video metadata
-      else if (file.mimetype.startsWith('video/')) {
-        try {
-          const musicMetadata = await import('music-metadata').catch(
-            () => null,
-          );
-          if (musicMetadata) {
-            const meta = await musicMetadata.parseBuffer(file.buffer, {
-              mimeType: file.mimetype,
-            });
-            metadata.video = {
-              duration: meta.format.duration,
-              width: meta.format.width,
-              height: meta.format.height,
-              codec: meta.format.codec,
-            };
-            console.log('🎬 Video metadata extracted:', metadata.video);
-          }
-        } catch (err) {
-          console.warn('⚠️ Failed to extract video metadata:', err);
-        }
+        return out;
       }
-
-      // Extract audio metadata
-      else if (file.mimetype.startsWith('audio/')) {
-        try {
-          const musicMetadata = await import('music-metadata').catch(
-            () => null,
-          );
-          if (musicMetadata) {
-            const meta = await musicMetadata.parseBuffer(file.buffer, {
-              mimeType: file.mimetype,
-            });
-            metadata.audio = {
-              duration: meta.format.duration,
-              bitrate: meta.format.bitrate,
-              sampleRate: meta.format.sampleRate,
-            };
-            console.log('🎵 Audio metadata extracted:', metadata.audio);
-          }
-        } catch (err) {
-          console.warn('⚠️ Failed to extract audio metadata:', err);
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error extracting metadata:', error);
+    } catch {
+      /* ignore */
     }
 
-    return metadata;
+    // 2) probe-image-size (fallback)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const probeModule = (await import('probe-image-size').catch(
+        () => null,
+      )) as any;
+      if (probeModule) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        const r = (await probeModule(buf)) as {
+          width?: number;
+          height?: number;
+          type?: string;
+        };
+        if (r && typeof r === 'object') {
+          return {
+            width: this.safeNumber(r.width),
+            height: this.safeNumber(r.height),
+            format: r.type ?? undefined,
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return undefined;
+  }
+
+  private async extractAudioWithMusicMetadata(
+    buf: Buffer,
+    declaredMime?: string,
+  ): Promise<AudioMetadata | undefined> {
+    try {
+      const mm = await import('music-metadata').catch(() => null);
+      if (!mm) return undefined;
+      const meta = await mm.parseBuffer(buf, { mimeType: declaredMime });
+      const out: AudioMetadata = {
+        duration: this.safeNumber(meta.format.duration),
+        bitrate: this.safeNumber(meta.format.bitrate),
+        sampleRate: this.safeNumber(meta.format.sampleRate),
+        codec: meta.format.codec ?? undefined,
+        channels: this.safeNumber(meta.format.numberOfChannels),
+      };
+      return out;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async extractVideoWithFFprobe(
+    buf: Buffer,
+    suggestedExt = 'mp4',
+  ): Promise<VideoMetadata | undefined> {
+    // DISABLED: Cần cài @ffprobe-installer/ffprobe + fluent-ffmpeg
+    // yarn add @ffprobe-installer/ffprobe fluent-ffmpeg @types/fluent-ffmpeg
+    return undefined;
+
+    /* Uncomment khi đã cài packages:
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const [ffprobeInstaller, ffmpeg] = (await Promise.all([
+        import('@ffprobe-installer/ffprobe').catch(() => null),
+        import('fluent-ffmpeg').catch(() => null),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ])) as any[];
+
+      const ffprobePath = ffprobeInstaller?.path;
+
+      if (!ffmpeg || !ffprobePath) return undefined;
+
+      // Ghi tạm ra file (ffprobe cần path)
+      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'probe-'));
+      const filePath = path.join(tmp, `upload.${suggestedExt}`);
+      await fs.writeFile(filePath, buf);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      ffmpeg.default.setFfprobePath(ffprobePath);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const probe = await new Promise<any>((resolve, reject) => {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+        ffmpeg.default.ffprobe(
+          filePath,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (err: any, data: any) => {
+            if (err) reject(new Error(String(err)));
+            else resolve(data);
+          },
+        );
+      });
+
+      // Dọn file tạm (không chờ)
+      void fs.unlink(filePath).catch(() => {});
+      void fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const fmt = probe?.format ?? {};
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const streams: unknown[] = Array.isArray(probe?.streams)
+        ? // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          probe.streams
+        : [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+      const vStream: any =
+        streams.find(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (s: any) => s?.codec_type === 'video',
+        ) || {};
+
+      const r: VideoMetadata = {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        duration: this.safeNumber(fmt.duration ?? vStream.duration),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        width: this.safeNumber(vStream.width),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        height: this.safeNumber(vStream.height),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        codec: vStream.codec_name ?? undefined,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        rotation: this.safeNumber(vStream.rotation ?? vStream.tags?.rotate),
+      };
+
+      // FPS
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const rFrameRate: string | undefined = vStream.r_frame_rate;
+      if (rFrameRate?.includes('/')) {
+        const [a, b] = rFrameRate.split('/').map(Number);
+        if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) {
+          r.fps = +(a / b).toFixed(3);
+        }
+      }
+
+      // Bitrate
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const br = this.safeNumber(fmt.bit_rate ?? vStream.bit_rate);
+      if (br) r.bitrate = br;
+
+      return r;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async extractVideoFallback(
+    buf: Buffer,
+    declaredMime?: string,
+  ): Promise<VideoMetadata | undefined> {
+    // music-metadata đọc được duration/codec, đôi khi không có width/height
+    try {
+      const mm = await import('music-metadata').catch(() => null);
+      if (!mm) return undefined;
+      const meta = await mm.parseBuffer(buf, { mimeType: declaredMime });
+      const out: VideoMetadata = {
+        duration: this.safeNumber(meta.format.duration),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+        width: this.safeNumber((meta.format as any).width),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+        height: this.safeNumber((meta.format as any).height),
+        codec: meta.format.codec ?? undefined,
+      };
+      return out;
+    } catch {
+      return undefined;
+    }
+  }
+
+  public async extractFileMetadata(file: MulterFile): Promise<FileMetadata> {
+    const base: FileMetadata['base'] = {
+      filename: file.originalname,
+      ext: this.getExtFromName(file.originalname),
+      mimeFromServer: file.mimetype,
+      size: file.size,
+      type: 'other',
+    };
+
+    // Hash (tuỳ chọn, có thể comment nếu không cần)
+    try {
+      base.sha1 = this.computeSHA1(file.buffer);
+    } catch {
+      /* ignore */
+    }
+
+    // Detect mime/extension thực tế
+    let detectedMime: string | undefined;
+    let detectedExt: string | undefined;
+    try {
+      const d = await this.detectMimeAndExt(file.buffer, base.ext);
+      detectedMime = d.mime;
+      detectedExt = d.ext;
+      if (detectedExt && !base.ext) base.ext = detectedExt;
+    } catch {
+      /* ignore */
+    }
+
+    // Phân loại type
+    base.mimeDetected = detectedMime;
+    base.type = this.classifyType(base.mimeFromServer, base.mimeDetected);
+
+    const output: FileMetadata = { base };
+
+    // IMAGE
+    if (base.type === 'image') {
+      output.image = await this.extractImage(file.buffer);
+      return output;
+    }
+
+    // VIDEO
+    if (base.type === 'video') {
+      // Ưu tiên ffprobe (nếu có)
+      output.video =
+        (await this.extractVideoWithFFprobe(
+          file.buffer,
+          detectedExt || base.ext || 'mp4',
+        )) ||
+        (await this.extractVideoFallback(file.buffer, base.mimeFromServer)) ||
+        undefined;
+      return output;
+    }
+
+    // AUDIO
+    if (base.type === 'audio') {
+      output.audio = await this.extractAudioWithMusicMetadata(
+        file.buffer,
+        base.mimeFromServer,
+      );
+      return output;
+    }
+
+    // OTHER → không làm gì thêm
+    return output;
   }
 
   async uploadSingleFile(file: MulterFile, folder: string = 'uploads') {
@@ -367,7 +585,7 @@ export class FilesystemService {
     file,
     id,
   }: uploadSingleFileByUserDTo) {
-    if (!file || !file.buffer) {
+    if (!file?.buffer) {
       throw new Error('File or buffer is missing');
     }
     // check userInfo
@@ -478,18 +696,18 @@ export class FilesystemService {
           { new: true },
         );
 
-        if (!updated) {
+        if (updated) {
+          attachment = {
+            ...(updated.toObject ? updated.toObject() : updated),
+            _id: updated._id.toString(),
+          } as AttachmentWithId;
+        } else {
           // ID không tìm thấy, tạo mới
           console.log('⚠️ Attachment not found, creating new one');
           const created = await this.attachmentModel.create(attachmentData);
           attachment = {
             ...(created.toObject ? created.toObject() : created),
             _id: created._id.toString(),
-          } as AttachmentWithId;
-        } else {
-          attachment = {
-            ...(updated.toObject ? updated.toObject() : updated),
-            _id: updated._id.toString(),
           } as AttachmentWithId;
         }
       } else {

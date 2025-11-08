@@ -2,7 +2,14 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type MessageDocument = HydratedDocument<Message>;
-export type MsgType = 'text' | 'image' | 'file' | 'system' | 'video' | 'audio';
+export type MsgType =
+  | 'text'
+  | 'image'
+  | 'file'
+  | 'system'
+  | 'video'
+  | 'audio'
+  | 'gif';
 
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {

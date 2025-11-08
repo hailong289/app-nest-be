@@ -19,6 +19,7 @@ export class HandleChatController {
   async GetOneMsg(@Body() payload: { userId: string; msgId: string }) {
     this.logger.log('[gRPC] GetOneMsg called with payload:', payload);
     const result = await this.hdChat.getOneMsg(payload.userId, payload.msgId);
+    console.log('🚀 ~ HandleChatController ~ GetOneMsg ~ result:', result);
     return result;
   }
   @GrpcMethod('ChatService', 'MarkReadUpTo')
