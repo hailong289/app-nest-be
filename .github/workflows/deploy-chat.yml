@@ -1,11 +1,11 @@
-name: Deploy Auth Service
+name: Deploy Chat Service
 
 on:
   workflow_call:
 
 jobs:
   deploy:
-    name: Deploy Auth to Cloud Run
+    name: Deploy Chat to Cloud Run
     runs-on: ubuntu-latest
     environment: 
       name: AUTH_SERVICE
@@ -19,12 +19,12 @@ jobs:
           project_id: app-chat-2b616
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
       - run: |
-          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest"
-          docker build -t $IMAGE -f apps/auth/Dockerfile .
+          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/chat:latest"
+          docker build -t $IMAGE -f apps/chat/Dockerfile .
           docker push $IMAGE
       - run: |
-          gcloud run deploy auth-service \
-            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest \
+          gcloud run deploy chat-service \
+            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/chat:latest \
             --region asia-southeast1 \
             --platform managed \
             --allow-unauthenticated \
@@ -43,5 +43,7 @@ jobs:
             --set-env-vars DB_NAME=${{ secrets.DB_NAME }} \
             --set-env-vars DB_USER=${{ secrets.DB_USER }} \
             --set-env-vars DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-            --set-env-vars JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }} \
-            --set-env-vars JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
+            --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
+            --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} 

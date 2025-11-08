@@ -9,6 +9,7 @@ on:
       - 'apps/api-gateway/**'
       - 'apps/notification/**'
       - 'apps/filesystem/**'
+      - 'apps/chat/**'
 
 jobs:
   detect-changes:
@@ -17,6 +18,8 @@ jobs:
       service-auth: ${{steps.filter.outputs.service-auth }}
       service-api-gateway: ${{ steps.filter.outputs.service-api-gateway }}
       service-noti: ${{ steps.filter.outputs.service-noti }}
+      service-filesystem: ${{ steps.filter.outputs.service-filesystem }}
+      service-chat: ${{ steps.filter.outputs.service-chat }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -35,6 +38,8 @@ jobs:
               - 'apps/notification/**'
             service-filesystem:
               - 'apps/filesystem/**'
+            service-chat:
+              - 'apps/chat/**'
 
   deploy-auth-service:
     needs:
@@ -55,6 +60,13 @@ jobs:
       - detect-changes
     if: ${{ needs.detect-changes.outputs.service-filesystem == 'true' }}
     uses: ./.github/workflows/deploy-filesystem.yml
+    secrets: inherit
+  
+  deploy-chat-service:
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-chat == 'true' }}
+    uses: ./.github/workflows/deploy-chat.yml
     secrets: inherit
 
   deploy-gateway-service:

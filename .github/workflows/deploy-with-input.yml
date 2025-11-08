@@ -14,6 +14,7 @@ on:
           - api-gateway
           - notification
           - filesystem
+          - chat
 
 jobs:
   deploy-auth-service:
@@ -29,6 +30,11 @@ jobs:
   deploy-filesystem-service:
     if: ${{ github.event.inputs.service == 'filesystem' || github.event.inputs.service == 'all' }}
     uses: ./.github/workflows/deploy-filesystem.yml
+    secrets: inherit
+
+  deploy-chat-service:
+    if: ${{ github.event.inputs.service == 'chat' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-chat.yml
     secrets: inherit
 
   deploy-gateway-service:

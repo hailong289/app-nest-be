@@ -22,7 +22,6 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/notification:latest"
           docker build -t $IMAGE -f apps/auth/Dockerfile .
           docker push $IMAGE
-      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy notification-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/notification:latest \
@@ -32,7 +31,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \
-            --memory=128Mi \
+            --memory=512Mi \
             --port=8080 \
             --timeout=60s \
             --use-http2 \
@@ -63,4 +62,8 @@ jobs:
             --set-env-vars KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }} \
             --set-env-vars KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }} \
             --set-env-vars KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }} \
-            --set-env-vars APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }}
+            --set-env-vars APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }} \ 
+            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
+            --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
+            --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} 
