@@ -42,8 +42,8 @@ jobs:
             --set-env-vars GATEWAY_AUTH_HOST=${{ secrets.GATEWAY_AUTH_HOST }} \
             --set-env-vars GATEWAY_AUTH_PORT=${{ secrets.GATEWAY_AUTH_PORT }} \
             --set-env-vars GATEWAY_AUTH_PROTO_PATH=${{ secrets.GATEWAY_AUTH_PROTO_PATH }} \
-            --set-env-vars GATEWAY_AUTH_JWT_ACCESS_SECRET=${{ secrets.GATEWAY_AUTH_JWT_ACCESS_SECRET }} \
-            --set-env-vars GATEWAY_AUTH_JWT_REFRESH_SECRET=${{ secrets.GATEWAY_AUTH_JWT_REFRESH_SECRET }} \
+            --set-env-vars GATEWAY_JWT_ACCESS_SECRET=${{ secrets.GATEWAY_JWT_ACCESS_SECRET }} \
+            --set-env-vars GATEWAY_JWT_REFRESH_SECRET=${{ secrets.GATEWAY_JWT_REFRESH_SECRET }} \
             --set-env-vars GATEWAY_FILESYSTEM_HOST=${{ secrets.GATEWAY_FILESYSTEM_HOST }} \
             --set-env-vars GATEWAY_FILESYSTEM_PORT=${{ secrets.GATEWAY_FILESYSTEM_PORT }} \
             --set-env-vars GATEWAY_FILESYSTEM_PROTO_PATH=${{ secrets.GATEWAY_FILESYSTEM_PROTO_PATH }} \
