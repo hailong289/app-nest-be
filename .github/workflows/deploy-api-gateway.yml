@@ -47,3 +47,6 @@ jobs:
             --set-env-vars GATEWAY_FILESYSTEM_HOST=${{ secrets.GATEWAY_FILESYSTEM_HOST }} \
             --set-env-vars GATEWAY_FILESYSTEM_PORT=${{ secrets.GATEWAY_FILESYSTEM_PORT }} \
             --set-env-vars GATEWAY_FILESYSTEM_PROTO_PATH=${{ secrets.GATEWAY_FILESYSTEM_PROTO_PATH }}
+            --set-env-vars GATEWAY_CHAT_HOST=${{ secrets.GATEWAY_CHAT_HOST }} \
+            --set-env-vars GATEWAY_CHAT_PORT=${{ secrets.GATEWAY_CHAT_PORT }} \
+            --set-env-vars GATEWAY_CHAT_PROTO_PATH=${{ secrets.GATEWAY_CHAT_PROTO_PATH }} \
