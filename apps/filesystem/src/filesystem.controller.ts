@@ -3,7 +3,6 @@ import { GrpcMethod, Payload } from '@nestjs/microservices';
 import { FilesystemService } from './filesystem.service';
 import { Response } from '@app/helpers/response';
 import {
-  MulterFile,
   MultipleFilesUploadDto,
   SingleFileUploadDto,
   uploadSingleFileByUserDTo,
