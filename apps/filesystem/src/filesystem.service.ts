@@ -61,13 +61,12 @@ export class FilesystemService {
     if (!file?.buffer) throw new Error('File or buffer is missing');
 
     // Validate user and room
-    const [user, room] = await Promise.all([
-      this.userModel.findById(userId),
-      this.roomModel.findOne({
-        room_id: { $in: [roomId, this.utils.pairRoomId(userId, roomId)] },
-      }),
-    ]);
+    const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('User not found');
+    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
+    const room = await this.roomModel.findOne({
+      room_id: { $in: [roomId, roomPair] },
+    });
     if (!room) throw new NotFoundException('Room not found');
 
     // Prepare file metadata
