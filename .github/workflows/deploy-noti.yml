@@ -22,7 +22,6 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/notification:latest"
           docker build -t $IMAGE -f apps/auth/Dockerfile .
           docker push $IMAGE
-      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy notification-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/notification:latest \
