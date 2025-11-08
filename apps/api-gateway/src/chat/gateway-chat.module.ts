@@ -6,6 +6,7 @@ import { GatewayChatController } from './gateway-chat.controller';
 import { GatewaySocialController } from './social/gateway-social.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { ChatWebSocketModule } from '../ws/chat/chat.module';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
@@ -30,6 +31,10 @@ import { ChatWebSocketModule } from '../ws/chat/chat.module';
             const port = process.env.GATEWAY_CHAT_PORT || '5003';
             return `${host}:${port}`;
           })(),
+          credentials:
+            process.env.NODE_ENV === 'production'
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
           loader: {
             keepCase: true,
             longs: String,
