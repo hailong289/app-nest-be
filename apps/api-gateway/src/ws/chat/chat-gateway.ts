@@ -219,7 +219,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     data.userId = user._id;
     console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
-
+    // this.logger.log(
+    //   `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
+    // );
     try {
       // Tạo message qua gRPC
       const result = (await this.gatewayService.dispatchGrpcRequest(

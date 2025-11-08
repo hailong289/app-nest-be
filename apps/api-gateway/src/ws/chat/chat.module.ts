@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { ClientsModule, KafkaOptions, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import notificationConfig from '../../config/notification.config';
-
+import * as grpc from '@grpc/grpc-js';
 @Module({
   imports: [
     ConfigModule, // WsJwtGuard cần ConfigService
@@ -36,6 +36,10 @@ import notificationConfig from '../../config/notification.config';
             const port = process.env.GATEWAY_CHAT_PORT || '5003';
             return `${host}:${port}`;
           })(),
+          credentials:
+            process.env.NODE_ENV === 'production'
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
           loader: {
             keepCase: true,
             longs: String,
