@@ -35,7 +35,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \
-            --memory=256Mi \
+            --memory=512Mi \
             --port=8080 \
             --timeout=60s \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
