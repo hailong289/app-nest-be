@@ -218,6 +218,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
+    console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
 
     try {
       // Tạo message qua gRPC
@@ -226,6 +227,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
+      console.log('🚀 ~ ChatGateway ~ onMessage ~ result:', result);
       const { msgId, roomId, members } = result.metadata;
 
       // Lấy danh sách userId của members khác (để gửi notification)
