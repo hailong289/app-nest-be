@@ -87,6 +87,7 @@ export class HandleChatService {
     if (id) {
       data._id = this.utils.convertToObjectIdMongoose(id);
     }
+    this.log.log(data);
     // create new message (without transaction for standalone MongoDB)
     const createNewMsg = await this.messageModel.create(data);
     if (!createNewMsg) {
