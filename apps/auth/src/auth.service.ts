@@ -1,4 +1,9 @@
-import { LoginDto, RegisterDto } from '@app/dto';
+import {
+  LoginDto,
+  RegisterDto,
+  UpdateAvatarDto,
+  UpdateProfileDto,
+} from '@app/dto';
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -10,14 +15,19 @@ import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
 import { Otp } from 'libs/db/src/mongo/model/otp.model';
+import { RedisService } from 'libs/db/src';
+import { REDISKEY } from '@app/constants/RedisKey';
 
 @Injectable()
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
+
+  private readonly key = REDISKEY;
   constructor(
     @InjectModel(Userschema.name) private readonly userModel: Model<User>,
     @InjectModel('Key') private readonly keyModel: Model<Key>,
     @InjectModel('Otp') private readonly otpModel: Model<Otp>,
+    private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
   ) {}
 
@@ -66,6 +76,11 @@ export class AuthService {
         tkn_fcmToken: loginDto.fcmToken,
         tkn_createdAt: new Date(),
       });
+      // save info redis
+      await this.redis.sAdd(
+        this.key.USER_FCM_TOKENS(user._id.toString()),
+        loginDto.fcmToken,
+      );
     }
 
     return Response.success(
@@ -119,7 +134,6 @@ export class AuthService {
       usr_salt: hashedPassword,
       usr_gender: registerDto.gender || 'other',
       usr_date_of_birth: registerDto.dateOfBirth || '',
-      usr_avatar: `https://avatar.iran.liara.run/public/username?username=${registerDto.fullname.toLocaleLowerCase().replace(/\s+/g, '')}`,
     });
 
     try {
@@ -145,6 +159,11 @@ export class AuthService {
           tkn_fcmToken: registerDto.fcmToken,
           tkn_createdAt: new Date(),
         });
+        // save to redis
+        await this.redis.sAdd(
+          this.key.USER_FCM_TOKENS(newUser._id.toString()),
+          registerDto.fcmToken,
+        );
       }
 
       return Response.success(
@@ -341,5 +360,55 @@ export class AuthService {
     }
 
     return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
+  }
+
+  async updateAvatar(data: UpdateAvatarDto & { userId: string }) {
+    const user = await this.userModel.findById(data.userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    try {
+      const formData = new FormData();
+      const blob = new Blob([new Uint8Array(data.file.buffer)], {
+        type: data.file.mimetype,
+      });
+      formData.append('file', blob, data.file.originalname);
+      formData.append('folder', `${data.folder}/${user.usr_id}`);
+      const result = await axios.post<{ metadata: { url: string } }>(
+        `${this.gatewayUrl}/api/filesystem/upload-single`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        },
+      );
+      user.usr_avatar = result.data.metadata.url;
+      await user.save();
+      return Response.success(
+        { url: result.data.metadata.url },
+        'Cập nhật ảnh đại diện thành công',
+      );
+    } catch (error) {
+      console.error('Error updating avatar:', error);
+      return Response.error(
+        'Cập nhật ảnh đại diện thất bại',
+        400,
+        'ERROR_UPDATE_AVATAR',
+        error,
+      );
+    }
+  }
+
+  async updateProfile(data: UpdateProfileDto & { userId: string }) {
+    const user = await this.userModel.findById(data.userId).exec();
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+    user.usr_fullname = data.fullname;
+    user.usr_gender = data.gender;
+    user.usr_dateOfBirth = new Date(data.dateOfBirth);
+    await user.save();
+    return Response.success(null, 'Cập nhật thông tin thành công');
   }
 }

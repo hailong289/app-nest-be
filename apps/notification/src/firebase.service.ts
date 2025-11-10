@@ -1,12 +1,18 @@
+import { REDISKEY } from '@app/constants/RedisKey';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
+import { RedisService } from 'libs/db/src';
 
 @Injectable()
 export class FirebaseService implements OnModuleInit {
   private app: admin.app.App;
+  private readonly key = REDISKEY;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly redis: RedisService,
+  ) {}
 
   onModuleInit() {
     if (!admin.apps.length) {
@@ -104,5 +110,45 @@ export class FirebaseService implements OnModuleInit {
       console.error('🔥 Firebase Cloud Messaging error:', error);
     }
     return true;
+  }
+  async pushNotificationForUsers({
+    title,
+    message,
+    userIds,
+    data,
+  }: {
+    title: string;
+    message: string;
+    userIds: string[];
+    data?: Record<string, any>;
+  }) {
+    // get fctoken form redis
+    const fcms = (
+      await Promise.all(
+        userIds.map(async (u) => {
+          try {
+            return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
+          } catch (e) {
+            console.error(`Redis error for user ${u}:`, e);
+            return [];
+          }
+        }),
+      )
+    ).flat();
+    console.log(
+      '🚀 ~ FirebaseService ~ pushNotificationForUsers ~ fcms:',
+      fcms,
+    );
+    if (fcms.length == 0) {
+      console.error(' không có fctoken');
+    } else {
+      await this.pushNotification({
+        title,
+        message,
+        fcmTokens: fcms,
+        data,
+      });
+    }
+    console.log('đã gửi thông báo cho ', userIds);
   }
 }

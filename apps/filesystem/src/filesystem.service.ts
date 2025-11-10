@@ -5,105 +5,203 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { File as MulterFile } from 'multer';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Response } from '@app/helpers/response';
+import { InjectModel } from '@nestjs/mongoose';
+import { Attachment, AttachmentKind, Room, User } from 'libs/db/src';
+import { Model } from 'mongoose';
+import Utils from '@app/helpers/utils';
+import { MulterFile, uploadSingleFileByUserDTo } from '@app/dto';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
+import ffmpegStatic from '@ffprobe-installer/ffprobe';
+import ffmpegImport from 'fluent-ffmpeg';
+const ffmpeg: typeof import('fluent-ffmpeg') = ffmpegImport;
+import sharp from 'sharp';
+import probe, { ProbeResult, SyncProbeFunction } from 'probe-image-size';
+import * as mm from 'music-metadata';
 
 @Injectable()
 export class FilesystemService {
   private s3: S3Client;
+  private readonly utils = Utils;
+  private readonly MAX_RETRIES = 3;
+  private readonly TIMEOUT_MS = 30000;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    @InjectModel('User') private readonly userModel: Model<User>,
+    @InjectModel('Attachment')
+    private readonly attachmentModel: Model<Attachment>,
+    @InjectModel('Room') private readonly roomModel: Model<Room>,
+  ) {
+    this.s3 = new S3Client({
+      region: this.configService.get<string>('s3.region') ?? 'us-east-1',
+      endpoint: this.configService.get<string>('s3.endpoint'),
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: this.configService.get<string>('s3.accessKeyId') ?? '',
+        secretAccessKey:
+          this.configService.get<string>('s3.secretAccessKey') ?? '',
+      },
+      maxAttempts: this.MAX_RETRIES,
+    });
+  }
+
+  // ============================================================================
+  // MAIN UPLOAD METHOD
+  // ============================================================================
+
+  async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
+    const { userId, roomId, file, id } = dto;
+    console.log('🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ id:', id);
+    if (!file?.buffer) throw new Error('File or buffer is missing');
+
+    // Validate user and room
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
+    const room = await this.roomModel.findOne({
+      room_id: { $in: [roomId, roomPair] },
+    });
+    if (!room) throw new NotFoundException('Room not found');
+
+    // Prepare file metadata
+    const timestamp = Date.now();
+    const ext = file.originalname.split('.').pop() || 'bin';
+    const nameWithoutExt = file.originalname.replace(/\.[^/.]+$/, '');
+    const fileName = `${this.slugify(nameWithoutExt)}_${timestamp}.${ext}`;
+    const folder = room.room_id;
+    const fileUrl = `${this.configService.get<string>('s3.endpoint')}/${this.configService.get<string>('s3.bucketName')}/${folder}/${fileName}`;
+
+    // Determine file kind
+    const kind = this.getFileKind(file.mimetype);
+
+    // Extract metadata
+    const metadata = (await this.extractMetadata(
+      file.buffer,
+      file.mimetype,
+    )) as { width?: number; height?: number; duration?: number };
+
+    // Create/update attachment record
+    const isValidId = id && /^[0-9a-fA-F]{24}$/.test(id);
+    const attachmentData: Partial<Attachment> & { _id?: any } = {
+      kind,
+      url: fileUrl,
+      name: file.originalname,
+      size: file.size,
+      mimeType: file.mimetype,
+      user_id: this.utils.convertToObjectIdMongoose(userId),
+      room_id: room._id,
+      status: 'processing' as const,
+      width: metadata.width,
+      height: metadata.height,
+      duration: metadata.duration,
+    };
+
+    // Nếu có id hợp lệ, thêm vào attachmentData để dùng làm _id
+    if (id && isValidId) {
+      attachmentData._id = this.utils.convertToObjectIdMongoose(id);
+    }
+
+    let attachment: Attachment & { _id: any };
+    if (id && isValidId) {
+      // Thử update, nếu không tồn tại thì create với _id đã định sẵn
+      attachment =
+        (await this.attachmentModel.findByIdAndUpdate(id, attachmentData, {
+          new: true,
+        })) || (await this.attachmentModel.create(attachmentData));
+    } else {
+      attachment = await this.attachmentModel.create(attachmentData);
+    }
+
+    // Upload to S3 with retry
     try {
-      this.s3 = new S3Client({
-        region: this.configService.get<string>('s3.region') ?? 'us-east-1',
-        endpoint: this.configService.get<string>('s3.endpoint'),
-        forcePathStyle: true,
-        credentials: {
-          accessKeyId: this.configService.get<string>('s3.accessKeyId') ?? '',
-          secretAccessKey:
-            this.configService.get<string>('s3.secretAccessKey') ?? '',
-        },
+      await this.uploadToS3WithRetry({
+        Bucket: this.configService.get<string>('s3.bucketName'),
+        Key: `${folder}/${fileName}`,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        ACL: ObjectCannedACL.public_read,
       });
-      console.log('🔥 S3 Client initialized');
+
+      await this.attachmentModel.findByIdAndUpdate(attachment._id, {
+        status: 'uploaded',
+      });
+
+      return Response.success(
+        {
+          _id: this.objectIdToString(attachment._id),
+          url: fileUrl,
+          kind,
+          name: file.originalname,
+          size: file.size,
+          mimeType: file.mimetype,
+          status: 'uploaded',
+          width: metadata.width,
+          height: metadata.height,
+          duration: metadata.duration,
+        },
+        'Upload successful',
+      );
     } catch (error) {
-      console.error('❌ S3 Client initialization error:', error);
+      await this.attachmentModel.findByIdAndUpdate(attachment._id, {
+        status: 'failed',
+      });
+      throw error;
     }
   }
 
-  private slugify(text: string): string {
-    return text
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-      .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
-      .replace(/\s+/g, '_') // Replace spaces with underscores
-      .replace(/-+/g, '_') // Replace multiple hyphens with single
-      .trim(); // Remove leading/trailing spaces
-  }
+  // ============================================================================
+  // OTHER PUBLIC METHODS
+  // ============================================================================
 
-  async uploadSingleFile(file: MulterFile, folder: string = 'uploads') {
-    const timestamp = new Date().getTime();
-    const fileExtension = file.originalname.split('.').pop();
-    const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, '');
-    const sluggedFileName = this.slugify(fileNameWithoutExt);
-    const fileName = `${sluggedFileName}_${timestamp}.${fileExtension}`;
-    const uploadParams = {
+  async uploadSingleFile(file: MulterFile, folder = 'uploads') {
+    const timestamp = Date.now();
+    const ext = file.originalname.split('.').pop() ?? 'bin';
+    const nameWithoutExt = file.originalname.replace(/\.[^/.]+$/, '');
+    const fileName = `${this.slugify(nameWithoutExt)}_${timestamp}.${ext}`;
+
+    await this.uploadToS3WithRetry({
       Bucket: this.configService.get<string>('s3.bucketName'),
       Key: `${folder}/${fileName}`,
       Body: file.buffer,
       ContentType: file.mimetype,
       ACL: ObjectCannedACL.public_read,
-    };
-    try {
-      await this.s3.send(new PutObjectCommand(uploadParams));
-      return {
-        url: `${this.configService.get<string>('s3.endpoint')}/${this.configService.get<string>('s3.bucketName')}/${folder}/${fileName}`,
-        message: 'File uploaded successfully',
-      };
-    } catch (error) {
-      return {
-        url: '',
-        message: 'File upload failed ' + error.message,
-      };
-    }
+    });
+
+    const url = `${this.configService.get<string>('s3.endpoint')}/${this.configService.get<string>('s3.bucketName')}/${folder}/${fileName}`;
+    return Response.success({ url }, 'Upload successful');
   }
 
-  async uploadMultipleFiles(files: MulterFile[], folder: string = 'uploads') {
-    if (!files || files.length === 0) {
-      throw new Error('No files received');
-    }
-
-    const uploadPromises = files.map((file) =>
-      this.uploadSingleFile(file, folder),
+  async uploadMultipleFiles(files: MulterFile[], folder = 'uploads') {
+    type UploadSingleFileResponse = { metadata: { url: string } };
+    const results: UploadSingleFileResponse[] = await Promise.all(
+      files.map(
+        (file) =>
+          this.uploadSingleFile(
+            file,
+            folder,
+          ) as Promise<UploadSingleFileResponse>,
+      ),
     );
-    const results = await Promise.all(uploadPromises);
-
-    return {
-      urls: results.map((result) => result.url),
-      messages: results.map((result) => result.message),
+    return Response.success({
+      urls: results.map((r) => r.metadata.url),
       totalFiles: results.length,
-      successfulUploads: results.filter((result) => result.url !== '').length,
-      failedUploads: results.filter((result) => result.url === '').length,
-    };
+    });
   }
 
-  async deleteFile(fileName: string, folder: string = 'uploads') {
-    const deleteParams = {
-      Bucket: this.configService.get<string>('s3.bucketName'),
-      Key: `${folder}/${fileName}`,
-    };
-    try {
-      await this.s3.send(new DeleteObjectCommand(deleteParams));
-      return {
-        message: 'File deleted successfully',
-      };
-    } catch (error) {
-      return {
-        message: 'File deletion failed ' + error.message,
-      };
-    }
+  async deleteFile(fileName: string, folder = 'uploads') {
+    await this.s3.send(
+      new DeleteObjectCommand({
+        Bucket: this.configService.get<string>('s3.bucketName'),
+        Key: `${folder}/${fileName}`,
+      }),
+    );
+    return { message: 'File deleted successfully' };
   }
 
   async getPresignedUrl(fileName: string) {
@@ -115,5 +213,159 @@ export class FilesystemService {
       url: await getSignedUrl(this.s3, command, { expiresIn: 3600 }),
       message: 'Presigned URL generated successfully',
     };
+  }
+
+  // ============================================================================
+  // S3 UPLOAD WITH RETRY
+  // ============================================================================
+
+  private async uploadToS3WithRetry(
+    uploadParams: any,
+    retries = this.MAX_RETRIES,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const uploadPromise = this.s3.send(new PutObjectCommand(uploadParams));
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Timeout after ${this.TIMEOUT_MS}ms`)),
+            this.TIMEOUT_MS,
+          ),
+        );
+        await Promise.race([uploadPromise, timeoutPromise]);
+        return;
+      } catch (error) {
+        if (attempt === retries) throw error;
+        const delay = Math.min(1000 * 2 ** (attempt - 1), 10000);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+
+  // ============================================================================
+  // METADATA EXTRACTION
+  // ============================================================================
+
+  private async extractMetadata(
+    buf: Buffer,
+    mime?: string,
+  ): Promise<{ width?: number; height?: number; duration?: number }> {
+    const type = this.classifyType(mime);
+    if (type === 'image') return this.extractImageMetadata(buf);
+    if (type === 'video') return this.extractVideoMetadata(buf);
+    if (type === 'audio') return this.extractAudioMetadata(buf);
+    return {};
+  }
+
+  private async extractImageMetadata(
+    buf: Buffer,
+  ): Promise<{ width?: number; height?: number }> {
+    // Try sharp
+    try {
+      const meta = await sharp(buf).metadata();
+      return { width: meta.width, height: meta.height };
+    } catch {
+      // Ignore errors from sharp
+    }
+
+    // Try probe-image-size
+    try {
+      const syncProbe: any = (probe as any).sync;
+      if (typeof syncProbe === 'function') {
+        const info = syncProbe(buf) as ProbeResult;
+        if (info) return { width: info.width, height: info.height };
+      }
+      /* ignore */
+    } catch {
+      // Ignore errors from probe-image-size
+    }
+
+    return {};
+  }
+
+  private async extractVideoMetadata(
+    buf: Buffer,
+  ): Promise<{ width?: number; height?: number; duration?: number }> {
+    try {
+      if (!ffmpegStatic?.path || !ffmpeg) return {};
+
+      ffmpeg.setFfprobePath(ffmpegStatic.path);
+
+      const tmpFile = path.join(os.tmpdir(), `video_${Date.now()}.tmp`);
+      await fs.writeFile(tmpFile, buf);
+
+      return new Promise<{
+        width?: number;
+        height?: number;
+        duration?: number;
+      }>((resolve) => {
+        (ffmpeg(tmpFile) as any).ffprobe((err: any, data: any) => {
+          fs.unlink(tmpFile).catch(() => {
+            /* ignore */
+          });
+          if (err || !data?.streams?.[0]) return resolve({});
+
+          const stream = data.streams[0];
+          resolve({
+            width: stream.width,
+            height: stream.height,
+            duration: Number.parseFloat(
+              stream.duration || data.format?.duration || 0,
+            ),
+          });
+        });
+      });
+    } catch {
+      return {};
+    }
+  }
+
+  private async extractAudioMetadata(
+    buf: Buffer,
+  ): Promise<{ duration?: number }> {
+    try {
+      const meta = await mm.parseBuffer(buf);
+      return { duration: meta.format.duration };
+    } catch {
+      return {};
+    }
+  }
+
+  // ============================================================================
+  // HELPER METHODS
+  // ============================================================================
+
+  private slugify(text: string): string {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '_')
+      .trim();
+  }
+
+  private getFileKind(mimeType?: string): AttachmentKind {
+    if (!mimeType) return 'file';
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    return 'file';
+  }
+
+  private classifyType(mime?: string): 'image' | 'video' | 'audio' | 'other' {
+    const m = (mime || '').toLowerCase();
+    if (m.startsWith('image/')) return 'image';
+    if (m.startsWith('video/')) return 'video';
+    if (m.startsWith('audio/')) return 'audio';
+    return 'other';
+  }
+
+  private objectIdToString(id: unknown): string {
+    if (typeof id === 'string') return id;
+    if (id && typeof (id as { toString?: unknown }).toString === 'function') {
+      return (id as { toString: () => string }).toString();
+    }
+    return String(id);
   }
 }

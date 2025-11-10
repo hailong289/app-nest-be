@@ -12,6 +12,8 @@ service AuthService {
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc UpdateAvatar(UpdateAvatarRequest) returns (UpdateAvatarResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
 }
 
 message LoginRequest {
@@ -166,4 +168,44 @@ message ResetPasswordResponse {
   RegisterMetadata metadata = 4;
 }
 
+message FileRequest {
+  // FileRequest is the same as the FileRequest in the filesystem.proto
+  string originalname = 1;
+  bytes buffer = 2;
+  string mimetype = 3;
+}
+
+message UpdateAvatarRequest {
+  FileRequest file = 1;
+  string folder = 2;
+  string userId = 3;
+}
+
+message UpdateAvatarResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  AvatarMetadata metadata = 4;
+}
+
+message AvatarMetadata {
+  string url = 1;
+  string key = 2;
+  string bucket = 3;
+  string location = 4;
+}
+
+message UpdateProfileRequest {
+  string userId = 1;
+  string fullname = 2;
+  string gender = 3;
+  string dateOfBirth = 4;
+}
+
+message UpdateProfileResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  User metadata = 4;
+}
 

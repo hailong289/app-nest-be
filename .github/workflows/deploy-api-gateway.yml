@@ -1,0 +1,56 @@
+name: Deploy API Gateway
+
+on:
+  workflow_call:
+    secrets:
+      GCP_SA_KEY:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Gateway to Cloud Run
+    runs-on: ubuntu-latest
+    environment: 
+      name: GATEWAY_SERVICE
+    steps:
+      - uses: actions/checkout@v3
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: app-chat-2b616
+      - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+      - run: |
+          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest"
+          docker build -t $IMAGE -f apps/api-gateway/Dockerfile .
+          docker push $IMAGE
+      - run: |
+          gcloud run deploy api-gateway-service \
+            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest \
+            --region asia-southeast1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=3 \
+            --cpu=1 \
+            --memory=512Mi \
+            --port=8080 \
+            --timeout=60s \
+            --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
+            --set-env-vars HOST=${{ secrets.GATEWAY_HOST }} \
+            --set-env-vars GATEWAY_AUTH_HOST=${{ secrets.GATEWAY_AUTH_HOST }} \
+            --set-env-vars GATEWAY_AUTH_PORT=${{ secrets.GATEWAY_AUTH_PORT }} \
+            --set-env-vars GATEWAY_AUTH_PROTO_PATH=${{ secrets.GATEWAY_AUTH_PROTO_PATH }} \
+            --set-env-vars GATEWAY_JWT_ACCESS_SECRET=${{ secrets.GATEWAY_JWT_ACCESS_SECRET }} \
+            --set-env-vars GATEWAY_JWT_REFRESH_SECRET=${{ secrets.GATEWAY_JWT_REFRESH_SECRET }} \
+            --set-env-vars GATEWAY_FILESYSTEM_HOST=${{ secrets.GATEWAY_FILESYSTEM_HOST }} \
+            --set-env-vars GATEWAY_FILESYSTEM_PORT=${{ secrets.GATEWAY_FILESYSTEM_PORT }} \
+            --set-env-vars GATEWAY_FILESYSTEM_PROTO_PATH=${{ secrets.GATEWAY_FILESYSTEM_PROTO_PATH }} \
+            --set-env-vars GATEWAY_CHAT_HOST=${{ secrets.GATEWAY_CHAT_HOST }} \
+            --set-env-vars GATEWAY_CHAT_PORT=${{ secrets.GATEWAY_CHAT_PORT }} \
+            --set-env-vars GATEWAY_CHAT_PROTO_PATH=${{ secrets.GATEWAY_CHAT_PROTO_PATH }} \
+            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
+            --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
+            --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} 

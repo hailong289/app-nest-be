@@ -1,15 +1,17 @@
-import Utils from '@app/helpers/utils';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
-export type AttachmentKind = 'photo' | 'video' | 'file' | 'doc' | 'json';
+export type AttachmentKind =
+  | 'image'
+  | 'video'
+  | 'file'
+  | 'doc'
+  | 'json'
+  | 'audio';
 export type AttachmentStatus = 'uploaded' | 'processing' | 'failed';
 
-@Schema({ _id: false, collection: 'Attachments' })
+@Schema({ collection: 'Attachments', timestamps: true })
 export class Attachment {
-  @Prop({ type: String, default: () => Utils.randomId() })
-  id: string;
-
   @Prop({ type: Types.ObjectId, ref: 'Rooms', required: true })
   room_id: Types.ObjectId;
 
@@ -18,7 +20,7 @@ export class Attachment {
 
   @Prop({
     type: String,
-    enum: ['photo', 'video', 'file', 'doc', 'json'],
+    enum: ['image', 'video', 'file', 'doc', 'json', 'audio'],
     required: true,
   })
   kind: AttachmentKind;

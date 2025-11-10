@@ -4,22 +4,36 @@ import { SERVICES } from '@app/constants';
 import { join } from 'path';
 import { GatewayFilesystemController } from './gateway-filesystem.controller';
 import { GatewayService } from '../gateway/gateway.service';
+import { ConfigService } from '@nestjs/config';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
-    ClientsModule.register([
+    ClientsModule.registerAsync([
       {
         name: SERVICES.FILESYSTEM,
-        transport: Transport.GRPC,
-        options: {
-          package: 'filesystem',
-          protoPath: join(
-            process.cwd(),
-            process.env.GATEWAY_FILESYSTEM_PROTO_PATH ||
-              'libs/grpc/filesystem.proto',
-          ),
-          url: `${process.env.GATEWAY_FILESYSTEM_HOST || 'localhost'}:${process.env.GATEWAY_FILESYSTEM_PORT || '5001'}`,
-          // credentials: grpc.credentials.createSsl(), // lên cloud run thì phải có dòng này nếu không sẽ bị lỗi UNAVAILABLE: No connection established
+        useFactory: (config: ConfigService) => {
+          const isSsl = process.env.NODE_ENV === 'production' ? true : false;
+          let options = {
+            package: 'filesystem',
+            protoPath: join(
+              process.cwd(),
+              process.env.GATEWAY_FILESYSTEM_PROTO_PATH ||
+                'libs/grpc/filesystem.proto',
+            ),
+            url: (() => {
+              const host = (process.env.GATEWAY_FILESYSTEM_HOST || '').trim();
+              const port = process.env.GATEWAY_FILESYSTEM_PORT;
+              return `${host}:${port}`;
+            })(),
+            credentials: isSsl
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
+          };
+          return {
+            transport: Transport.GRPC,
+            options,
+          };
         },
       },
     ]),

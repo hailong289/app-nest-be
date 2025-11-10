@@ -7,20 +7,26 @@ service FileSystemService {
     rpc UploadMultipleFiles(UploadMultipleFilesRequest) returns (UploadMultipleFilesResponse);
     rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
     rpc GetPresignedUrl(GetPresignedUrlRequest) returns (GetPresignedUrlResponse);
+    rpc UploadSingleFileForUser(InputUploadSingleFileForUser)returns (UploadSingleFileForUserResponse);
+}
+
+message FileRequest {
+    string originalname = 1;
+    bytes buffer = 2;
+    string mimetype = 3;
+    string fieldname=4;
+    string encoding=5;
+    int64 size=6;
 }
 
 message UploadSingleFileRequest {
-    string originalname = 1;
-    bytes buffer = 2;
-    string mimetype = 3;
-    string folder = 4;
+    FileRequest file = 1;
+    string folder = 2;
 }
 
 message UploadMultipleFilesRequest {
-    string originalname = 1;
-    bytes buffer = 2;
-    string mimetype = 3;
-    string folder = 4;
+    repeated FileRequest files = 1;
+    string folder = 2;
 }
 
 message UploadSingleFileResponse {
@@ -34,7 +40,7 @@ message UploadMultipleFilesResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    repeated FileMetadata metadata = 4;
+    MultipleFilesMetaData metadata = 4;
 }
 
 message DeleteFileRequest {
@@ -67,10 +73,45 @@ message FileMetadata {
     string location = 4;
 }
 
+message MultipleFilesMetaData {
+    repeated string urls = 1;
+    repeated string messages = 2;
+    int32 totalFiles = 3;
+    int32 successfulUploads = 4;
+    int32 failedUploads = 5;
+}
+
 message DeleteFileMetadata {
     bool deleted = 1;
 }
 
 message PresignedUrlMetadata {
     string presignedUrl = 1;
+}
+
+message InputUploadSingleFileForUser{
+    string userId=1;
+    string roomId=2;
+    FileRequest file = 3;
+    string id=4;
+
+}
+
+message UploadSingleFileForUserCore{
+    string _id=1;
+    string url=2;
+    string kind=3;
+    string name=4;
+    string mimeType=5;
+    int64 size=6;
+    string status=7;
+    optional int32 width=8;
+    optional int32 height=9;
+    optional double duration=10;
+}
+message UploadSingleFileForUserResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    UploadSingleFileForUserCore metadata = 4;
 }

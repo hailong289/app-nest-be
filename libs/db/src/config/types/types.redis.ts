@@ -5,6 +5,7 @@ export interface RedisModuleOptions extends RedisOptions {
   name?: string; // optional: useful if you want multi-client
   host: string;
   port: number;
+  username?: string;
   password?: string;
   ttl?: string;
 }

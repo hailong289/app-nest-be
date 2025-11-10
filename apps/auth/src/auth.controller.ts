@@ -1,10 +1,12 @@
 import { Controller } from '@nestjs/common';
-import { GrpcMethod } from '@nestjs/microservices';
+import { GrpcMethod, Payload } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
 import {
   LoginDto,
   RegisterDto,
+  UpdateAvatarDto,
   UpdatePasswordDto,
+  UpdateProfileDto,
   VerifyOtpDto,
 } from '@app/dto';
 
@@ -78,5 +80,15 @@ export class AuthController {
   @GrpcMethod('AuthService', 'ResetPassword')
   async resetPassword(data: { userId: string; newPassword: string }) {
     return await this.authService.resetPassword(data.userId, data.newPassword);
+  }
+
+  @GrpcMethod('AuthService', 'UpdateAvatar')
+  async updateAvatar(@Payload() data: UpdateAvatarDto & { userId: string }) {
+    return await this.authService.updateAvatar(data);
+  }
+
+  @GrpcMethod('AuthService', 'UpdateProfile')
+  async updateProfile(@Payload() data: UpdateProfileDto & { userId: string }) {
+    return await this.authService.updateProfile(data);
   }
 }

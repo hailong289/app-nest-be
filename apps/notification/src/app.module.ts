@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import firebaseConfig from './config/app/firebase.config';
-import redisConfig from './config/queue/redis.config';
 import mailConfig from './config/app/mail.config';
 import { FirebaseService } from './firebase.service';
 import { NotificationController } from './notification.controller';
@@ -10,19 +9,23 @@ import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
-import kafkaConfig from './config/app/kafka.config';
+import { kafkaConfig } from 'libs/config';
+import { redisConfig, RedisModule } from 'libs/db/src';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/notification/.env'),
-      load: [firebaseConfig, redisConfig, mailConfig, appConfig, kafkaConfig],
+      envFilePath: path.resolve(
+        process.cwd(),
+        `apps/notification/.env.${process.env.NODE_ENV || 'development'}`,
+      ),
+      load: [firebaseConfig, mailConfig, appConfig, kafkaConfig, redisConfig],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => {
+      useFactory: (configService: ConfigService) => {
         const mailConfig = {
           transport: {
             host: configService.get<string>('mail.host'),
@@ -47,6 +50,7 @@ import kafkaConfig from './config/app/kafka.config';
         return mailConfig;
       },
     }),
+    RedisModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService, FirebaseService],
