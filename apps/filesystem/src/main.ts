@@ -15,6 +15,8 @@ async function bootstrap() {
           process.env.PROTO_URL || 'libs/grpc/filesystem.proto',
         ),
         url: `${process.env.HOST}:${process.env.PORT}`,
+        maxReceiveMessageLength: 20 * 1024 * 1024, // 20MB
+        maxSendMessageLength: 20 * 1024 * 1024,
       },
     },
   );

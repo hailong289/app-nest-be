@@ -1,5 +1,13 @@
 import { REDISKEY } from '@app/constants/RedisKey';
-import { CreateMessage, GetMsgFromRoomDTO, markReadUpToDto } from '@app/dto';
+import {
+  CreateMessage,
+  GetMsgFromRoomDTO,
+  HandleDeleteAllDto,
+  HandleDeleteDto,
+  HandlePinDto,
+  HandleReactDto,
+  markReadUpToDto,
+} from '@app/dto';
 import Utils from '@app/helpers/utils';
 import {
   BadRequestException,
@@ -16,6 +24,8 @@ import {
   RoomsState,
   MessageRead,
   RoomsUsersState,
+  MessageReaction,
+  MessageHide,
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -38,11 +48,14 @@ export class HandleChatService {
     private readonly roomService: RoomsService,
     @InjectModel('RoomsUsersState')
     private readonly RoomsUsersState: Model<RoomsUsersState>,
+    @InjectModel('MessageReaction')
+    private readonly messageReactionModel: Model<MessageReaction>,
+    @InjectModel('MessageHide')
+    private readonly messageHideModel: Model<MessageHide>,
   ) {}
 
   async createMessage(payload: CreateMessage) {
-    const { roomId, userId, type, content, attachments, replyTo, pinned, id } =
-      payload;
+    const { roomId, userId, type, content, attachments, replyTo, id } = payload;
 
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
@@ -68,21 +81,19 @@ export class HandleChatService {
       msg_roomId: typeof finInfo._id;
       msg_sender: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
       msg_content: typeof content;
-      reply_to: typeof replyTo;
+      reply_to: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
       attachment_ids: any[];
       msg_type: typeof type;
-      pinned: typeof pinned;
       _id?: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
     } = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
       msg_content: content,
-      reply_to: replyTo,
+      reply_to: replyTo ? this.utils.convertToObjectIdMongoose(replyTo) : null,
       attachment_ids: Array.isArray(attachments)
         ? attachments.map((i) => this.utils.convertToObjectIdMongoose(i))
         : [],
       msg_type: type,
-      pinned: pinned,
     };
     if (id) {
       data._id = this.utils.convertToObjectIdMongoose(id);
@@ -117,7 +128,7 @@ export class HandleChatService {
         break;
       }
       case 'gif': {
-        contentSnap = 'Đã gửi gif';
+        contentSnap = 'Đã gửi file gif';
         break;
       }
       default: {
@@ -422,5 +433,239 @@ export class HandleChatService {
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
     return Response.success(result, 'Tin nhắn mới thành công');
+  }
+
+  async handleReact({ userId, roomId, msgId, emoji }: HandleReactDto) {
+    const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
+    if (!check) {
+      throw new NotFoundException('Bạn không thể gửi tin nhắn');
+    }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('không tìm thấy thông tin người dùng');
+    }
+
+    // get info room
+    const finInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!finInfo) {
+      throw new NotAcceptableException('Phòng không tồn tại');
+    }
+    await Promise.all([
+      this.messageReactionModel.findOneAndUpdate(
+        {
+          room_id: finInfo._id,
+          user_id: userInfo._id,
+          msg_id: this.utils.convertToObjectIdMongoose(msgId),
+        },
+        {
+          emoji,
+          uniq: `${msgId}:${userId}:${emoji}`,
+        },
+        { upsert: true },
+      ),
+      this.RoomsStateModel.findOneAndUpdate(
+        {
+          room_id: finInfo._id,
+        },
+        {
+          'last_message_snapshot.content': `Đã bày tỏ cảm xúc ${emoji}`,
+          'last_message_snapshot.sender_id':
+            this.utils.convertToObjectIdMongoose(userId),
+        },
+        { upsert: true },
+      ),
+    ]);
+    return Response.success(
+      {
+        msgId,
+        members: finInfo.room_members,
+        roomId: finInfo.room_id,
+      },
+      'Đã thả icon',
+    );
+  }
+  async handleGimMsg({ userId, roomId, msgId, pinned }: HandlePinDto) {
+    const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
+    if (!check) {
+      throw new NotFoundException('Bạn không thể gửi tin nhắn');
+    }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('không tìm thấy thông tin người dùng');
+    }
+
+    // get info room
+    const finInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!finInfo) {
+      throw new NotAcceptableException('Phòng không tồn tại');
+    }
+    // Use $each inside $addToSet to avoid potential issues inserting a single value
+    // and ensure we convert the incoming msgId to ObjectId consistently.
+    const objectId = this.utils.convertToObjectIdMongoose(msgId);
+    const updateQuery = pinned
+      ? { $addToSet: { room_ghim: { $each: [objectId] } } }
+      : { $pull: { room_ghim: objectId } };
+
+    await Promise.all([
+      this.messageModel.findOneAndUpdate(
+        {
+          msg_roomId: finInfo._id,
+          _id: objectId,
+        },
+        {
+          pinned,
+        },
+      ),
+      // Return the updated room document (new: true). No upsert here.
+      this.roomModel.findOneAndUpdate({ _id: finInfo._id }, updateQuery, {
+        new: true,
+      }),
+    ]);
+    return Response.success(
+      {
+        msgId,
+        members: finInfo.room_members,
+        roomId: finInfo.room_id,
+      },
+      'Đã ghim',
+    );
+  }
+
+  async handleDeleteForUser({ userId, roomId, msgId }: HandleDeleteDto) {
+    console.log('🚀 ~ HandleChatService ~ handleDeleteForUser ~ msgId:', msgId);
+    const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
+    if (!check) {
+      throw new NotFoundException('Bạn không thể gửi tin nhắn');
+    }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('không tìm thấy thông tin người dùng');
+    }
+
+    // get info room
+    const finInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!finInfo) {
+      throw new NotAcceptableException('Phòng không tồn tại');
+    }
+    const findHiddne = await this.messageHideModel.findOne({
+      room_id: finInfo._id,
+      msg_id: this.utils.convertToObjectIdMongoose(msgId),
+      user_id: userInfo._id,
+      uniq: `${msgId}:${userId}`,
+    });
+    // update many
+    const findMsg = await this.messageModel
+      .find({
+        reply_to: this.utils.convertToObjectIdMongoose(msgId),
+      })
+      .select('_id');
+    const msgIds = findMsg.map((i) => i._id.toHexString());
+    msgIds.push(msgId);
+    if (findHiddne) {
+      return Response.success(
+        {
+          msgIds,
+          members: finInfo.room_members,
+          roomId: finInfo.room_id,
+        },
+        'Đã Xoá tin Nhắn',
+      );
+    }
+    await this.messageHideModel.create({
+      room_id: finInfo._id,
+      msg_id: this.utils.convertToObjectIdMongoose(msgId),
+      user_id: userInfo._id,
+      uniq: `${msgId}:${userId}`,
+    });
+    console.log('result');
+    return Response.success(
+      {
+        msgIds,
+        members: finInfo.room_members,
+        roomId: finInfo.room_id,
+      },
+      'Đã Xoá tin Nhắn',
+    );
+  }
+
+  async handleDelete({
+    userId,
+    roomId,
+    msgId,
+    placeholder,
+  }: HandleDeleteAllDto) {
+    const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
+    if (!check) {
+      throw new NotFoundException('Bạn không thể gửi tin nhắn');
+    }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('không tìm thấy thông tin người dùng');
+    }
+
+    // get info room
+    const finInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!finInfo) {
+      throw new NotAcceptableException('Phòng không tồn tại');
+    }
+    const findMsg = await this.messageModel
+      .find({
+        reply_to: this.utils.convertToObjectIdMongoose(msgId),
+      })
+      .select('_id');
+    const msgIds = findMsg.map((i) => i._id.toHexString());
+    msgIds.push(msgId);
+    // Update the message as deleted and recompute unread counts for all members in parallel
+    const updatePromise = this.messageModel.findOneAndUpdate(
+      {
+        _id: this.utils.convertToObjectIdMongoose(msgId),
+        msg_roomId: finInfo._id,
+      },
+      {
+        deletedBy: userInfo._id,
+        deletedAt: new Date(),
+        placeholder,
+        msg_content: '',
+        msg_content_norm: '',
+      },
+    );
+
+    const recomputePromises = finInfo.room_members.map((m) =>
+      this.recomputeUnreadForUserRoom(
+        m.user_id.toString(),
+        finInfo._id.toString(),
+      ),
+    );
+
+    await Promise.all([updatePromise, Promise.all(recomputePromises)]);
+
+    return Response.success(
+      {
+        msgIds,
+        members: finInfo.room_members,
+        roomId: finInfo.room_id,
+      },
+      'Đã thu hồi tin nhắn',
+    );
   }
 }

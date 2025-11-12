@@ -20,6 +20,10 @@ service ChatService {
   rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
   rpc MarkReadUpTo(InputMarkReadUp)returns (CreateMessageOutput);
   rpc GetMsgFromRoom(GetMsgFromRoomInput)returns(GetMsgs);
+  rpc HandleReact(HandleReactInput)returns(CreateMessageOutput);
+  rpc HandlePinned(HandlePinnedInput)returns(CreateMessageOutput);
+  rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
+  rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
 
 }
 
@@ -129,7 +133,13 @@ message metadataGetRoomsType{
   bool pinned=11;
   bool muted=12;
   string last_read_id = 13;  
-
+  repeated pinned_messagesType pinned_messages=14;
+  int64 pinned_count=15;
+}
+message pinned_messagesType{
+  string id=1;
+  string content=2;
+  string type=3;
 }
 message last_messageType{
   string content =1;
@@ -254,6 +264,9 @@ message MessageReply {
   string content = 3;
   string createdAt = 4;
   ReplySender sender = 5;
+  bool isMine=6;
+  bool isDelete=7;
+  bool hiddenByMe=8;
 }
 
 message ReadByUser {
@@ -293,7 +306,8 @@ message MessageCore {
   bool hiddenByMe = 15;                       // Hidden by current user
   string hiddenAt = 16;                       // Hidden timestamp (nullable)
   repeated MessageReadBy read_by = 17;        // List of users who read
-  int32 read_by_count = 18;   
+  int32 read_by_count = 18;  
+  bool isDeleted=19; 
               // Count of users who read
 }
 
@@ -321,7 +335,17 @@ message CreateMessageOutput{
   string reasonStatusCode = 3;
   MessageCoreMetadata metadata = 4;
 }
-
+message MessageDeleteOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  MessageDeleteMetadata metadata = 4;
+}
+message MessageDeleteMetadata {
+  repeated string msgIds = 1;
+  repeated membersTypePrivate members = 2;
+  string roomId=3;
+}
 message MessageCoreMetadata {
   string msgId = 1;
   repeated membersTypePrivate members = 2;
@@ -358,4 +382,32 @@ message GetMsgs {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
  repeated MessageCore metadata = 4;
+}
+
+message HandleReactInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=5;
+  string emoji=6;
+
+}
+message HandlePinnedInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=5;
+  bool pinned=6;
+
+}
+message HandleDeleteInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=3;
+
+}
+message HandleDeleteAllInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=3;
+  string placeholder=4;
+
 }

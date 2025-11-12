@@ -64,10 +64,10 @@ export class Message {
 export const MessageSchema = SchemaFactory.createForClass(Message);
 
 /** Indexes */
-MessageSchema.index({ msg_room: 1, createdAt: -1 });
+MessageSchema.index({ msg_roomId: 1, createdAt: -1 });
 MessageSchema.index({ msg_sender: 1, createdAt: -1 });
-MessageSchema.index({ msg_room: 1, msg_content_norm: 1 });
-MessageSchema.index({ msg_room: 1, deletedAt: 1, createdAt: -1 });
+MessageSchema.index({ msg_roomId: 1, msg_content_norm: 1 });
+MessageSchema.index({ msg_roomId: 1, deletedAt: 1, createdAt: -1 });
 
 /** Hooks */
 function normalizeVi(s = '') {

@@ -109,6 +109,34 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
 
+    /** 5.1) Reply hidden (current user) */
+    {
+      $lookup: {
+        from: 'MessageHides',
+        let: { rmid: '$reply_doc._id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$msg_id', '$$rmid'] },
+                  { $eq: ['$user_id', uid] },
+                ],
+              },
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: 'replyHiddenByMeDoc',
+      },
+    },
+    { $set: { replyHiddenByMeDoc: { $first: '$replyHiddenByMeDoc' } } },
+    {
+      $addFields: {
+        reply_hiddenByMe: { $toBool: '$replyHiddenByMeDoc' },
+      },
+    },
+
     /** 4) Reactions (group theo emoji) */
     {
       $lookup: {
@@ -128,6 +156,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
                     usr_fullname: 1,
                     usr_avatar: 1,
                     usr_id: 1,
+                    isMine: { $eq: ['$ _id', uid] },
                   },
                 },
               ],
@@ -274,6 +303,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         createdAt: '$createdAt',
         editedAt: '$editedAt',
         deletedAt: '$deletedAt',
+        isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
 
         // denormalized
@@ -296,6 +326,24 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
+              },
+              // isMine: whether the reply was sent by the current requesting user
+              isMine: { $eq: ['$reply_doc.msg_sender', uid] },
+              // whether the mapped reply message was deleted
+              isDelete: {
+                $cond: [
+                  { $ifNull: ['$reply_doc', false] },
+                  { $toBool: '$reply_doc.deletedAt' },
+                  false,
+                ],
+              },
+              // whether the mapped reply message was hidden by current user
+              hiddenByMe: {
+                $cond: [
+                  { $ifNull: ['$reply_doc', false] },
+                  '$reply_hiddenByMe',
+                  false,
+                ],
               },
             },
             null,
@@ -321,6 +369,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         'hiddenByMeDoc',
         'reply_doc',
         'reply_sender',
+        'replyHiddenByMeDoc',
+        'reply_hiddenByMe',
         'read_list',
       ],
     },

@@ -409,6 +409,103 @@ export class RoomsService {
         },
       },
       { $sort: { _lastTs: -1 } },
+      /** 11.1) Pinned messages của room */
+      {
+        $lookup: {
+          from: 'Messages',
+          let: { pins: '$room_ghim', uid: uid },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $in: ['$_id', '$$pins'] },
+                    // KHÔNG lọc deleted để giữ đồng bộ trạng thái — UI đọc isDeleted để quyết
+                    // Nếu muốn ẩn hẳn msg đã xoá, thêm bộ lọc deletedAt tại đây.
+                  ],
+                },
+              },
+            },
+
+            // === Map trạng thái ẩn theo từng tin nhắn cho chính user ===
+            {
+              $lookup: {
+                from: 'MessageHides',
+                let: { mid: '$_id', uid: '$$uid' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $eq: ['$msg_id', '$$mid'] },
+                          { $eq: ['$user_id', '$$uid'] },
+                        ],
+                      },
+                    },
+                  },
+                  { $limit: 1 },
+                  { $project: { _id: 0, hiddenAt: 1 } },
+                ],
+                as: 'hide',
+              },
+            },
+            { $set: { hide: { $first: '$hide' } } },
+
+            // === Project ra cho UI ===
+            {
+              $project: {
+                id: '$_id',
+                type: '$msg_type',
+                content: '$msg_content',
+                createdAt: '$createdAt',
+
+                // cờ xoá theo message
+                isDeleted: {
+                  $cond: [
+                    {
+                      $or: [
+                        { $eq: ['$deletedAt', null] },
+                        { $not: ['$deletedAt'] },
+                      ],
+                    },
+                    false,
+                    true,
+                  ],
+                },
+
+                // trạng thái ẩn theo từng message (đúng yêu cầu)
+                hiddenByMe: {
+                  $cond: [{ $ifNull: ['$hide.hiddenAt', false] }, true, false],
+                },
+                hiddenAt: {
+                  $cond: [
+                    { $ifNull: ['$hide.hiddenAt', false] },
+                    { $toString: '$hide.hiddenAt' },
+                    null,
+                  ],
+                },
+
+                // (tuỳ chọn) nếu UI cần người gửi:
+                // sender: '$msg_sender'
+              },
+            },
+            { $match: { hiddenByMe: false } },
+            {
+              $match: {
+                isDeleted: false,
+              },
+            },
+            { $sort: { createdAt: -1 } },
+          ],
+          as: 'pinned_messages',
+        },
+      },
+
+      {
+        $addFields: {
+          pinned_count: { $size: { $ifNull: ['$room_ghim', []] } },
+        },
+      },
 
       /** 12) Project output gọn cho UI */
       {
@@ -476,6 +573,8 @@ export class RoomsService {
           },
           pinned: '$my_state.pinned',
           muted: '$my_state.muted',
+          pinned_messages: 1,
+          pinned_count: 1,
         },
       },
     ];
