@@ -18,7 +18,7 @@ import { redisConfig, RedisModule } from 'libs/db/src';
       isGlobal: true,
       envFilePath: path.resolve(
         process.cwd(),
-        `apps/notification/.env.production`,
+        `apps/notification/.env.${process.env.NODE_ENV || 'development'}`,
       ),
       load: [firebaseConfig, mailConfig, appConfig, kafkaConfig, redisConfig],
     }),
