@@ -22,7 +22,6 @@ import ffmpegImport from 'fluent-ffmpeg';
 const ffmpeg: typeof import('fluent-ffmpeg') = ffmpegImport;
 import sharp from 'sharp';
 import probe, { ProbeResult, SyncProbeFunction } from 'probe-image-size';
-import * as mm from 'music-metadata';
 
 @Injectable()
 export class FilesystemService {
@@ -324,7 +323,8 @@ export class FilesystemService {
     buf: Buffer,
   ): Promise<{ duration?: number }> {
     try {
-      const meta = await mm.parseBuffer(buf);
+      const { parseBuffer } = await import('music-metadata');
+      const meta = await parseBuffer(buf);
       return { duration: meta.format.duration };
     } catch {
       return {};

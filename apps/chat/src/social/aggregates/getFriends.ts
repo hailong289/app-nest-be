@@ -68,6 +68,54 @@ export const getFriendsAggregate = (
   ];
 };
 
+export const getFriendsRequestAggregate = (
+  userId: string,
+  type: string = 'received',
+) => {
+  return [
+    {
+      $lookup: {
+        from: 'Friendships',
+        let: { currentUserId: '$usr_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$frp_status', 'PENDING'] },
+                  {
+                    $eq: [
+                      type === 'received' ? '$frp_userId2' : '$frp_userId1',
+                      userId,
+                    ],
+                  },
+                  {
+                    $eq: [
+                      type === 'received' ? '$frp_userId1' : '$frp_userId2',
+                      '$$currentUserId',
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'friendship',
+      },
+    },
+    {
+      $addFields: {
+        friendship: { $arrayElemAt: ['$friendship', 0] },
+      },
+    },
+    {
+      $match: {
+        friendship: { $ne: null },
+      },
+    },
+  ];
+};
+
 export const searchUsersAggregate = (
   search: string,
   page: number,

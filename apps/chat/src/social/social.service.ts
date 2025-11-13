@@ -13,6 +13,7 @@ import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
   getFriendsAggregate,
+  getFriendsRequestAggregate,
   searchUsersAggregate,
 } from './aggregates/getFriends';
 import roomModel, { Room } from 'libs/db/src/mongo/model/room.model';
@@ -98,28 +99,30 @@ export class SocialService {
     limit: number,
     type: string,
   ) {
-    const friendRequests = await this.friendshipModel
-      .find({
-        [type === 'received' ? 'frp_userId2' : 'frp_userId1']: userId,
-        frp_status: 'PENDING',
-      })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .exec();
+    const friendRequests = await this.userModel.aggregate([
+      ...getFriendsRequestAggregate(userId, type),
+      { $sort: { createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+    ]);
 
-    const total = await this.friendshipModel.countDocuments({
-      [type === 'received' ? 'frp_userId2' : 'frp_userId1']: userId,
-      frp_status: 'PENDING',
+    const total = await this.userModel.aggregate([
+      ...getFriendsRequestAggregate(userId, type),
+      { $count: 'total' },
+    ]);
+
+    const data = friendRequests.map((request) => {
+      return {
+        ...Utils.unprefix(request, 'usr_'),
+        friendship: Utils.unprefix(request.friendship, 'frp_'),
+      };
     });
-
-    const data = friendRequests.map((request) =>
-      Utils.unprefix(request.toObject(), 'frp_'),
-    );
+    console.log('🚀 ~ SocialService ~ data:', data);
 
     return Response.success(
       {
         friendRequests: data,
-        total: total,
+        total: total[0]?.total || 0,
         page: page,
         limit: limit,
       },

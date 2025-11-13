@@ -143,6 +143,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       client.emit('exception', {
         status: 'error',
+        statusCode: 401,
         message: 'Mã xác thực không hợp lệ hoặc đã hết hạn',
       });
       client.disconnect();

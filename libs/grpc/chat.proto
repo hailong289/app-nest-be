@@ -363,18 +363,18 @@ message membersTypePrivate {
   string avatar=4;
   string user_id=5;
 }
-message InputGetOneMsg{
+message InputGetOneMsg {
   string userId=1;
   string msgId=2;
 }
-message InputMarkReadUp{
+message InputMarkReadUp {
   string userId=1;
   string roomId=2;
   string lastMessageId=3;
 
 }
 
-message GetMsgFromRoomInput{
+message GetMsgFromRoomInput {
   string userId=1;
   string roomId=2;
   int64 limit=3;
