@@ -26,7 +26,6 @@ export class SocialController {
       data.limit,
       data.type,
     );
-    console.log('🚀 ~ SocialController ~ getFriendRequests ~ result:', result);
     return result;
   }
 
