@@ -297,16 +297,6 @@ export class SocialService {
     limit: number,
     search: string,
   ) {
-    // Build search match condition
-    const searchMatch = search
-      ? {
-          $or: [
-            { usr_fullname: { $regex: search, $options: 'i' } },
-            { usr_email: { $regex: search, $options: 'i' } },
-            { usr_phone: { $regex: search, $options: 'i' } },
-          ],
-        }
-      : {};
 
     const friends = await this.userModel.aggregate(
       getFriendsAggregate(userId, page, limit, search),
