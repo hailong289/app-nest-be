@@ -62,6 +62,7 @@ export class SocialService {
       frp_userId2: receiver.usr_id,
       frp_actionUserId: user.usr_id,
       frp_status: 'PENDING',
+      frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
     });
     // gửi notification cho người nhận
     const fcmTokens = await this.keyModel.find(

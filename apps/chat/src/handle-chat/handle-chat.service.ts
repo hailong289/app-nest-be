@@ -1,3 +1,4 @@
+import { friendship } from './../../../../libs/db/src/mongo/model/friendship.model';
 import { REDISKEY } from '@app/constants/RedisKey';
 import {
   CreateMessage,
@@ -26,6 +27,8 @@ import {
   RoomsUsersState,
   MessageReaction,
   MessageHide,
+  Friendship,
+  friendshipModel,
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -52,6 +55,8 @@ export class HandleChatService {
     private readonly messageReactionModel: Model<MessageReaction>,
     @InjectModel('MessageHide')
     private readonly messageHideModel: Model<MessageHide>,
+    @InjectModel(friendshipModel.name)
+    private readonly friendshipModel: Model<Friendship>,
   ) {}
 
   async createMessage(payload: CreateMessage) {
@@ -75,6 +80,26 @@ export class HandleChatService {
     });
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
+    }
+    // tiến hành xử lý chặn
+    // chặn với nhắn tin private
+    if (finInfo.room_type === 'private') {
+      const ids = finInfo.room_members.map((m) => m.id);
+      const frp_id = this.utils.pairRoomId(ids[0], ids[1]);
+      const friendshipBocked = await this.friendshipModel.findOne({
+        frp_id,
+        frp_status: 'BLOCKED',
+      });
+      if (friendshipBocked) {
+        throw new BadRequestException('bạn đã bị chặn');
+      }
+    } else {
+      const checkGuest = finInfo.room_members.find(
+        (m) => m.id === userInfo.usr_id && m.role === 'guest',
+      );
+      if (checkGuest) {
+        throw new BadRequestException('bạn đã bị chặn');
+      }
     }
 
     const data: {
@@ -455,6 +480,48 @@ export class HandleChatService {
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
+    const findMsg = await this.messageModel.findById(msgId);
+    if (!findMsg) {
+      return Response.success(
+        {
+          msgId,
+          members: finInfo.room_members,
+          roomId: finInfo.room_id,
+        },
+        'Đã thả icon',
+      );
+    }
+    let contentSnap: string;
+    switch (findMsg?.msg_type) {
+      case 'text': {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji} về tin nhắn`;
+        break;
+      }
+      case 'image': {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji} về hình ảnh`;
+        break;
+      }
+      case 'file': {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji} về tệp đính kèm`;
+        break;
+      }
+      case 'video': {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji} về video`;
+        break;
+      }
+      case 'audio': {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji} về tin nhắn thoại`;
+        break;
+      }
+      case 'gif': {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji} về gif`;
+        break;
+      }
+      default: {
+        contentSnap = `Đã bày tỏ cảm xúc ${emoji}`;
+        break;
+      }
+    }
     await Promise.all([
       this.messageReactionModel.findOneAndUpdate(
         {
@@ -473,7 +540,7 @@ export class HandleChatService {
           room_id: finInfo._id,
         },
         {
-          'last_message_snapshot.content': `Đã bày tỏ cảm xúc ${emoji}`,
+          'last_message_snapshot.content': contentSnap,
           'last_message_snapshot.sender_id':
             this.utils.convertToObjectIdMongoose(userId),
         },

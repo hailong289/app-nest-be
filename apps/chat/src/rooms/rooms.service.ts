@@ -557,10 +557,11 @@ export class RoomsService {
             },
             sender: {
               _id: '$last_message_sender._id',
-              usr_id: '$last_message_sender.usr_id',
+              id: '$last_message_sender.usr_id',
               name: '$last_message_sender.usr_fullname',
               avatar: '$last_message_sender.usr_avatar',
             },
+            isMine: { $eq: ['$last_message_sender._id', uid] },
           },
 
           is_read: 1,

@@ -145,8 +145,13 @@ message last_messageType{
   string content =1;
   string createdAt =2;
   string id =3;
-  string sender_fullname=4;
-  string sender_id=5;
+  last_messageType_senter sender=4;
+  bool isMine=5;
+}
+message last_messageType_senter{
+  string id=1;
+  string name=2;
+  string avatar=3;
 }
 message membersType {
   string id =1;

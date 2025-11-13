@@ -55,8 +55,21 @@ message FriendRequest {
   string status = 5; // "PENDING", "ACCEPTED", "REJECTED", "BLOCKED"
   int64 createdAt = 6;
   int64 updatedAt = 7;
+  // UserType user=8;
 }
 
+// message UserType{
+//   string id=1;
+//   string fullname=2;
+//   string avatar=3;
+//   string email=4;
+//   string phone=5;
+//   string gender=6;
+//   string status =7;
+//   string dateOfBirth=8;
+//   string createdAt=9;
+//   string updatedAt=10;
+// }
 message AcceptFriendRequestRequest {
   string frpId = 1;
   string frpUserId1 = 2;

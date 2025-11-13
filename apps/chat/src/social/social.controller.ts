@@ -14,13 +14,20 @@ export class SocialController {
   }
 
   @GrpcMethod('SocialService', 'GetFriendRequests')
-  async getFriendRequests(data: any) {
-    return this.socialService.getFriendRequests(
+  async getFriendRequests(data: {
+    userId: string;
+    page: number;
+    limit: number;
+    type: 'received' | 'sent';
+  }) {
+    const result = await this.socialService.getFriendRequests(
       data.userId,
       data.page,
       data.limit,
       data.type,
     );
+    console.log('🚀 ~ SocialController ~ getFriendRequests ~ result:', result);
+    return result;
   }
 
   @GrpcMethod('SocialService', 'AcceptFriendRequest')
