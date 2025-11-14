@@ -71,10 +71,9 @@ message FriendRequest {
 //   string updatedAt=10;
 // }
 message AcceptFriendRequestRequest {
-  string frpId = 1;
-  string frpUserId1 = 2;
-  string frpUserId2 = 3;
-  string frpActionUserId = 4;
+  string usr_id = 1;
+  string senderId = 2;
+  
 }
 
 message AcceptFriendRequestResponse {
@@ -85,10 +84,8 @@ message AcceptFriendRequestResponse {
 }
 
 message RejectFriendRequestRequest {
-  string frpId = 1;
-  string frpUserId1 = 2;
-  string frpUserId2 = 3;
-  string frpActionUserId = 4;
+   string usr_id = 1;
+  string senderId = 2;
 }
 
 message RejectFriendRequestResponse {

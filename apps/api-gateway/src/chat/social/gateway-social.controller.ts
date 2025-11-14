@@ -121,17 +121,14 @@ export class GatewaySocialController {
    * @example POST /social/friend-requests/789/accept
    */
 
-  @Post('friend-requests/:requestId/accept')
+  @Patch('friend-requests/:senderId/accept')
   async acceptFriendRequest(
     @Req() req: AuthenticatedRequest,
-    @Param('requestId') requestId: string,
-    @Query('senderId') senderId: string,
+    @Param('senderId') senderId: string,
   ) {
     const data = {
-      frpId: requestId,
-      frpUserId1: senderId, // người gửi lời mời kết bạn
-      frpUserId2: req.user.usr_id,
-      frpActionUserId: req.user.usr_id,
+      usr_id: req.user.usr_id,
+      senderId,
     };
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.AcceptFriendRequest.bind(this.socialService),
@@ -139,17 +136,14 @@ export class GatewaySocialController {
     );
   }
 
-  @Post('friend-requests/:requestId/reject')
+  @Patch('friend-requests/:senderId/reject')
   async rejectFriendRequest(
     @Req() req: AuthenticatedRequest,
-    @Param('requestId') requestId: string,
-    @Query('senderId') senderId: string,
+    @Param('senderId') senderId: string,
   ) {
     const data = {
-      frpId: requestId,
-      frpUserId1: senderId, // người gửi lời mời kết bạn
-      frpUserId2: req.user.usr_id,
-      frpActionUserId: req.user.usr_id,
+      usr_id: req.user.usr_id,
+      senderId,
     };
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.RejectFriendRequest.bind(this.socialService),

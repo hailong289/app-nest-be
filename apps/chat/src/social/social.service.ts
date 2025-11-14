@@ -130,14 +130,15 @@ export class SocialService {
     );
   }
 
-  async acceptFriendRequest(
-    frpId: string,
-    frpUserId1: string,
-    frpUserId2: string,
-    frpActionUserId: string,
-  ) {
-    const user1 = await this.userModel.findOne({ usr_id: frpUserId1 });
-    const user2 = await this.userModel.findOne({ usr_id: frpUserId2 });
+  async acceptFriendRequest({
+    usr_id,
+    senderId,
+  }: {
+    usr_id: string;
+    senderId: string;
+  }) {
+    const user1 = await this.userModel.findOne({ usr_id: usr_id });
+    const user2 = await this.userModel.findOne({ usr_id: senderId });
     if (!user1) {
       return Response.error('Người dùng gửi không tồn tại', 400);
     }
@@ -145,9 +146,8 @@ export class SocialService {
       return Response.error('Người dùng nhận không tồn tại', 400);
     }
     const friendship = await this.friendshipModel.findOne({
-      frp_id: frpId,
-      frp_userId1: frpUserId1,
-      frp_userId2: frpUserId2,
+      frp_id: Utils.pairRoomId(usr_id, senderId),
+      frp_actionUserId: senderId,
       frp_status: 'PENDING',
     });
     if (!friendship) {
@@ -155,7 +155,7 @@ export class SocialService {
     }
     await friendship.updateOne({
       frp_status: 'ACCEPTED',
-      frp_actionUserId: frpActionUserId,
+      frp_actionUserId: usr_id,
     });
     // gửi notification cho người gửi
     const fcmTokens = await this.keyModel.find(
@@ -182,8 +182,14 @@ export class SocialService {
         }
       });
     }
-    const result = {
-      frpId,
+    const result: {
+      frpId: string;
+      frpStatus: string;
+      friendshipId: string;
+      acceptedAt: Date;
+      room?: ChatGatewayResponse['metadata'] | null;
+    } = {
+      frpId: friendship.frp_id,
       frpStatus: 'ACCEPTED',
       friendshipId: 'friend_' + Date.now(),
       acceptedAt: new Date(),
@@ -198,11 +204,13 @@ export class SocialService {
       memberIds: [user2.usr_id],
     } as CreateRoomDto;
     try {
-      const room = await this.roomService.create(payload);
+      const room = (await this.roomService.create(
+        payload,
+      )) as ChatGatewayResponse;
       if (room.statusCode !== 200) {
         await friendship.updateOne({
           frp_status: 'PENDING',
-          frp_actionUserId: frpActionUserId,
+          frp_actionUserId: senderId,
         });
         return Response.error(
           room.message,
@@ -211,13 +219,15 @@ export class SocialService {
           'ERROR_CREATE_ROOM',
         );
       }
-      result.room = room.metadata;
+      if (room && room.metadata) {
+        result.room = room.metadata;
+      }
     } catch (error) {
       console.error('🔥 Error creating room:', error);
       // rollback lời mời kết bạn
       await friendship.updateOne({
         frp_status: 'PENDING',
-        frp_actionUserId: frpActionUserId,
+        frp_actionUserId: senderId,
       });
       return Response.error(
         'Có lỗi xảy ra khi kết bạn',
@@ -228,24 +238,27 @@ export class SocialService {
     return Response.success(result, 'Chấp nhận lời mời kết bạn thành công');
   }
 
-  async rejectFriendRequest(
-    frpId: string,
-    frpUserId1: string,
-    frpUserId2: string,
-    frpActionUserId: string,
-  ) {
-    const user1 = await this.userModel.findOne({ usr_id: frpUserId1 });
-    const user2 = await this.userModel.findOne({ usr_id: frpUserId2 });
+  async rejectFriendRequest({
+    usr_id,
+    senderId,
+  }: {
+    usr_id: string;
+    senderId: string;
+  }) {
+    console.log(
+      '🚀 ~ SocialService ~ rejectFriendRequest ~ senderId:',
+      senderId,
+    );
+    const user1 = await this.userModel.findOne({ usr_id: usr_id });
+    const user2 = await this.userModel.findOne({ usr_id: senderId });
     if (!user1) {
-      return Response.error('Người dùng gửi không tồn tại', 400);
+      return Response.error('Người dùng gửi không tồn tại1', 400);
     }
     if (!user2) {
-      return Response.error('Người dùng nhận không tồn tại', 400);
+      return Response.error('Người dùng nhận không tồn tại2', 400);
     }
     const friendship = await this.friendshipModel.findOne({
-      frp_id: frpId,
-      frp_userId1: frpUserId1,
-      frp_userId2: frpUserId2,
+      frp_id: Utils.pairRoomId(usr_id, senderId),
       frp_status: 'PENDING',
     });
     if (!friendship) {
@@ -253,7 +266,7 @@ export class SocialService {
     }
     await friendship.updateOne({
       frp_status: 'REJECTED',
-      frp_actionUserId: frpActionUserId,
+      frp_actionUserId: usr_id,
     });
     // gửi notification cho người gửi
     const fcmTokens = await this.keyModel.find(
@@ -282,7 +295,7 @@ export class SocialService {
     }
     return Response.success(
       {
-        frpId,
+        frpId: friendship.frp_id,
         frpStatus: 'accepted',
         friendshipId: 'friend_' + Date.now(),
         rejectedAt: new Date(),
@@ -297,7 +310,6 @@ export class SocialService {
     limit: number,
     search: string,
   ) {
-
     const friends = await this.userModel.aggregate(
       getFriendsAggregate(userId, page, limit, search),
     );
@@ -447,4 +459,16 @@ export class SocialService {
     });
     return Response.success(friendship, 'Mở chặn thành công');
   }
+}
+interface ChatGatewayResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: {
+    msgId: string;
+    members: Array<Record<string, any>>;
+    roomId: string;
+    // Có thể bổ sung các trường khác nếu cần
+  };
 }
