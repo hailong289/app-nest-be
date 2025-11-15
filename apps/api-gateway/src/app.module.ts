@@ -11,14 +11,13 @@ import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { ChatWebSocketModule } from './ws/chat/chat.module';
 import redisConfig from 'libs/db/src/config/redis.config';
-
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(
         process.cwd(),
-        'apps/api-gateway/.env.development',
+        `apps/api-gateway/.env.${process.env.NODE_ENV || 'development'}`,
       ), // thay đổi file để load môi trường ví dụ .env.production
       load: [redisConfig],
     }),
