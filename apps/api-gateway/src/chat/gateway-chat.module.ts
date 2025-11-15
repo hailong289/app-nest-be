@@ -39,7 +39,7 @@ import * as grpc from '@grpc/grpc-js';
             keepCase: true,
             longs: String,
             enums: String,
-            defaults: false,
+            defaults: true,
             oneofs: true,
             includeDirs: [
               join(process.cwd(), 'libs/grpc'), // chat.proto

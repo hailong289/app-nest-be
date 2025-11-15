@@ -123,6 +123,7 @@ export class SocialService {
       {
         friendRequests: data,
         total: total[0]?.total || 0,
+        totalPage: Math.ceil(total[0]?.total || 0 / limit),
         page: page,
         limit: limit,
       },
@@ -159,13 +160,13 @@ export class SocialService {
     });
     // gửi notification cho người gửi
     const fcmTokens = await this.keyModel.find(
-      { tkn_userId: user1._id },
+      { tkn_userId: user2._id },
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
       Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
         fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-        title: `${user2.usr_fullname} đã chấp nhận lời mời kết bạn`,
+        title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
         message: 'Bạn đã được kết bạn với người dùng',
         data: {
           userId: user1._id,
@@ -270,19 +271,19 @@ export class SocialService {
     });
     // gửi notification cho người gửi
     const fcmTokens = await this.keyModel.find(
-      { tkn_userId: user1._id },
+      { tkn_userId: user2._id },
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
       Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
         fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-        title: `${user2.usr_fullname} đã từ chối lời mời kết bạn`,
+        title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
         message: 'Bạn đã bị từ chối kết bạn với người dùng',
         data: {
           userId: user1._id,
-          senderId: user2._id,
-          senderName: user2.usr_fullname,
-          senderAvatar: user2.usr_avatar,
+          senderId: user1._id,
+          senderName: user1.usr_fullname,
+          senderAvatar: user1.usr_avatar,
           push_type: 'friend_request',
         },
       }).then((response) => {
@@ -321,7 +322,7 @@ export class SocialService {
       },
     ]);
 
-    const data = friends.map((friend) => {
+    const data = (friends || []).map((friend) => {
       return {
         ...Utils.unprefix(friend, 'usr_'),
         friendship: Utils.unprefix(friend.friendship, 'frp_'),
@@ -330,8 +331,9 @@ export class SocialService {
 
     return Response.success(
       {
-        friends: data,
+        friends: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
         total: sumTotal[0]?.total || 0,
+        totalPage: Math.ceil((sumTotal[0]?.total || 0) / limit),
         page: page,
         limit: limit,
       },
@@ -376,6 +378,7 @@ export class SocialService {
       {
         users: data,
         total: totalAgg[0]?.total || 0,
+        totalPage: Math.ceil(totalAgg[0]?.total || 0 / limit),
         page: page,
         limit: limit,
       },

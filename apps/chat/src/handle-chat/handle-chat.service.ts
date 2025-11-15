@@ -433,7 +433,7 @@ export class HandleChatService {
 
     // Build comparison filter based on pagination type
     const compare: Record<string, any> = {};
-    if (type != null && msgId != null) {
+    if (type && msgId) {
       const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
       if (type === 'new') {
         // Load tin nhắn mới hơn msgId (để load real-time updates)
