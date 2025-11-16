@@ -128,9 +128,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       await client.join(roomIds);
       // Gửi thông báo đến người dùng
-      this.io.to('system').emit('status', {
-        userId: client.user.usr_id,
+      this.io.to('system').emit('status:online', {
+        id: client.user.usr_id,
         isOnline: true,
+        onlineAt: new Date(),
       });
       // client.emit('status', {
       //   message: `Chào mừng ${payload.usr_fullname}, bạn đã online!`,
@@ -157,7 +158,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.userId;
     const fullname = client.user?.usr_fullname;
     this.io.to('system').emit('status', {
-      userId: client.userId,
+      id: client.userId,
       isOnline: false,
     });
     // Luôn kiểm tra user vì socket có thể disconnect vì lý do mạng,
@@ -176,8 +177,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.redis.sRem(this.key.USER_ONLINE(userId), client.id);
       const checkOnline = await this.redis.sCard(this.key.USER_ONLINE(userId));
       if (checkOnline == 0) {
-        this.io.to('system').emit('status', {
-          userId: client.user?.usr_id,
+        this.io.to('system').emit('status:online', {
+          id: client.user?.usr_id,
           isOnline: false,
         });
         await this.redis.sRem(this.key.USERS_ONLINE, userId);

@@ -8,9 +8,9 @@ import "social.proto";
 
 service ChatService {
   rpc CreateRoom(CreateRoomRequest) returns (outputGetRoom);
-  rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
-  rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
-  rpc AddMember(inputRmMbr) returns (outputRmMbr);
+  rpc LeavingRoom(inputLeavingRoom) returns (outputChange);
+  rpc RemoveMember(inputRmMbr) returns (outputChange);
+  rpc AddMember(inputRmMbr) returns (outputChange);
   rpc GetRooms(inputGetRooms)returns (outputGetRooms);
   rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
   rpc ChangeName(inputChangeName) returns (outputChange);
@@ -173,7 +173,7 @@ message outputChange {
  string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
-  string metadata = 4;
+ repeated membersTypePrivate metadata = 4;
 }
 message inputChangeName{
   string userId =1;
@@ -284,6 +284,7 @@ message ReadByUser {
 message MessageReadBy {
   string readAt = 1;
   ReadByUser user = 2;
+  bool isMine=3;
 }
 
 /* ===================== Core output ===================== */

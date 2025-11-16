@@ -277,6 +277,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
                 fullname: '$u.usr_fullname',
                 avatar: '$u.usr_avatar',
               },
+              isMine: { $eq: ['$u._id', uid] },
             },
           },
         ],

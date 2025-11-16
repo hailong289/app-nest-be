@@ -630,7 +630,9 @@ export class RoomsService {
     members.push({
       user_id: getInforUserCreateRoom._id,
       id: getInforUserCreateRoom.usr_id,
-      role: type === 'private' ? 'owner' : 'admin',
+      role: (type === 'private'
+        ? 'owner'
+        : 'admin') as unknown as memberType['role'],
       name: getInforUserCreateRoom.usr_fullname || '',
       // joinedAt: new Date(),
     });
@@ -664,7 +666,9 @@ export class RoomsService {
       members.push({
         user_id: member._id,
         id: member.usr_id,
-        role: type === 'channel' ? 'guest' : 'member',
+        role: (type === 'channel'
+          ? 'guest'
+          : 'member') as unknown as memberType['role'],
         name: member.usr_fullname || '',
         joinedAt: new Date(),
       });
@@ -989,7 +993,10 @@ export class RoomsService {
           userId: promoteTarget.user_id,
         },
       } as CreateRoomEvent);
-      return Response.success('', 'Đã rời khỏi nhóm');
+      return Response.success(
+        members.map((i) => i.user_id),
+        'Đã rời khỏi nhóm',
+      );
     } catch (err) {
       this.log.error(err);
       throw new BadRequestException('không thể rời đi khỏi nhóm');
@@ -1079,7 +1086,10 @@ export class RoomsService {
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
-    return Response.success('', 'Đã xoá thành viên');
+    return Response.success(
+      members.map((i) => i.user_id),
+      'Đã xoá thành viên',
+    );
   }
 
   // hiện tại ai cũng có thể thêm thành viên khác vào nhóm
@@ -1098,7 +1108,7 @@ export class RoomsService {
     });
     if (!roomInfo)
       throw new NotFoundException('không tìm thấy thông tin về group này');
-
+    const roomMember = roomInfo.room_members;
     // lấy thông tin user
     const users = await this.userModel
       .find({
@@ -1111,6 +1121,18 @@ export class RoomsService {
         usr_id: 1,
       })
       .exec();
+    // push only the user id strings to match roomMember's string[] type
+    roomMember.push(
+      ...users.map((u) => {
+        return {
+          user_id: u._id,
+          id: u.usr_id,
+          name: u.usr_fullname,
+          role: 'member' as unknown as memberType['role'],
+          joinedAt: new Date(),
+        };
+      }),
+    );
     const PromiseAll = users.map((m) =>
       this.roomModel.updateOne(
         {
@@ -1123,7 +1145,7 @@ export class RoomsService {
               id: m.usr_id,
               name: m.usr_fullname,
               user_id: m._id,
-              role: 'member',
+              role: 'member' as unknown as memberType['role'],
             },
           },
         },
@@ -1153,7 +1175,8 @@ export class RoomsService {
       } as CreateRoomEvent),
     );
     await Promise.all([...PromiseAll, ...addmb, ...addroom, ...newlog]);
-    return Response.success('', 'Đã thêm thành công');
+
+    return Response.success(roomMember, 'Đã thêm thành công');
   }
 
   async GetRooms(payload: GetRoomType) {
@@ -1234,7 +1257,10 @@ export class RoomsService {
       targets: roominfo?.room_members.map((m) => m.user_id),
       placeholder: `${userinfor.name} đã cập nhật ảnh đại diện`,
     } as CreateRoomEvent);
-    return Response.success(true, 'đã thay đổi ảnh thành công');
+    return Response.success(
+      roominfo?.room_members.map((m) => m.user_id),
+      'đã thay đổi ảnh thành công',
+    );
   }
   async changeNameRoom(payload: ChangeNameRoomDto) {
     const { userId, roomId, name } = payload;
@@ -1267,7 +1293,10 @@ export class RoomsService {
       placeholder: `${userinfo?.name} đã đổi tên nhóm`,
       targets: room.room_members.map((m) => m.user_id),
     } as CreateRoomEvent);
-    return Response.success(true, 'Đổi tên thành công');
+    return Response.success(
+      room.room_members.map((m) => m.user_id),
+      'Đổi tên thành công',
+    );
   }
 
   async GetRoom(payload: GetRoomDto) {

@@ -1,6 +1,6 @@
 import { SendFriendRequestDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
-import { Inject, Injectable } from '@nestjs/common';
+import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import friendshipModel, {
   Friendship,
@@ -47,7 +47,11 @@ export class SocialService {
     if (!receiver) {
       return Response.error('Người nhận không tồn tại', 400);
     }
-
+    if (user.usr_id == receiver.usr_id) {
+      throw new BadGatewayException(
+        'Bạn không thể gửi lời kết bạn cho chính mình',
+      );
+    }
     const existingFriendship = await this.friendshipModel.findOne({
       frp_userId1: user.usr_id,
       frp_userId2: receiver.usr_id,
@@ -58,13 +62,28 @@ export class SocialService {
       return Response.error('Bạn đã gửi lời mời kết bạn cho người này', 400);
     }
 
-    const friendship = await this.friendshipModel.create({
-      frp_userId1: user.usr_id,
-      frp_userId2: receiver.usr_id,
-      frp_actionUserId: user.usr_id,
-      frp_status: 'PENDING',
-      frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
-    });
+    // const friendship = await this.friendshipModel.create({
+    //   frp_userId1: user.usr_id,
+    //   frp_userId2: receiver.usr_id,
+    //   frp_actionUserId: user.usr_id,
+    //   frp_status: 'PENDING',
+    //   frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
+    // });
+    const friendship = await this.friendshipModel.findOneAndUpdate(
+      {
+        frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
+      },
+      {
+        frp_userId1: user.usr_id,
+        frp_userId2: receiver.usr_id,
+        frp_actionUserId: user.usr_id,
+        frp_status: 'PENDING',
+      },
+      {
+        new: true,
+        upsert: true,
+      },
+    );
     // gửi notification cho người nhận
     const fcmTokens = await this.keyModel.find(
       { tkn_userId: receiver._id },

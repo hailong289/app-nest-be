@@ -25,7 +25,32 @@ import {
 } from '@app/dto/room.dto';
 import { ChatGateway } from '../ws/chat/chat-gateway';
 import { REDISKEY } from '@app/constants/RedisKey';
-
+interface ChatOutChangeGatewayResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: [
+    {
+      id: string;
+      user_id: string;
+      role: string;
+      joinedAt: string;
+    },
+  ];
+}
+interface ChatGatewayResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: {
+    msgId: string;
+    members: Array<Record<string, any>>;
+    roomId: string;
+    // Có thể bổ sung các trường khác nếu cần
+  };
+}
 export interface RoomGrpcService {
   createRoom(data: any): Promise<{ metadata?: any }>;
   leavingRoom(data: any): any;
@@ -120,10 +145,40 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
+    const result = (await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.addMember.bind(this.RoomGrpcService),
       body,
+    )) as ChatOutChangeGatewayResponse;
+
+    const roomsUpdate = await Promise.all(
+      result.metadata.map(async (r) => {
+        const data: GetRoomDto = {
+          userId: r.user_id,
+          roomId: body.roomId,
+        };
+        const roomData = (await this.gatewayService.dispatchGrpcRequest(
+          this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
+          data,
+        )) as ChatGatewayResponse;
+        return {
+          socketRoom: this.key.ROOM_CLIENT(r.id),
+          roomData: roomData.metadata,
+        };
+      }),
     );
+
+    roomsUpdate.forEach(({ socketRoom, roomData }) => {
+      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+    });
+    const safeResult =
+      result && typeof result === 'object' && !Array.isArray(result)
+        ? (result as Record<string, any>)
+        : { data: result };
+
+    return {
+      metadata: true,
+      ...safeResult,
+    };
   }
   @Get('rooms')
   async GetRooms(
