@@ -27,7 +27,9 @@ export class RoomsController {
   }
   @GrpcMethod('ChatService', 'RemoveMember')
   async removeMbr(@Body() payload: RemoveMemberRoomDto) {
-    return this.roomsService.removeMemberByAdmin(payload);
+    const result = this.roomsService.removeMemberByAdmin(payload);
+    console.log('🚀 ~ RoomsController ~ removeMbr ~ result:', result);
+    return result;
   }
   @GrpcMethod('ChatService', 'AddMember')
   async addMbr(@Body() payload: RemoveMemberRoomDto) {
@@ -41,7 +43,7 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'GetRoom')
   async GetRoom(@Body() payload: GetRoomDto) {
     const result = await this.roomsService.GetRoom(payload);
-    // console.log('🚀 ~ RoomsController ~ GetRoom ~ result:', result.metadata);
+    console.log('🚀 ~ RoomsController ~ GetRoom ~ result:', result.metadata);
     return result;
   }
 

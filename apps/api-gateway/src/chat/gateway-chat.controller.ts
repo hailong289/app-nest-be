@@ -30,14 +30,17 @@ interface ChatOutChangeGatewayResponse<T = any> {
   message: string;
   statusCode: number;
   reasonStatusCode: string;
-  metadata: [
-    {
-      id: string;
-      user_id: string;
-      role: string;
-      joinedAt: string;
-    },
-  ];
+  metadata: {
+    members: [
+      {
+        id: string;
+        user_id: string;
+        role: string;
+        joinedAt: string;
+      },
+    ];
+    roomId: string;
+  };
 }
 interface ChatGatewayResponse<T = any> {
   data: T;
@@ -116,13 +119,21 @@ export class GatewayChatController {
   async leavingRoom(
     @Body()
     body: LeavingRoomDto,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: { user?: { _id?: string; usr_id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
+
+    const result = await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.leavingRoom.bind(this.RoomGrpcService),
       body,
     );
+    const usrId = req.user?.usr_id;
+    if (usrId) {
+      this.chatGateway.io.to(this.key.ROOM_CLIENT(usrId)).emit('room:remove', {
+        roomId: body.roomId,
+      });
+    }
+    return result;
   }
 
   @Patch('rooms/members/remove')
@@ -132,10 +143,16 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
+    const result = await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.removeMember.bind(this.RoomGrpcService),
       body,
     );
+    body.memberIds.forEach((m) => {
+      this.chatGateway.io.to(this.key.ROOM_CLIENT(m)).emit('room:remove', {
+        roomId: body.roomId,
+      });
+    });
+    return result;
   }
 
   @Patch('rooms/add')
@@ -151,10 +168,10 @@ export class GatewayChatController {
     )) as ChatOutChangeGatewayResponse;
 
     const roomsUpdate = await Promise.all(
-      result.metadata.map(async (r) => {
+      result.metadata.members.map(async (r) => {
         const data: GetRoomDto = {
           userId: r.user_id,
-          roomId: body.roomId,
+          roomId: result.metadata.roomId,
         };
         const roomData = (await this.gatewayService.dispatchGrpcRequest(
           this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
@@ -225,10 +242,32 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
+    const result = (await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.changeAvatar.bind(this.RoomGrpcService),
       body,
+    )) as ChatOutChangeGatewayResponse;
+    console.log('🚀 ~ GatewayChatController ~ ChangeAvatar ~ result:', result);
+    const roomsUpdate = await Promise.all(
+      result.metadata.members.map(async (r) => {
+        const data: GetRoomDto = {
+          userId: r.user_id,
+          roomId: result.metadata.roomId,
+        };
+        const roomData = (await this.gatewayService.dispatchGrpcRequest(
+          this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
+          data,
+        )) as ChatGatewayResponse;
+        return {
+          socketRoom: this.key.ROOM_CLIENT(r.id),
+          roomData: roomData.metadata,
+        };
+      }),
     );
+
+    roomsUpdate.forEach(({ socketRoom, roomData }) => {
+      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+    });
+    return result;
   }
 
   @Patch('rooms/name')
@@ -238,10 +277,31 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
+    const result = (await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.changeName.bind(this.RoomGrpcService),
       body,
+    )) as ChatOutChangeGatewayResponse;
+    const roomsUpdate = await Promise.all(
+      result.metadata.members.map(async (r) => {
+        const data: GetRoomDto = {
+          userId: r.user_id,
+          roomId: result.metadata.roomId,
+        };
+        const roomData = (await this.gatewayService.dispatchGrpcRequest(
+          this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
+          data,
+        )) as ChatGatewayResponse;
+        return {
+          socketRoom: this.key.ROOM_CLIENT(r.id),
+          roomData: roomData.metadata,
+        };
+      }),
     );
+
+    roomsUpdate.forEach(({ socketRoom, roomData }) => {
+      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+    });
+    return result;
   }
 
   @Patch('rooms/nick-name')
@@ -256,10 +316,32 @@ export class GatewayChatController {
     @Req() req: { user?: { _id?: string } },
   ) {
     body.userId = req.user?._id;
-    return await this.gatewayService.dispatchGrpcRequest(
+    const result = (await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.changeNickName.bind(this.RoomGrpcService),
       body,
+    )) as ChatOutChangeGatewayResponse;
+
+    const roomsUpdate = await Promise.all(
+      result.metadata.members.map(async (r) => {
+        const data: GetRoomDto = {
+          userId: r.user_id,
+          roomId: result.metadata.roomId,
+        };
+        const roomData = (await this.gatewayService.dispatchGrpcRequest(
+          this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
+          data,
+        )) as ChatGatewayResponse;
+        return {
+          socketRoom: this.key.ROOM_CLIENT(r.id),
+          roomData: roomData.metadata,
+        };
+      }),
     );
+
+    roomsUpdate.forEach(({ socketRoom, roomData }) => {
+      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+    });
+    return result;
   }
 
   @Get('messages/:roomId')

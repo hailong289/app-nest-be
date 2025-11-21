@@ -135,6 +135,8 @@ message metadataGetRoomsType{
   string last_read_id = 13;  
   repeated pinned_messagesType pinned_messages=14;
   int64 pinned_count=15;
+  bool isBlocked=16;
+  bool blockByMine=17;
 }
 message pinned_messagesType{
   string id=1;
@@ -173,7 +175,11 @@ message outputChange {
  string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
- repeated membersTypePrivate metadata = 4;
+ outputChangeMetada metadata = 4;
+}
+message outputChangeMetada{
+  repeated membersTypePrivate members = 1;
+  string roomId=2;
 }
 message inputChangeName{
   string userId =1;

@@ -58,6 +58,20 @@ export class RoomsService {
     const pipeline: PipelineStage[] = [
       /** 1) Chỉ các phòng mà tôi là member */
       { $match: { 'room_members.user_id': uid } },
+      /** 1.1) Lấy usr_id của user hiện tại */
+      {
+        $lookup: {
+          from: 'Users',
+          localField: 'room_members.user_id', // nhưng lọc đúng user hiện tại
+          foreignField: '_id',
+          pipeline: [
+            { $match: { _id: uid } },
+            { $project: { _id: 1, usr_id: 1 } },
+          ],
+          as: 'currentUserInfo',
+        },
+      },
+      { $set: { currentUserInfo: { $first: '$currentUserInfo' } } },
 
       /** 2) Map info user vào room_members (1 lookup) */
       {
@@ -76,43 +90,27 @@ export class RoomsService {
               input: '$room_members',
               as: 'm',
               in: {
-                $mergeObjects: [
-                  '$$m',
-                  {
-                    name: {
-                      $let: {
-                        vars: {
-                          u: {
-                            $first: {
-                              $filter: {
-                                input: '$membersInfo',
-                                as: 'u',
-                                cond: { $eq: ['$$u._id', '$$m.user_id'] },
-                              },
-                            },
-                          },
+                $let: {
+                  vars: {
+                    u: {
+                      $first: {
+                        $filter: {
+                          input: '$membersInfo',
+                          as: 'u',
+                          cond: { $eq: ['$$u._id', '$$m.user_id'] },
                         },
-                        in: '$$u.usr_fullname',
-                      },
-                    },
-                    avatar: {
-                      $let: {
-                        vars: {
-                          u: {
-                            $first: {
-                              $filter: {
-                                input: '$membersInfo',
-                                as: 'u',
-                                cond: { $eq: ['$$u._id', '$$m.user_id'] },
-                              },
-                            },
-                          },
-                        },
-                        in: '$$u.usr_avatar',
                       },
                     },
                   },
-                ],
+                  in: {
+                    $mergeObjects: [
+                      '$$m', // giữ nguyên toàn bộ dữ liệu gốc của member
+                      {
+                        avatar: '$$u.usr_avatar', // chỉ cập nhật/ghi đè field avatar
+                      },
+                    ],
+                  },
+                },
               },
             },
           },
@@ -486,7 +484,7 @@ export class RoomsService {
                 },
 
                 // (tuỳ chọn) nếu UI cần người gửi:
-                // sender: '$msg_sender'
+                // sender: '$msg_sender',
               },
             },
             { $match: { hiddenByMe: false } },
@@ -504,6 +502,80 @@ export class RoomsService {
       {
         $addFields: {
           pinned_count: { $size: { $ifNull: ['$room_ghim', []] } },
+        },
+      },
+      /** Friendship state cho private room (block) */
+      {
+        $lookup: {
+          from: 'Friendships',
+          let: { rid: '$room_id', myUsrId: '$currentUserInfo.usr_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$frp_id', '$$rid'] },
+                    {
+                      $or: [
+                        { $eq: ['$frp_userId1', '$$myUsrId'] },
+                        { $eq: ['$frp_userId2', '$$myUsrId'] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+            {
+              $project: {
+                _id: 1,
+                frp_status: 1,
+                frp_userId1: 1,
+                frp_userId2: 1,
+                frp_actionUserId: 1,
+              },
+            },
+          ],
+          as: 'friendship',
+        },
+      },
+      { $set: { friendship: { $first: '$friendship' } } },
+
+      /** xác định block flags */
+      {
+        $addFields: {
+          isBlocked: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ['$room_type', 'private'] },
+                  { $eq: ['$friendship.frp_status', 'BLOCKED'] },
+                ],
+              },
+              true,
+              false,
+            ],
+          },
+
+          /** isBlocked = true && tôi là người block */
+          blockByMine: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ['$room_type', 'private'] },
+                  { $eq: ['$friendship.frp_status', 'BLOCKED'] },
+                  {
+                    $eq: [
+                      '$friendship.frp_actionUserId',
+                      '$currentUserInfo.usr_id',
+                    ],
+                  },
+                ],
+              },
+              true,
+              false,
+            ],
+          },
         },
       },
 
@@ -576,6 +648,8 @@ export class RoomsService {
           muted: '$my_state.muted',
           pinned_messages: 1,
           pinned_count: 1,
+          isBlocked: 1,
+          blockByMine: 1,
         },
       },
     ];
@@ -807,22 +881,18 @@ export class RoomsService {
   }
 
   async checkExistedMemberRoom(userId: string, roomId: string) {
-    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ userId:', userId);
     // 1) Xác thực user
     const userInfo = await this.getUserInfo(userId);
     if (!userInfo) throw new NotFoundException('người dùng không tồn tại');
 
     // Chuẩn bị pairId (room private dạng A|B & B|A)
     const pairId = this.utils.pairRoomId(userInfo.usr_id, roomId);
-    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ pairId:', pairId);
 
     // 2) Check Redis theo 2 key (song song)
     const [a, b] = await Promise.all([
       this.redis.sIsMember(this.key.ROOM_MEMBERS(roomId), userId),
       this.redis.sIsMember(this.key.ROOM_MEMBERS(pairId), userId),
     ]);
-    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ b:', b);
-    // console.log('🚀 ~ RoomsService ~ checkExistedMemberRoom ~ a:', a);
     const checkExistRoomRedis = this.toBoolRedis(a) || this.toBoolRedis(b);
     if (checkExistRoomRedis) return true;
 
@@ -993,10 +1063,7 @@ export class RoomsService {
           userId: promoteTarget.user_id,
         },
       } as CreateRoomEvent);
-      return Response.success(
-        members.map((i) => i.user_id),
-        'Đã rời khỏi nhóm',
-      );
+      return Response.success({ members: members, roomId }, 'Đã rời khỏi nhóm');
     } catch (err) {
       this.log.error(err);
       throw new BadRequestException('không thể rời đi khỏi nhóm');
@@ -1086,10 +1153,7 @@ export class RoomsService {
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
-    return Response.success(
-      members.map((i) => i.user_id),
-      'Đã xoá thành viên',
-    );
+    return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
   // hiện tại ai cũng có thể thêm thành viên khác vào nhóm
@@ -1176,7 +1240,10 @@ export class RoomsService {
     );
     await Promise.all([...PromiseAll, ...addmb, ...addroom, ...newlog]);
 
-    return Response.success(roomMember, 'Đã thêm thành công');
+    return Response.success(
+      { members: roomMember, roomId },
+      'Đã thêm thành công',
+    );
   }
 
   async GetRooms(payload: GetRoomType) {
@@ -1258,7 +1325,7 @@ export class RoomsService {
       placeholder: `${userinfor.name} đã cập nhật ảnh đại diện`,
     } as CreateRoomEvent);
     return Response.success(
-      roominfo?.room_members.map((m) => m.user_id),
+      { members: roominfo?.room_members, roomId },
       'đã thay đổi ảnh thành công',
     );
   }
@@ -1294,7 +1361,7 @@ export class RoomsService {
       targets: room.room_members.map((m) => m.user_id),
     } as CreateRoomEvent);
     return Response.success(
-      room.room_members.map((m) => m.user_id),
+      { members: room.room_members, roomId },
       'Đổi tên thành công',
     );
   }
@@ -1406,6 +1473,9 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     } as CreateRoomEvent);
-    return Response.success(true, 'Đổi tên thành công');
+    return Response.success(
+      { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
+      'Đổi tên thành công',
+    );
   }
 }

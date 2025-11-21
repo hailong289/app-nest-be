@@ -32,6 +32,7 @@ export class SocialService {
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
   ) {}
+  // creeate friendship
 
   // Friend requests
   async sendFriendRequest(data: SendFriendRequestDto) {
@@ -125,12 +126,12 @@ export class SocialService {
       { $limit: limit },
     ]);
 
-    const total = await this.userModel.aggregate([
+    const total: { total: number }[] = await this.userModel.aggregate([
       ...getFriendsRequestAggregate(userId, type),
       { $count: 'total' },
     ]);
 
-    const data = friendRequests.map((request) => {
+    const data = friendRequests.map((request: Record<string, any>) => {
       return {
         ...Utils.unprefix(request, 'usr_'),
         friendship: Utils.unprefix(request.friendship, 'frp_'),
@@ -334,14 +335,14 @@ export class SocialService {
       getFriendsAggregate(userId, page, limit, search),
     );
 
-    const sumTotal = await this.userModel.aggregate([
+    const sumTotal: { total: number }[] = await this.userModel.aggregate([
       ...getFriendsAggregate(userId, page, limit, search),
       {
         $count: 'total',
       },
     ]);
 
-    const data = (friends || []).map((friend) => {
+    const data = (friends || []).map((friend: Record<string, any>) => {
       return {
         ...Utils.unprefix(friend, 'usr_'),
         friendship: Utils.unprefix(friend.friendship, 'frp_'),
@@ -387,7 +388,7 @@ export class SocialService {
       },
     ]);
 
-    const totalAgg = await this.userModel.aggregate([
+    const totalAgg: { total: number }[] = await this.userModel.aggregate([
       ...searchUsersAggregate(search, page, limit, userId),
       { $count: 'total' },
     ]);
