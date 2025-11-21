@@ -40,7 +40,7 @@ export class CreateMessage {
   content: string | null;
   attachments?: string[]; // ✅ Optional array of strings
   replyTo: string | null;
-  pinned?: boolean;
+  // pinned?: boolean;
 }
 
 export class markReadUpToDto {
@@ -54,4 +54,27 @@ export class GetMsgFromRoomDTO {
   limit: number;
   type?: 'new' | 'old' | null;
   msgId?: string | null;
+}
+export class HandleReactDto {
+  roomId: string;
+  userId: string;
+  msgId: string;
+  emoji: string;
+}
+export class HandlePinDto {
+  roomId: string;
+  userId: string;
+  msgId: string;
+  pinned: boolean;
+}
+export class HandleDeleteDto {
+  roomId: string;
+  userId: string;
+  msgId: string;
+}
+export class HandleDeleteAllDto {
+  roomId: string;
+  userId: string;
+  msgId: string;
+  placeholder: string;
 }

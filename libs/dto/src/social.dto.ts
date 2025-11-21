@@ -8,6 +8,8 @@ import {
   Max,
 } from 'class-validator';
 
+// create  friendship
+
 // Friend Request DTOs
 export class SendFriendRequestDto {
   @IsString()

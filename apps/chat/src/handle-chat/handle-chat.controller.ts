@@ -1,7 +1,15 @@
 import { Body, Controller, Logger } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { HandleChatService } from './handle-chat.service';
-import { CreateMessage, GetMsgFromRoomDTO, markReadUpToDto } from '@app/dto';
+import {
+  CreateMessage,
+  GetMsgFromRoomDTO,
+  HandleDeleteAllDto,
+  HandleDeleteDto,
+  HandlePinDto,
+  HandleReactDto,
+  markReadUpToDto,
+} from '@app/dto';
 
 @Controller('handle-chat')
 export class HandleChatController {
@@ -32,6 +40,31 @@ export class HandleChatController {
   async GetMsgFromRoom(@Body() payload: GetMsgFromRoomDTO) {
     const result = await this.hdChat.getMsgFromRoom(payload);
     // console.log('🚀 ~ HandleChatController ~ GetMsgFromRoom ~ result:', result);
+    return result;
+  }
+  @GrpcMethod('ChatService', 'HandleReact')
+  async HandlingReat(@Body() payload: HandleReactDto) {
+    const result = await this.hdChat.handleReact(payload);
+    return result;
+  }
+  @GrpcMethod('ChatService', 'HandlePinned')
+  async HandlePinned(@Body() payload: HandlePinDto) {
+    const result = await this.hdChat.handleGimMsg(payload);
+    return result;
+  }
+  @GrpcMethod('ChatService', 'HandleDeleteForUser')
+  async HandleDeleteForUser(@Body() payload: HandleDeleteDto) {
+    const result = await this.hdChat.handleDeleteForUser(payload);
+    // console.log(
+    //   '🚀 ~ HandleChatController ~ HandleDeleteForUser ~ result:',
+    //   result,
+    // );
+    return result;
+  }
+  @GrpcMethod('ChatService', 'HandleDelete')
+  async HandleDelete(@Body() payload: HandleDeleteAllDto) {
+    const result = await this.hdChat.handleDelete(payload);
+    // console.log('🚀 ~ HandleChatController ~ HandleDelete ~ result:', result);
     return result;
   }
 }

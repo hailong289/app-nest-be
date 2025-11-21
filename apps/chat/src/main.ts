@@ -21,7 +21,7 @@ async function bootstrap() {
           keepCase: true,
           longs: String,
           enums: String,
-          defaults: false,
+          defaults: true,
           oneofs: true,
           includeDirs: [join(process.cwd(), 'libs/grpc')],
         },

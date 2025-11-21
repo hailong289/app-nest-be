@@ -14,34 +14,31 @@ export class SocialController {
   }
 
   @GrpcMethod('SocialService', 'GetFriendRequests')
-  async getFriendRequests(data: any) {
-    return this.socialService.getFriendRequests(
+  async getFriendRequests(data: {
+    userId: string;
+    page: number;
+    limit: number;
+    type: 'received' | 'sent';
+  }) {
+    const result = await this.socialService.getFriendRequests(
       data.userId,
       data.page,
       data.limit,
       data.type,
     );
+    return result;
   }
 
   @GrpcMethod('SocialService', 'AcceptFriendRequest')
-  async acceptFriendRequest(data: any) {
+  async acceptFriendRequest(data: { usr_id: string; senderId: string }) {
     console.log('acceptFriendRequest', data);
-    return this.socialService.acceptFriendRequest(
-      data.frpId,
-      data.frpUserId1,
-      data.frpUserId2,
-      data.frpActionUserId,
-    );
+    return this.socialService.acceptFriendRequest(data);
   }
 
   @GrpcMethod('SocialService', 'RejectFriendRequest')
-  async rejectFriendRequest(data: any) {
-    return this.socialService.rejectFriendRequest(
-      data.frpId,
-      data.frpUserId1,
-      data.frpUserId2,
-      data.frpActionUserId,
-    );
+  async rejectFriendRequest(data: { usr_id: string; senderId: string }) {
+    console.log('🚀 ~ SocialController ~ rejectFriendRequest ~ data:', data);
+    return this.socialService.rejectFriendRequest(data);
   }
 
   @GrpcMethod('SocialService', 'SearchUsers')

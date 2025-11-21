@@ -1,4 +1,27 @@
 class Response {
+  // Recursively replace hyphens in object keys with underscores to avoid
+  // protobuf/gRPC serialization errors (field names cannot contain '-').
+  // This is conservative: we only transform keys, not string values.
+  private static sanitizeKeys(value: any): any {
+    if (value == null) return value;
+    if (Array.isArray(value)) return value.map((v) => this.sanitizeKeys(v));
+    if (typeof value === 'object') {
+      return Object.keys(value).reduce((acc: any, key: string) => {
+        const safeKey = key.includes('-') ? key.replace(/-/g, '_') : key;
+        acc[safeKey] = this.sanitizeKeys((value as any)[key]);
+        if (safeKey !== key) {
+          // Minimal log for debugging — avoids bringing in logger dependency
+          // in this small helper.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `Response.sanitizeKeys: renamed metadata key '${key}' -> '${safeKey}'`,
+          );
+        }
+        return acc;
+      }, {});
+    }
+    return value;
+  }
   static success(
     data: any,
     message = 'Success',
