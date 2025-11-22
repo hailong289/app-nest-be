@@ -11,7 +11,10 @@ import { mongoConfig, MongodbModule } from 'libs/db/src';
     ConfigModule.forRoot({
       load: [s3Config, mongoConfig],
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/filesystem/.env'),
+      envFilePath: path.resolve(
+        process.cwd(),
+        'apps/filesystem/.env.development',
+      ),
     }),
     MongodbModule,
   ],

@@ -17,7 +17,11 @@ export class Member {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   user_id: Types.ObjectId;
 
-  @Prop({ type: String, enum: ['member', 'admin', 'owner'], default: 'member' })
+  @Prop({
+    type: String,
+    enum: ['member', 'admin', 'owner', 'guest'],
+    default: 'member',
+  })
   role: roleMember;
 
   @Prop({ type: Date, default: Date.now })

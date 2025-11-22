@@ -8,9 +8,9 @@ import "social.proto";
 
 service ChatService {
   rpc CreateRoom(CreateRoomRequest) returns (outputGetRoom);
-  rpc LeavingRoom(inputLeavingRoom) returns (outputLeavingRoom);
-  rpc RemoveMember(inputRmMbr) returns (outputRmMbr);
-  rpc AddMember(inputRmMbr) returns (outputRmMbr);
+  rpc LeavingRoom(inputLeavingRoom) returns (outputChange);
+  rpc RemoveMember(inputRmMbr) returns (outputChange);
+  rpc AddMember(inputRmMbr) returns (outputChange);
   rpc GetRooms(inputGetRooms)returns (outputGetRooms);
   rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
   rpc ChangeName(inputChangeName) returns (outputChange);
@@ -20,6 +20,10 @@ service ChatService {
   rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
   rpc MarkReadUpTo(InputMarkReadUp)returns (CreateMessageOutput);
   rpc GetMsgFromRoom(GetMsgFromRoomInput)returns(GetMsgs);
+  rpc HandleReact(HandleReactInput)returns(CreateMessageOutput);
+  rpc HandlePinned(HandlePinnedInput)returns(CreateMessageOutput);
+  rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
+  rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
 
 }
 
@@ -129,14 +133,27 @@ message metadataGetRoomsType{
   bool pinned=11;
   bool muted=12;
   string last_read_id = 13;  
-
+  repeated pinned_messagesType pinned_messages=14;
+  int64 pinned_count=15;
+  bool isBlocked=16;
+  bool blockByMine=17;
+}
+message pinned_messagesType{
+  string id=1;
+  string content=2;
+  string type=3;
 }
 message last_messageType{
   string content =1;
   string createdAt =2;
   string id =3;
-  string sender_fullname=4;
-  string sender_id=5;
+  last_messageType_senter sender=4;
+  bool isMine=5;
+}
+message last_messageType_senter{
+  string id=1;
+  string name=2;
+  string avatar=3;
 }
 message membersType {
   string id =1;
@@ -158,7 +175,11 @@ message outputChange {
  string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
-  string metadata = 4;
+ outputChangeMetada metadata = 4;
+}
+message outputChangeMetada{
+  repeated membersTypePrivate members = 1;
+  string roomId=2;
 }
 message inputChangeName{
   string userId =1;
@@ -254,6 +275,9 @@ message MessageReply {
   string content = 3;
   string createdAt = 4;
   ReplySender sender = 5;
+  bool isMine=6;
+  bool isDelete=7;
+  bool hiddenByMe=8;
 }
 
 message ReadByUser {
@@ -266,6 +290,7 @@ message ReadByUser {
 message MessageReadBy {
   string readAt = 1;
   ReadByUser user = 2;
+  bool isMine=3;
 }
 
 /* ===================== Core output ===================== */
@@ -293,7 +318,8 @@ message MessageCore {
   bool hiddenByMe = 15;                       // Hidden by current user
   string hiddenAt = 16;                       // Hidden timestamp (nullable)
   repeated MessageReadBy read_by = 17;        // List of users who read
-  int32 read_by_count = 18;   
+  int32 read_by_count = 18;  
+  bool isDeleted=19; 
               // Count of users who read
 }
 
@@ -321,7 +347,17 @@ message CreateMessageOutput{
   string reasonStatusCode = 3;
   MessageCoreMetadata metadata = 4;
 }
-
+message MessageDeleteOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  MessageDeleteMetadata metadata = 4;
+}
+message MessageDeleteMetadata {
+  repeated string msgIds = 1;
+  repeated membersTypePrivate members = 2;
+  string roomId=3;
+}
 message MessageCoreMetadata {
   string msgId = 1;
   repeated membersTypePrivate members = 2;
@@ -334,18 +370,18 @@ message membersTypePrivate {
   string avatar=4;
   string user_id=5;
 }
-message InputGetOneMsg{
+message InputGetOneMsg {
   string userId=1;
   string msgId=2;
 }
-message InputMarkReadUp{
+message InputMarkReadUp {
   string userId=1;
   string roomId=2;
   string lastMessageId=3;
 
 }
 
-message GetMsgFromRoomInput{
+message GetMsgFromRoomInput {
   string userId=1;
   string roomId=2;
   int64 limit=3;
@@ -358,4 +394,32 @@ message GetMsgs {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
  repeated MessageCore metadata = 4;
+}
+
+message HandleReactInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=5;
+  string emoji=6;
+
+}
+message HandlePinnedInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=5;
+  bool pinned=6;
+
+}
+message HandleDeleteInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=3;
+
+}
+message HandleDeleteAllInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=3;
+  string placeholder=4;
+
 }

@@ -59,3 +59,49 @@ export type { OtpDocument } from './otp.model';
 export { Friendship } from './friendship.model';
 export { default as friendshipModel } from './friendship.model';
 export type { friendship } from './friendship.model';
+
+// Notification models
+export { Notification, NotificationSchema } from './notification.model';
+export { default as notificationModel } from './notification.model';
+export type {
+  NotificationDocument,
+  NotificationType,
+} from './notification.model';
+
+// Quiz models
+export {
+  Quiz,
+  QuizSchema,
+  Question,
+  QuestionSchema,
+  Answer,
+  AnswerSchema,
+  UserAnswer,
+  UserAnswerSchema,
+  QuizResult,
+  QuizResultSchema,
+} from './quiz.model';
+export { default as quizModel } from './quiz.model';
+export type {
+  QuizDocument,
+  QuizResultDocument,
+  QuizStatus,
+  QuestionType,
+} from './quiz.model';
+
+// Flashcard models
+export {
+  Flashcard,
+  FlashcardSchema,
+  FlashcardDeck,
+  FlashcardDeckSchema,
+  FlashcardProgress,
+  FlashcardProgressSchema,
+  flashcardDeckModel,
+} from './flashcard.model';
+export { default as flashcardModel } from './flashcard.model';
+export type {
+  FlashcardDocument,
+  FlashcardDeckDocument,
+  FlashcardProgressDocument,
+} from './flashcard.model';

@@ -40,7 +40,7 @@ export default registerAs('kafka', () => {
   // ✔ SSL do bạn quyết định bằng env (đừng tự ép theo NODE_ENV)
   const ssl = parseBoolean(process.env.KAFKA_SSL);
 
-  return {
+  const kafkaConfig = {
     // Broker configuration
     brokers,
     host: process.env.KAFKA_HOST || 'localhost',
@@ -116,4 +116,6 @@ export default registerAs('kafka', () => {
       user: process.env.KAFKA_TOPIC_USER || 'user-events',
     },
   };
+  console.log('kafkaConfig', kafkaConfig);
+  return kafkaConfig;
 });

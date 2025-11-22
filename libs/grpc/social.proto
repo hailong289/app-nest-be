@@ -55,13 +55,25 @@ message FriendRequest {
   string status = 5; // "PENDING", "ACCEPTED", "REJECTED", "BLOCKED"
   int64 createdAt = 6;
   int64 updatedAt = 7;
+  // UserType user=8;
 }
 
+// message UserType{
+//   string id=1;
+//   string fullname=2;
+//   string avatar=3;
+//   string email=4;
+//   string phone=5;
+//   string gender=6;
+//   string status =7;
+//   string dateOfBirth=8;
+//   string createdAt=9;
+//   string updatedAt=10;
+// }
 message AcceptFriendRequestRequest {
-  string frpId = 1;
-  string frpUserId1 = 2;
-  string frpUserId2 = 3;
-  string frpActionUserId = 4;
+  string usr_id = 1;
+  string senderId = 2;
+  
 }
 
 message AcceptFriendRequestResponse {
@@ -72,10 +84,8 @@ message AcceptFriendRequestResponse {
 }
 
 message RejectFriendRequestRequest {
-  string frpId = 1;
-  string frpUserId1 = 2;
-  string frpUserId2 = 3;
-  string frpActionUserId = 4;
+   string usr_id = 1;
+  string senderId = 2;
 }
 
 message RejectFriendRequestResponse {
@@ -161,10 +171,11 @@ message SendFriendRequestMetadata {
 }
 
 message GetFriendRequestsMetadata {
-  repeated FriendRequest friendRequests = 1;
-  int64 total = 2;
-  int64 page = 3;
-  int64 limit = 4;
+  repeated Friend friendRequests = 1;
+  int64 totalPage = 2;
+  int64 total = 3;
+  int64 page = 4;
+  int64 limit = 5;
 }
 
 message AcceptFriendRequestMetadata {
@@ -209,16 +220,18 @@ message RejectFriendRequestMetadata {
 
 message SearchUsersMetadata {
   repeated Friend users = 1;
-  int64 total = 2;
-  int64 page = 3;
-  int64 limit = 4;
+  int64 totalPage = 2;
+  int64 total = 3;
+  int64 page = 4;
+  int64 limit = 5;
 }
 
 message GetFriendsMetadata {
   repeated Friend friends = 1;
-  int32 total = 2;
-  int32 page = 3;
-  int32 limit = 4;
+  int64 totalPage = 2;
+  int64 total = 3;
+  int64 page = 4;
+  int64 limit = 5;
 }
 
 message RemoveFriendMetadata {
