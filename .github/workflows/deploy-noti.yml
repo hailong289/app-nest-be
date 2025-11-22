@@ -20,7 +20,7 @@ jobs:
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
       - run: |
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/notification:latest"
-          docker build -t $IMAGE -f apps/auth/Dockerfile .
+          docker build -t $IMAGE -f apps/notification/Dockerfile .
           docker push $IMAGE
       - run: |
           gcloud run deploy notification-service \
