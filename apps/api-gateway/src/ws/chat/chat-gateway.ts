@@ -746,6 +746,38 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
+
+  @SubscribeMessage('call:initate')
+  async InitiateCall(
+    @MessageBody()
+    data: {
+      callerId?: string;
+      roomId: string;
+      offer: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+    data.callerId = user._id;
+    console.log('🚀Bắt đầu cuộc gọi data:', data);
+    try {
+       this.io.to(data.roomId).emit('call:incoming', data);
+    } catch (error) {
+      this.logger.error('[MESSAGE] Error calling message:', error);
+      client.emit('error', {
+        message: 'Gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 }
 
 interface ChatGatewayResponse<T = any> {
