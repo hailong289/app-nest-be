@@ -24,9 +24,12 @@ service ChatService {
   rpc HandlePinned(HandlePinnedInput)returns(CreateMessageOutput);
   rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
   rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
-
+  // Call
+  rpc StartCall(StartCallInput)returns(outputCall);
+  rpc AnswerCall(AnswerCallInput)returns(outputCall);
+  rpc EndCall(EndCallInput)returns(outputCall);
+  rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
 }
-
 // Requests and Responses
 message CreateRoomRequest {
   string userId = 1;
@@ -421,5 +424,39 @@ message HandleDeleteAllInput{
   string roomId=2;
   string msgId=3;
   string placeholder=4;
+}
 
+
+
+message StartCallInput{
+  string callerId=1;
+  string calleeId=2;
+  string roomId=3;
+  string callType=4;
+}
+
+message AnswerCallInput{
+  string callerId=1;
+  string calleeId=2;
+  string roomId=3;
+}
+
+message EndCallInput{
+  string callerId=1;
+  string calleeId=2;
+  string roomId=3;
+  string type=4;
+}
+
+message GetCallHistoryInput{
+  string userId=1;
+  string roomId=2;
+  string type=3;
+}
+
+message outputCall {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
 }

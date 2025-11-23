@@ -105,3 +105,12 @@ export type {
   FlashcardDeckDocument,
   FlashcardProgressDocument,
 } from './flashcard.model';
+
+// Call History models
+export { CallHistory, CallHistorySchema } from './call-history.model';
+export { default as callHistoryModel } from './call-history.model';
+export type {
+  CallHistoryDocument,
+  CallType,
+  CallStatus,
+} from './call-history.model';

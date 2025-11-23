@@ -2,6 +2,7 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import {
+  callHistoryModel,
   flashcardModel,
   flashcardDeckModel,
   friendshipModel,
@@ -58,6 +59,7 @@ import AttachmentModel from './model/Attachment.model';
       quizModel,
       flashcardModel,
       flashcardDeckModel,
+      callHistoryModel,
     ]),
   ],
   exports: [

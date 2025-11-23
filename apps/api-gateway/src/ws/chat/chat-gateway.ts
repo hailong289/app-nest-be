@@ -11,7 +11,7 @@ import { Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { RedisService } from 'libs/db/src';
+import { CallStatus, RedisService } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
@@ -46,6 +46,10 @@ export interface ChatGrpcService {
   HandlePinned(data: any): any;
   HandleDeleteForUser(data: any): any;
   HandleDelete(data: any): any;
+  StartCall(data: any): any;
+  AnswerCall(data: any): any;
+  EndCall(data: any): any;
+  SendCandidate(data: any): any;
 }
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -738,6 +742,175 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.error('[MESSAGE] Error recalling message:', error);
       client.emit('error', {
         message: 'Thu hồi tin nhắn thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ==== call
+  @SubscribeMessage('call:start')
+  async handleCall(
+    @MessageBody()
+    data: {
+      callerId?: string;
+      calleeId?: string;
+      roomId: string;
+      callType: 'video' | 'audio';
+      offer: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+    data.callerId = user._id;
+    try {
+      // bắt đầu tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.StartCall.bind(this.ChatGrpcService),
+        data,
+      )) as Promise<ChatGatewayResponse>;
+
+      this.io.to(data.roomId).emit('call:start', {
+        callerId: data.callerId,
+        calleeId: data.calleeId,
+        roomId: data.roomId,
+        callType: data.callType,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error starting call:', error);
+      client.emit('error', {
+        message: 'Bắt đầu cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:answer')
+  async handleAnswer(
+    @MessageBody()
+    data: {
+      calleeId?: string;
+      callerId?: string;
+      roomId: string;
+      answer: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+    data.calleeId = user._id;
+    try {
+      // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.AnswerCall.bind(this.ChatGrpcService),
+        data,
+      )) as Promise<ChatGatewayResponse>;
+
+      this.io.to(data.roomId).emit('call:answer', {
+        calleeId: data.calleeId,
+        callerId: data.callerId,
+        roomId: data.roomId,
+        answer: data.answer,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error answering call:', error);
+      client.emit('error', {
+        message: 'Trả lời cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:end')
+  async handleEnd(
+    @MessageBody()
+    data: {
+      callerId?: string; // callerId or calleeId
+      calleeId?: string;
+      roomId: string;
+      type: CallStatus;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+    data.callerId = user._id;
+    try {
+      // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.EndCall.bind(this.ChatGrpcService),
+        data,
+      )) as Promise<ChatGatewayResponse>;
+      this.io.to(data.roomId).emit('call:end', {
+        callerId: data.callerId,
+        calleeId: data.calleeId,
+        roomId: data.roomId,
+        type: data.type,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error ending call:', error);
+      client.emit('error', {
+        message: 'Kết thúc cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ==== candidate
+  @SubscribeMessage('call:candidate')
+  async handleCandidate(
+    @MessageBody()
+    data: {
+      userId?: string;
+      roomId: string;
+      candidate: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+    data.userId = user._id;
+    try {
+      this.io.to(data.roomId).emit('call:candidate', {
+        userId: data.userId,
+        candidate: data.candidate,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error sending candidate:', error);
+      client.emit('error', {
+        message: 'Gửi candidate thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {

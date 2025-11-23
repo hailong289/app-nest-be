@@ -29,6 +29,8 @@ import {
   MessageHide,
   Friendship,
   friendshipModel,
+  callHistoryModel,
+  CallHistory,
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -57,6 +59,8 @@ export class HandleChatService {
     private readonly messageHideModel: Model<MessageHide>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
+    @InjectModel(callHistoryModel.name)
+    private readonly callHistoryModel: Model<CallHistory>,
   ) {}
 
   async createMessage(payload: CreateMessage) {
@@ -734,5 +738,113 @@ export class HandleChatService {
       },
       'Đã thu hồi tin nhắn',
     );
+  }
+
+  // bắt đầu cuộc gọi
+  async startCall({ callerId, calleeId, roomId, callType }: any) {
+    const caller = await this.userModel.findById(callerId);
+    if (!caller) {
+      throw new NotFoundException('Người gọi cuộc gọi không tồn tại');
+    }
+    const callee = await this.userModel.findById(calleeId);
+    if (!callee) {
+      throw new NotFoundException('Người nhận cuộc gọi không tồn tại');
+    }
+
+    const room = await this.roomModel.findById(roomId);
+    if (!room) {
+      throw new NotFoundException('Phòng gọi không tồn tại');
+    }
+
+    const callHistory = await this.callHistoryModel.create({
+      caller_id: caller._id,
+      callee_id: callee._id,
+      room_id: room._id,
+      call_type: callType,
+      status: 'initiated',
+      started_at: new Date(),
+    });
+    if (!callHistory) {
+      throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
+    }
+    return Response.success(callHistory, 'Cuộc gọi đã được tạo');
+  }
+
+  // trả lời cuộc gọi
+  async answerCall({ callerId, calleeId, roomId }: any) {
+    const caller = await this.userModel.findById(callerId);
+    if (!caller) {
+      throw new NotFoundException('Người gọi cuộc gọi không tồn tại');
+    }
+    const callee = await this.userModel.findById(calleeId);
+    if (!callee) {
+      throw new NotFoundException('Người nhận cuộc gọi không tồn tại');
+    }
+    const room = await this.roomModel.findById(roomId);
+    if (!room) {
+      throw new NotFoundException('Phòng gọi không tồn tại');
+    }
+    const callHistory = await this.callHistoryModel.findOneAndUpdate(
+      {
+        caller_id: caller._id,
+        callee_id: callee._id,
+        room_id: room._id,
+        status: 'answered',
+      },
+      {
+        status: 'answered',
+        answered_at: new Date(),
+      },
+    );
+    if (!callHistory) {
+      throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+    }
+    return Response.success(callHistory, 'Cuộc gọi đã được trả lời');
+  }
+
+  // kết thúc cuộc gọi
+  async endCall({ callerId, calleeId, roomId, type }: any) {
+    const caller = await this.userModel.findById(callerId);
+    const callee = await this.userModel.findById(calleeId);
+    const room = await this.roomModel.findById(roomId);
+    if (!caller || !callee || !room) {
+      throw new NotFoundException(
+        'Người gọi hoặc người nhận cuộc gọi không tồn tại',
+      );
+    }
+
+    const callHistory = await this.callHistoryModel.findOneAndUpdate(
+      {
+        caller_id: caller._id,
+        callee_id: callee._id,
+        room_id: room._id,
+        status: { $in: ['initiated', 'answered'] }, // trạng thái cuộc gọi đã bắt đầu hoặc đã trả lời
+      },
+      {
+        status: type,
+        ended_by: caller._id,
+        end_reason: 'normal',
+        ended_at: new Date(),
+      },
+    );
+    if (!callHistory) {
+      throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+    }
+    return Response.success(callHistory, 'Cuộc gọi đã được kết thúc');
+  }
+
+  // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi
+  async getCallHistoryByUserId(
+    userId: string,
+    roomId: string,
+    type: 'caller' | 'callee',
+  ) {
+    const callHistory = await this.callHistoryModel
+      .find({
+        [type === 'caller' ? 'caller_id' : 'callee_id']: userId,
+        room_id: roomId,
+      })
+      .sort({ createdAt: -1 });
+    return Response.success(callHistory, 'Lịch sử cuộc gọi đã được lấy');
   }
 }

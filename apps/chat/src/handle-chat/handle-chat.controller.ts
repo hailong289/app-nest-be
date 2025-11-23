@@ -10,6 +10,7 @@ import {
   HandleReactDto,
   markReadUpToDto,
 } from '@app/dto';
+import { CallStatus } from 'libs/db/src';
 
 @Controller('handle-chat')
 export class HandleChatController {
@@ -65,6 +66,64 @@ export class HandleChatController {
   async HandleDelete(@Body() payload: HandleDeleteAllDto) {
     const result = await this.hdChat.handleDelete(payload);
     // console.log('🚀 ~ HandleChatController ~ HandleDelete ~ result:', result);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'StartCall')
+  async StartCall(
+    @Body()
+    payload: {
+      callerId: string; // Người gọi cuộc gọi
+      calleeId: string; // Người nhận cuộc gọi
+      roomId: string; // ID phòng gọi
+      callType: 'video' | 'audio'; // Loại cuộc gọi
+    },
+  ) {
+    const result = await this.hdChat.startCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'AnswerCall')
+  async AnswerCall(
+    @Body()
+    payload: {
+      callerId: string; // Người gọi cuộc gọi
+      calleeId: string; // Người nhận cuộc gọi
+      roomId: string; // ID phòng gọi
+    },
+  ) {
+    const result = await this.hdChat.answerCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'EndCall')
+  async EndCall(
+    @Body()
+    payload: {
+      callerId: string; // Người gọi cuộc gọi
+      calleeId: string; // Người nhận cuộc gọi
+      roomId: string; // ID phòng gọi
+      type: CallStatus; // Loại kết thúc
+    },
+  ) {
+    const result = await this.hdChat.endCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'GetCallHistory')
+  async GetCallHistory(
+    @Body()
+    payload: {
+      userId: string; // ID người dùng
+      roomId: string; // ID phòng gọi
+      type: 'caller' | 'callee'; // Loại lịch sử cuộc gọi
+    },
+  ) {
+    const result = await this.hdChat.getCallHistoryByUserId(
+      payload.userId,
+      payload.roomId,
+      payload.type,
+    );
     return result;
   }
 }
