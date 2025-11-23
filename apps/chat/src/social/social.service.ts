@@ -440,13 +440,22 @@ export class SocialService {
     if (!friend) {
       return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
-    const friendship = await this.friendshipModel.findOne({
-      $or: [
-        { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
-        { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
-      ],
-      frp_status: 'ACCEPTED',
-    });
+    const friendship = await this.friendshipModel.findOneAndUpdate(
+      {
+        $or: [
+          { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
+          { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
+        ],
+      },
+      {
+        frp_status: 'BLOCKED',
+        frp_actionUserId: actionUserId,
+      },
+      {
+        new: true,
+        upsert: true,
+      },
+    );
     if (!friendship) {
       return Response.error(
         'Bạn đã chặn người dùng này',
@@ -454,10 +463,6 @@ export class SocialService {
         'DATA_NOT_FOUND',
       );
     }
-    await friendship.updateOne({
-      frp_status: 'BLOCKED',
-      frp_actionUserId: actionUserId,
-    });
     return Response.success(friendship, 'Chặn bạn thành công');
   }
 
@@ -466,20 +471,18 @@ export class SocialService {
     if (!friend) {
       return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
-    const friendship = await this.friendshipModel.findOne({
+    const friendship = await this.friendshipModel.findOneAndDelete({
       $or: [
         { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
         { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
       ],
       frp_status: 'BLOCKED',
+      frp_actionUserId: actionUserId,
     });
     if (!friendship) {
       return Response.error('Bạn đã mở chặn bạn bè này', 400, 'DATA_NOT_FOUND');
     }
-    await friendship.updateOne({
-      frp_status: 'ACCEPTED',
-      frp_actionUserId: actionUserId,
-    });
+
     return Response.success(friendship, 'Mở chặn thành công');
   }
 }

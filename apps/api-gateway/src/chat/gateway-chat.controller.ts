@@ -128,8 +128,9 @@ export class GatewayChatController {
       body,
     );
     const usrId = req.user?.usr_id;
+
     if (usrId) {
-      this.chatGateway.io.to(this.key.ROOM_CLIENT(usrId)).emit('room:remove', {
+      this.chatGateway.io.to(this.key.ROOM_CLIENT(usrId)).emit('room:delete', {
         roomId: body.roomId,
       });
     }
@@ -148,7 +149,7 @@ export class GatewayChatController {
       body,
     );
     body.memberIds.forEach((m) => {
-      this.chatGateway.io.to(this.key.ROOM_CLIENT(m)).emit('room:remove', {
+      this.chatGateway.io.to(this.key.ROOM_CLIENT(m)).emit('room:delete', {
         roomId: body.roomId,
       });
     });

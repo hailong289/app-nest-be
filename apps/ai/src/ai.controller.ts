@@ -5,7 +5,7 @@ import { Response } from '@app/helpers/response';
 
 @Controller()
 export class AIController {
-  constructor(private readonly service: AIService) { }
+  constructor(private readonly service: AIService) {}
 
   @GrpcMethod('AIService', 'Moderation')
   async moderation(data: { text: string; userId: string }) {

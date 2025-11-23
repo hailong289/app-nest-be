@@ -51,7 +51,12 @@ export class GoogleModerationProvider {
       const start = Date.now();
       const response = await this.model.generateContent(text);
       const latencyMs = Date.now() - start;
-      return Response.success(response, 'Moderation completed successfully', 200, 'OK');
+      return Response.success(
+        response,
+        'Moderation completed successfully',
+        200,
+        'OK',
+      );
     } catch (err) {
       this.logger.error('Lỗi moderation:', err.message);
       return Response.error('Lỗi xử lý', 400, 'Bad input');

@@ -5,7 +5,9 @@ import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  console.log(`Environment: HOST=${process.env.HOST}, PORT=${process.env.PORT}`);
+  console.log(
+    `Environment: HOST=${process.env.HOST}, PORT=${process.env.PORT}`,
+  );
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
     AppModule,
     {
@@ -16,7 +18,7 @@ async function bootstrap() {
           process.cwd(),
           process.env.PROTO_URL || 'libs/grpc/ai.proto',
         ),
-        url: `${process.env.HOST}:${process.env.PORT}`
+        url: `${process.env.HOST}:${process.env.PORT}`,
       },
     },
   );

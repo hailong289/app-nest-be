@@ -264,3 +264,34 @@ message OpenBlockedFriendResponse {
   string reasonStatusCode = 3;
   google.protobuf.Any metadata = 4;
 }
+
+
+// Trạng thái mối quan hệ
+enum FriendshipStatus {
+  FRIENDSHIP_INVALID  = 0;
+  FRIENDSHIP_PENDING  = 1;
+  FRIENDSHIP_ACCEPTED = 2;
+  FRIENDSHIP_REJECTED = 3;
+  FRIENDSHIP_BLOCKED  = 4;
+}
+
+// Kết quả 1 contact (map 1-1 với ContactType bên TS)
+message Contact {
+  string id          = 1;  // usr_id
+  string fullname    = 2;
+  string avatar      = 3;  // có thể để trống "" nếu null
+  string email       = 4;
+  string phone       = 5;  // "" nếu null
+
+  string updatedAt   = 6;  // ISO string (hoặc đổi thành google.protobuf.Timestamp)
+  string createdAt   = 7;
+  string gender      = 8;  // "" nếu null
+  string status      = 9;  // active / inactive / banned
+  string dateOfBirth = 10; // ISO string, "" nếu null
+
+  FriendshipStatus friendship = 11; // PENDING / ACCEPTED / ...
+  string actionUserId         = 12; // usr_id thằng action cuối, "" nếu null
+
+  bool   isOnline  = 13;
+  string onlineAt  = 14; // ISO string hoặc "" nếu null
+}

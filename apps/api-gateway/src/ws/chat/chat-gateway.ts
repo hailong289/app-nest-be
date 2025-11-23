@@ -133,9 +133,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isOnline: true,
         onlineAt: new Date(),
       });
-      // client.emit('status', {
-      //   message: `Chào mừng ${payload.usr_fullname}, bạn đã online!`,
-      // });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -214,6 +211,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       content: string;
       attachments?: Array<string>;
       replyTo: string;
+      id?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -224,7 +222,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
+
     // this.logger.log(
     //   `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
     // );
@@ -295,10 +293,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error creating message:', error);
-      client.emit('error', {
+      client.emit('error:message', {
         message: 'Gửi tin nhắn thất bại',
         error: error instanceof Error ? error.message : String(error),
+        data,
       });
+
       return {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
@@ -409,10 +409,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
-
     try {
       // Tạo message qua gRPC
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -421,7 +418,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       )) as ChatGatewayResponse;
 
       const { msgId, roomId, members } = result.metadata;
-
       // Lấy danh sách userId của members khác (để gửi notification)
       const otherMemberUserIds = members
         .filter((m) => m.user_id !== user._id)
@@ -443,7 +439,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               { userId: memberUserId, msgId },
             ),
           ]);
-
           return {
             socketRoom: this.key.ROOM_CLIENT(member.id),
             roomData: roomData.metadata,
@@ -745,6 +740,59 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+  @SubscribeMessage('check:status_online')
+  async CheckUserOnline(
+    @MessageBody()
+    data: {
+      ids: string[];
+    },
+  ) {
+    const result = (await this.redis.SisMembers({
+      key: this.key.USERS_ONLINE,
+      values: data.ids,
+    })) as Array<{
+      key: string;
+      value: boolean;
+    }>;
+    const socketResult = result.map((i: { key: string; value: boolean }) => ({
+      id: i.key,
+      isOnline: i.value,
+    }));
+    console.log(
+      '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
+      socketResult,
+    );
+    for (const i of socketResult) {
+      this.io.to('system').emit('status:online', {
+        id: i.id,
+        isOnline: i.isOnline,
+        onlineAt: new Date(),
+      });
+    }
+    // this.io.emit('status_online', result);
+  }
+  @SubscribeMessage('user:typing')
+  onTypingIndicator(
+    @MessageBody()
+    data: {
+      roomId: string;
+      typing: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    console.log('🚀 ~ ChatGateway ~ onTypingIndicator ~ data:', data);
+    const user = {
+      id: client.user?.usr_id,
+      name: client.user?.usr_fullname,
+      avatar: client.user?.usr_avatar,
+    };
+
+    this.io.to(data.roomId).emit('on:typing', {
+      user,
+      typing: data.typing,
+      roomId: data.roomId,
+    });
   }
 }
 
