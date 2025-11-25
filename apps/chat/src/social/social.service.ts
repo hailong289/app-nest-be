@@ -15,6 +15,7 @@ import {
   getFriendsAggregate,
   getFriendsRequestAggregate,
   searchUsersAggregate,
+  getBlockedFriendsAggregate,
 } from './aggregates/getFriends';
 import roomModel, { Room } from 'libs/db/src/mongo/model/room.model';
 import { SERVICES } from '@app/constants';
@@ -484,6 +485,63 @@ export class SocialService {
     }
 
     return Response.success(friendship, 'Mở chặn thành công');
+  }
+
+  async getBlockedFriends(
+    userId: string,
+    page: number = 1,
+    limit: number = 10,
+    search: string = '',
+  ) {
+    const searchMatch = search
+      ? {
+          $or: [
+            { usr_fullname: { $regex: search, $options: 'i' } },
+            { usr_email: { $regex: search, $options: 'i' } },
+            { usr_phone: { $regex: search, $options: 'i' } },
+          ],
+        }
+      : {};
+    const blockedFriends = await this.userModel.aggregate([
+      ...getBlockedFriendsAggregate(userId),
+      { $sort: { createdAt: -1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      { $match: searchMatch },
+    ]);
+
+    const totalAgg: { total: number }[] = await this.userModel.aggregate([
+      ...getBlockedFriendsAggregate(userId),
+      { $count: 'total' },
+    ]);
+    const data = blockedFriends.map((friend: Record<string, any>) => {
+      return {
+        ...Utils.unprefix(friend, 'usr_'),
+        friendship: Utils.unprefix(friend.friendship, 'frp_'),
+      };
+    });
+
+    return Response.success(
+      {
+        blockedUsers: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
+        total: totalAgg[0]?.total || 0,
+        totalPage: Math.ceil((totalAgg[0]?.total || 0) / limit),
+        page: page,
+        limit: limit,
+      },
+      'Lấy danh sách người dùng đã chặn thành công',
+    );
+  }
+
+  async getFriendByUserId(userId: string) {
+    const friend = await this.userModel.findOne({ usr_id: userId });
+    if (!friend) {
+      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+    }
+    return Response.success(
+      Utils.unprefix(friend, 'usr_'),
+      'Lấy thông tin bạn thành công',
+    );
   }
 }
 interface ChatGatewayResponse<T = any> {

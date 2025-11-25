@@ -23,6 +23,8 @@ import {
   RemoveFriendDto,
   BlockFriendDto,
   OpenBlockedFriendDto,
+  GetBlockedFriendsDto,
+  GetFriendByUserIdDto,
 } from '@app/dto';
 import { GatewayService } from '../../gateway/gateway.service';
 import type { AuthenticatedRequest } from 'libs/types';
@@ -37,6 +39,8 @@ interface SocialGrpcService {
   RemoveFriend(data: RemoveFriendDto): Observable<any>;
   BlockFriend(data: BlockFriendDto): Observable<any>;
   OpenBlockedFriend(data: OpenBlockedFriendDto): Observable<any>;
+  GetBlockedFriends(data: GetBlockedFriendsDto): Observable<any>;
+  GetFriendByUserId(data: GetFriendByUserIdDto): Observable<any>;
 }
 
 @Controller('social')
@@ -231,6 +235,32 @@ export class GatewaySocialController {
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.OpenBlockedFriend.bind(this.socialService),
       data,
+    );
+  }
+
+  @Get('friends/blocked')
+  async getBlockedFriends(
+    @Req() req: AuthenticatedRequest,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('search') search?: string,
+  ) {
+    return this.gatewayService.dispatchGrpcRequest(
+      this.socialService.GetBlockedFriends.bind(this.socialService),
+      {
+        userId: req.user._id,
+        page: page || 1,
+        limit: limit || 10,
+        search: search || '',
+      },
+    );
+  }
+
+  @Get('friends/:userId')
+  async getFriendByUserId(@Req() req: AuthenticatedRequest) {
+    return this.gatewayService.dispatchGrpcRequest(
+      this.socialService.GetFriendByUserId.bind(this.socialService),
+      { userId: req.user._id },
     );
   }
 }

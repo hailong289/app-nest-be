@@ -165,3 +165,42 @@ export const searchUsersAggregate = (
     { $match: { friendship: { $eq: [] } } },
   ];
 };
+
+export const getBlockedFriendsAggregate = (userId: string) => {
+  return [
+    {
+      $lookup: {
+        from: 'Friendships',
+        let: { currentUserId: userId },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$frp_status', 'BLOCKED'] },
+                  {
+                    $or: [
+                      { $eq: ['$frp_userId1', '$$currentUserId'] },
+                      { $eq: ['$frp_userId2', '$$currentUserId'] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        as: 'friendship',
+      },
+    },
+    {
+      $addFields: {
+        friendship: { $arrayElemAt: ['$friendship', 0] },
+      },
+    },
+    {
+      $match: {
+        friendship: { $ne: null },
+      },
+    },
+  ];
+};

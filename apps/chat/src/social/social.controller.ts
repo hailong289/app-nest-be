@@ -1,6 +1,8 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { SocialService } from './social.service';
+import { GetBlockedFriendsDto } from '@app/dto';
+import { GetFriendByUserIdDto } from '@app/dto';
 
 @Controller()
 export class SocialController {
@@ -77,5 +79,20 @@ export class SocialController {
       data.friendId,
       data.actionUserId,
     );
+  }
+
+  @GrpcMethod('SocialService', 'GetBlockedFriends')
+  async getBlockedFriends(data: GetBlockedFriendsDto) {
+    return this.socialService.getBlockedFriends(
+      data.userId,
+      data.page || 1,
+      data.limit || 10,
+      data.search || '',
+    );
+  }
+
+  @GrpcMethod('SocialService', 'getFriendByUserId')
+  async getFriendByUserId(data: GetFriendByUserIdDto) {
+    return this.socialService.getFriendByUserId(data.userId);
   }
 }
