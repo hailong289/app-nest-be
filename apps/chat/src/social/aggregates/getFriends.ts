@@ -184,6 +184,7 @@ export const getBlockedFriendsAggregate = (userId: string) => {
                       { $eq: ['$frp_userId2', '$$currentUserId'] },
                     ],
                   },
+                  { $eq: ['$frp_actionUserId', '$$currentUserId'] }, // actionUserId là người dùng đã chặn
                 ],
               },
             },
