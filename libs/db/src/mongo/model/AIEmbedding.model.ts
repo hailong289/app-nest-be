@@ -6,43 +6,36 @@ export type AIEmbeddingDocument = HydratedDocument<AIEmbedding>;
 
 @Schema({ timestamps: true })
 export class AIEmbedding {
-  @Prop({ required: true })
-  service: string; // 'moderation' | 'chat' | 'document' | 'translation' ...
+  @Prop({ required: true, index: true }) // Index để lọc nhanh theo service
+  service: string; // 'moderation' | 'chat' | 'document'
 
   @Prop({ required: true, default: 'google' })
-  provider: string; // 'google' | 'openai' | 'local'
+  provider: string;
 
   @Prop({ required: true })
-  model: string; // ví dụ 'text-embedding-001' hoặc 'gemini-1.5-pro'
+  model: string; // Quan trọng: Không thể so sánh vector của 2 model khác nhau
+
+  @Prop({ required: true, unique: true }) // Unique Index để đảm bảo không lưu trùng
+  hash: string;
 
   @Prop({ required: true })
-  hash: string; // hash input (để check trùng)
+  text: string;
 
-  @Prop({ required: true })
-  text: string; // nội dung gốc
+  @Prop({ type: [Number], required: true })
+  vector: number[];
 
-  @Prop({ type: [Number], index: '2dsphere' })
-  vector: number[]; // embedding vector (có thể dài 768/1024/1536...)
+  @Prop({ index: true }) // Index để tìm nhanh lịch sử của user
+  userId?: string;
 
-  @Prop()
-  userId?: string; // ai sinh ra (nếu có)
+  // Metadata để filter (Hybrid Search)
+  @Prop({ index: true })
+  contextType?: string; // 'room' | ...
 
-  @Prop()
-  contextType?: string; // 'message' | 'document' | 'summary' ...
+  @Prop({ index: true })
+  contextId?: string;
 
-  @Prop()
-  contextId?: string; // id thực thể (messageId, docId...)
-
-  @Prop()
-  similarity?: number; // điểm tương đồng khi query
-
-  @Prop({ default: false })
-  usedInCache?: boolean; // đã dùng để cache AI chưa
-
-  @Prop({ default: false })
-  usedInTraining?: boolean; // đã dùng trong dataset huấn luyện chưa
-  metadata: any;
-  _id: any;
+  @Prop({ index: true })
+  messageId?: string; // ID của tin nhắn chat (Nếu có)
 }
 
 export const AIEmbeddingSchema = SchemaFactory.createForClass(AIEmbedding);

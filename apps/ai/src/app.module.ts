@@ -14,14 +14,14 @@ import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
-import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
+import { mongoConfig } from 'libs/db/src';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: path.resolve(process.cwd(), 'apps/ai/.env'),
-      load: [googleConfig, mongodbConfig],
+      load: [googleConfig, mongoConfig],
     }),
     MongodbModule,
     JwtModule.register({}),

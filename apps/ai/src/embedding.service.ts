@@ -29,177 +29,207 @@ export class EmbeddingService {
       .digest('hex');
   }
 
-  /** Tạo embedding (Google hoặc local fallback) */
+  /**
+   * Lọc rác với AI
+   * @param text Nội dung tin nhắn
+   * @returns true nếu tin nhắn đủ "chất lượng"
+   */
+  private async checkRelevanceWithAI(text: string): Promise<boolean> {
+    try {
+      // Dùng model Flash: Nhanh như điện, rẻ như cho
+      const model = this.gemini.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+      });
+
+      const prompt = `
+        Đóng vai trò là Người quản lý dữ liệu cho Ứng dụng nhắn tin.
+        Phân tích tin nhắn sau và quyết định xem nó có chứa thông tin CÓ GIÁ TRỊ đáng lưu trữ để truy xuất trong tương lai hay không (Tìm kiếm/RAG).
+        
+        Tiêu chí cho GIỮ LẠI (ĐÚNG):
+          - Chứa thông tin, sự kiện, lịch trình, hạn chót.
+          - Chứa các giải pháp kỹ thuật, mã, quyết định.
+          - Chứa địa chỉ cụ thể, thông tin liên hệ, danh từ riêng.
+          - Chứa ý kiến ​​hoặc phản hồi có ý nghĩa.
+
+       Tiêu chí cho HỦY BỎ (SAI):
+          - Lời chào thân mật ("Xin chào", "Chào buổi sáng").
+          - Biểu cảm pha trộn ("Được", "Tôi hiểu rồi", "Tuyệt vời", "Hahaha").
+          - Điều phối lịch trình không có kết luận ("Bạn rảnh không?", "Khi nào?").
+          - Khiếu nại/cảm xúc không có ngữ cảnh.
+          - Tin nhắn chỉ chứa link (không có ngữ nghĩa để search)
+          - Tin nhắn chỉ chứa lệnh (commands)
+
+        Tin nhắn: "${text}"
+
+        Trả về một đối tượng JSON chính xác: { "keep": boolean }
+      `;
+
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+
+      // Clean chuỗi json (phòng trường hợp AI trả về markdown ```json ... ```)
+      const cleanJson = responseText.replace(/```json|```/g, '').trim();
+      const decision = JSON.parse(cleanJson);
+
+      return decision.keep === true;
+    } catch (e) {
+      this.logger.warn(
+        `AI lọc rác lỗi cho tin nhắn: "${text}". Để an toàn, giữ lại.`,
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Bộ lọc: Kiểm tra xem tin nhắn có đáng để Embed không?
+   * @returns true nếu tin nhắn đủ "chất lượng"
+   */
+  private async isMessageWorthy(text: string): Promise<boolean> {
+    if (!text) return false;
+    const cleanText = text.trim();
+
+    // Loại bỏ tin nhắn quá ngắn (dưới 5 từ) -> Tiết kiệm chi phí & bộ nhớ
+    const wordCount = cleanText.split(/\s+/).length;
+    if (wordCount < 5) return false;
+
+    // Loại bỏ tin chỉ chứa link (không có ngữ nghĩa để search)
+    const urlRegex = /^(http|https):\/\/[^ "]+$/;
+    if (urlRegex.test(cleanText)) return false;
+
+    // Loại bỏ lệnh (commands)
+    if (cleanText.startsWith('/')) return false;
+
+    const isUseful = await this.checkRelevanceWithAI(text);
+    // lọc thêm với AI
+    if (!isUseful) {
+      this.logger.debug(`Skipped (AI Filter): ${text}`);
+      return false;
+    }
+
+    return true;
+  }
+
+  /** Tạo vector từ Google Gemini */
   async generateVector(text: string): Promise<number[]> {
     try {
-      const model = this.gemini.getGenerativeModel({ model: 'embedding-001' });
+      // dùng 'text-embedding-004' nếu key mới hỗ trợ
+      const model = this.gemini.getGenerativeModel({
+        model: 'text-embedding-004',
+      });
       const res = await model.embedContent(text);
       return res.embedding.values;
     } catch (err) {
-      this.logger.warn(
-        `⚠️ Gemini embedding failed, using fallback: ${err.message}`,
-      );
-      // fallback: vector ngẫu nhiên để tránh crash
-      return Array(768)
-        .fill(0)
-        .map(() => Math.random() * 0.02 - 0.01);
+      this.logger.error(`⚠️ Gemini embedding failed: ${err.message}`);
+      throw err;
     }
   }
 
-  /** Tạo hoặc lấy embedding đã có */
-  async createEmbedding(params: {
-    text: string;
-    service: string;
-    provider?: string;
-    model?: string;
-    label?: string;
-    userId?: string;
-    contextType?: string;
-    contextId?: string;
-    categories?: string[];
-    metadata?: Record<string, any>;
-  }): Promise<AIEmbedding> {
-    const {
-      text,
-      service,
-      provider = 'google',
-      model = 'embedding-001',
-      label = 'unknown',
-      userId,
-      contextType,
-      contextId,
-      categories = [],
-      metadata = {},
-    } = params;
-
-    const hash = this.hashText(text);
-    const existing = await this.embedModel.findOne({ hash, service });
-    if (existing) {
-      this.logger.debug(`✅ Embedding found (hash=${hash.slice(0, 8)})`);
-      return existing;
-    }
-
-    const vector = await this.generateVector(text);
-
-    const created = await this.embedModel.create({
-      service,
-      provider,
-      model,
-      hash,
-      text,
-      vector,
-      userId,
-      contextType,
-      contextId,
-      label,
-      categories,
-      confidence: 1,
-      hitCount: 1,
-      usedInCache: false,
-      usedInTraining: false,
-      metadata,
-    });
-
-    this.logger.log(`🧩 Created new embedding [${service}:${label}]`);
-    return created;
-  }
-
-  /** Tính cosine similarity */
-  private cosine(a: number[], b: number[]): number {
-    const dot = a.reduce((sum, v, i) => sum + v * b[i], 0);
-    const magA = Math.sqrt(a.reduce((s, v) => s + v * v, 0));
-    const magB = Math.sqrt(b.reduce((s, v) => s + v * v, 0));
-    return dot / (magA * magB);
-  }
-
-  /** Tìm embedding gần giống */
-  async findSimilar(
+  /**
+   * Tạo vector và lưu vào DB cho 1 tin nhắn chat
+   * @param text Nội dung tin nhắn
+   * @param roomId ID của phòng chat (để link ngược lại)
+   * @param messageId ID của tin nhắn chat (để link ngược lại)
+   * @param userId ID người gửi
+   */
+  async createChatMessageEmbedding(
     text: string,
-    service: string,
-    threshold = 0.9,
-  ): Promise<AIEmbedding | null> {
-    const hash = this.hashText(text);
-    const existing = await this.embedModel.findOne({ hash, service });
-    if (existing) return existing;
-
-    const vector = await this.generateVector(text);
-    const docs = (await this.embedModel.find({ service })) as AIEmbedding[];
-
-    let best: { score: number; doc: AIEmbedding | null } = {
-      score: 0,
-      doc: null,
-    };
-    for (const doc of docs) {
-      const score = this.cosine(vector, doc.vector);
-      if (score > best.score) best = { score, doc };
-    }
-
-    if (best.doc && best.score >= threshold) {
-      best.doc.similarity = best.score;
-      this.logger.debug(
-        `🔍 Found similar embedding (${(best.score * 100).toFixed(1)}%)`,
-      );
-      return best.doc;
-    }
-    return null;
-  }
-
-  /** Cập nhật confidence & hitCount nếu gặp lại */
-  async updateConfidence(
-    id: string,
-    label: string,
-    source = 'auto',
-    boost = 1,
-  ): Promise<void> {
-    await this.embedModel.updateOne(
-      { _id: id },
-      {
-        $set: { label, provider: source },
-        $inc: { confidence: boost, hitCount: 1 },
-      },
-    );
-  }
-
-  /** Thêm hoặc cập nhật mẫu bậy */
-  async addOffensive(params: {
-    text: string;
-    service: string;
-    label: string;
-    categories?: string[];
-    userId?: string;
-    contextType?: string;
-    contextId?: string;
-    confidence?: number;
-    metadata?: Record<string, any>;
-  }): Promise<void> {
-    const {
-      text,
-      service,
-      label,
-      categories = [],
-      userId,
-      contextType,
-      contextId,
-      confidence = 1,
-      metadata = {},
-    } = params;
-
-    const similar = await this.findSimilar(text, service, 0.93);
-    if (similar) {
-      await this.updateConfidence(similar._id, label, 'google', confidence);
+    roomId: string,
+    messageId: string,
+  ) {
+    // Lọc rác
+    if (!(await this.isMessageWorthy(text))) {
+      this.logger.debug(`Skipped unworthy message content: ${text}`);
       return;
     }
 
-    await this.createEmbedding({
-      text,
-      service,
-      label,
-      provider: 'google',
-      userId,
-      contextType,
-      contextId,
-      categories,
-      metadata: { ...metadata, confidence },
+    try {
+      const exists = await this.embedModel.exists({
+        contextId: roomId,
+        contextType: 'room',
+        messageId: messageId,
+      });
+      if (exists) return;
+
+      // Tạo vector
+      const vector = await this.generateVector(text);
+      const hash = this.hashText(text);
+
+      await this.embedModel.create({
+        service: 'chat',
+        provider: 'google',
+        model: 'text-embedding-004',
+        contextType: 'room', // Đánh dấu đây là tin nhắn chat
+        contextId: roomId, // Link với bảng Message gốc
+        messageId: messageId, // Link với bảng Message gốc
+        text: text,
+        hash: hash,
+        vector: vector,
+      });
+
+      this.logger.log(`✅ Embedded message ${messageId}`);
+    } catch (error) {
+      this.logger.error(`Failed to index message ${messageId}`, error);
+    }
+  }
+
+  /**
+   * Xóa vector từ Google Gemini
+   * @param roomId ID của phòng chat
+   * @param messageId ID của tin nhắn chat
+   */
+  async deleteVectorChat(roomId: string, messageId: string) {
+    try {
+      const result = await this.embedModel.deleteOne({
+        contextId: roomId,
+        contextType: 'room',
+        messageId: messageId,
+      });
+      if (result.deletedCount > 0) {
+        this.logger.log(`🗑️ Deleted vector for message ${messageId}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to delete vector ${messageId}`, error);
+    }
+  }
+
+  /**
+   * Tìm tin nhắn cũ có ý nghĩa tương đồng
+   * @param query Câu hỏi/từ khóa của người dùng
+   * @param limit Số lượng kết quả
+   * @param roomId ID của phòng chat
+   */
+  async searchSimilarMessages(query: string, limit = 5, roomId: string) {
+    // 1. Embed câu query của người dùng để lấy vector so sánh
+    const queryVector = await this.generateVector(query);
+
+    const pipeline: any[] = [
+      {
+        $vectorSearch: {
+          index: 'vector_index', // Tên Index bạn đặt trên Atlas
+          path: 'vector', // Tên trường chứa vector trong Schema
+          queryVector: queryVector,
+          numCandidates: limit * 10, // Quét rộng hơn để tăng độ chính xác
+          limit: limit,
+        },
+      },
+    ];
+
+    const matchStage: any = {
+      contextType: 'room',
+      contextId: roomId,
+    };
+
+    pipeline.push({ $match: matchStage });
+
+    pipeline.push({
+      $project: {
+        _id: 0,
+        text: 1,
+        contextId: 1, // Để frontend biết là tin nhắn nào
+        createdAt: 1,
+        score: { $meta: 'vectorSearchScore' }, // Điểm tương đồng (0 -> 1)
+      },
     });
+    return this.embedModel.aggregate(pipeline);
   }
 }

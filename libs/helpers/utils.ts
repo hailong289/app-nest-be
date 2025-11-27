@@ -1,4 +1,9 @@
-import { INestMicroservice, Logger, Type } from '@nestjs/common';
+import {
+  INestApplication,
+  INestMicroservice,
+  Logger,
+  Type,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -267,6 +272,88 @@ class Utils {
 
     const microservice =
       await NestFactory.createMicroservice<MicroserviceOptions>(module, {
+        transport: Transport.KAFKA,
+        options,
+      });
+    logger.log(`Create microservice ${serviceName} with Kafka`);
+    return microservice;
+  }
+
+  static async createKafkaMicroserviceFromApplication(
+    application: INestApplication,
+    serviceName: string,
+  ): Promise<INestMicroservice> {
+    const configService = application.get(ConfigService);
+    const logger = new Logger('Create Microservice Kafka');
+    const client_id =
+      configService.get<string>('kafka.client_id') ||
+      configService.get<string>('kafka.clientId') ||
+      'nestjs-app';
+    const host = configService.get<string>('kafka.host') || 'localhost';
+    const port = configService.get<string>('kafka.port') || '9092';
+    const group_id =
+      configService.get<string>('kafka.group_id') ||
+      configService.get<string>('kafka.groupId') ||
+      'default-group';
+    const isSasl =
+      configService.get<boolean>('kafka.is_sasl') ||
+      configService.get<boolean>('kafka.isSasl') ||
+      false;
+    const mechanism =
+      configService.get<string>('kafka.mechanism') ||
+      configService.get<string>('kafka.sasl.mechanism') ||
+      'scram-sha-256';
+    const username =
+      configService.get<string>('kafka.username') ||
+      configService.get<string>('kafka.sasl.username') ||
+      '';
+    const password =
+      configService.get<string>('kafka.password') ||
+      configService.get<string>('kafka.sasl.password') ||
+      '';
+    const connectionTimeout =
+      configService.get<number>('kafka.connectionTimeout') || 10000;
+    const requestTimeout =
+      configService.get<number>('kafka.requestTimeout') || 30000;
+    const sessionTimeout =
+      configService.get<number>('kafka.consumer.sessionTimeout') || 30000;
+    const heartbeatInterval =
+      configService.get<number>('kafka.consumer.heartbeatInterval') || 3000;
+
+    const options: KafkaOptions['options'] = {
+      client: {
+        clientId: client_id,
+        brokers: [`${host}:${port}`],
+        connectionTimeout,
+        requestTimeout,
+        retry: {
+          initialRetryTime: 100,
+          retries: 8,
+          maxRetryTime: 30000,
+          multiplier: 2,
+        },
+      },
+      consumer: {
+        groupId: group_id,
+        sessionTimeout,
+        heartbeatInterval,
+      },
+    };
+
+    if (isSasl) {
+      options.client = {
+        ...options.client,
+        ssl: false,
+        sasl: {
+          mechanism,
+          username: username || '',
+          password: password || '',
+        } as never,
+        brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
+      };
+    }
+    const microservice =
+      await application.connectMicroservice<MicroserviceOptions>({
         transport: Transport.KAFKA,
         options,
       });
