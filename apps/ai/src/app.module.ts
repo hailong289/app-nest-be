@@ -10,6 +10,7 @@ import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
 import path from 'path';
 import { AIController } from './ai.controller';
 import { AIService } from './ai.service';
+import { EmbeddingService } from './embedding.service';
 import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
@@ -28,6 +29,6 @@ import { mongoConfig } from 'libs/db/src';
     MongooseModule.forFeature([AIUsageLogSchema, AIEmbeddingSchema]),
   ],
   controllers: [AIController],
-  providers: [AIService, GoogleModerationProvider],
+  providers: [AIService, EmbeddingService, GoogleModerationProvider],
 })
 export class AppModule {}
