@@ -36,6 +36,7 @@ import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { buildMessageCorePipeline } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
+import * as CryptoJS from 'crypto-js';
 
 @Injectable()
 export class HandleChatService {
@@ -767,7 +768,34 @@ export class HandleChatService {
     if (!callHistory) {
       throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
     }
-    return Response.success(callHistory, 'Cuộc gọi đã được tạo');
+
+    const callerData = Utils.pick(Utils.unprefix(caller, 'usr_'), [
+      'id',
+      'fullname',
+      'avatar',
+    ]);
+    const calleeData = Utils.pick(Utils.unprefix(callee, 'usr_'), [
+      'id',
+      'fullname',
+      'avatar',
+    ]);
+
+    return Response.success(
+      {
+        history: callHistory,
+        room: room,
+        caller: CryptoJS.AES.encrypt(
+          JSON.stringify(callerData),
+          process.env.SECRET_KEY,
+        ).toString(),
+        callee: CryptoJS.AES.encrypt(
+          JSON.stringify(calleeData),
+          process.env.SECRET_KEY,
+        ).toString(),
+        callType: callType,
+      },
+      'Cuộc gọi đã được tạo',
+    );
   }
 
   // trả lời cuộc gọi
@@ -799,7 +827,33 @@ export class HandleChatService {
     if (!callHistory) {
       throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
     }
-    return Response.success(callHistory, 'Cuộc gọi đã được trả lời');
+
+    const callerData = Utils.pick(Utils.unprefix(caller, 'usr_'), [
+      'id',
+      'fullname',
+      'avatar',
+    ]);
+
+    const calleeData = Utils.pick(Utils.unprefix(callee, 'usr_'), [
+      'id',
+      'fullname',
+      'avatar',
+    ]);
+    return Response.success(
+      {
+        history: callHistory,
+        room: room,
+        caller: CryptoJS.AES.encrypt(
+          JSON.stringify(callerData),
+          process.env.SECRET_KEY,
+        ).toString(),
+        callee: CryptoJS.AES.encrypt(
+          JSON.stringify(calleeData),
+          process.env.SECRET_KEY,
+        ).toString(),
+      },
+      'Cuộc gọi đã được trả lời',
+    );
   }
 
   // kết thúc cuộc gọi
@@ -812,6 +866,17 @@ export class HandleChatService {
         'Người gọi hoặc người nhận cuộc gọi không tồn tại',
       );
     }
+
+    const callerData = Utils.pick(Utils.unprefix(caller, 'usr_'), [
+      'id',
+      'fullname',
+      'avatar',
+    ]);
+    const calleeData = Utils.pick(Utils.unprefix(callee, 'usr_'), [
+      'id',
+      'fullname',
+      'avatar',
+    ]);
 
     const callHistory = await this.callHistoryModel.findOneAndUpdate(
       {
@@ -830,7 +895,21 @@ export class HandleChatService {
     if (!callHistory) {
       throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
     }
-    return Response.success(callHistory, 'Cuộc gọi đã được kết thúc');
+    return Response.success(
+      {
+        history: callHistory,
+        room: room,
+        caller: CryptoJS.AES.encrypt(
+          JSON.stringify(callerData),
+          process.env.SECRET_KEY,
+        ).toString(),
+        callee: CryptoJS.AES.encrypt(
+          JSON.stringify(calleeData),
+          process.env.SECRET_KEY,
+        ).toString(),
+      },
+      'Cuộc gọi đã được kết thúc',
+    );
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi

@@ -7,7 +7,7 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Inject, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -775,13 +775,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.StartCall.bind(this.ChatGrpcService),
         data,
-      )) as Promise<ChatGatewayResponse>;
+      )) as ChatGatewayResponse;
+
+      if (result.statusCode !== 200) {
+        throw new BadRequestException(result.message);
+      }
 
       this.io.to(data.roomId).emit('call:start', {
-        callerId: data.callerId,
-        calleeId: data.calleeId,
-        roomId: data.roomId,
-        callType: data.callType,
+        ...result.metadata,
+        actionUserId: user.usr_id,
       });
       return { ok: true };
     } catch (error) {
@@ -819,13 +821,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.AnswerCall.bind(this.ChatGrpcService),
         data,
-      )) as Promise<ChatGatewayResponse>;
+      )) as ChatGatewayResponse;
+
+      if (result.statusCode !== 200) {
+        throw new BadRequestException(result.message);
+      }
 
       this.io.to(data.roomId).emit('call:answer', {
-        calleeId: data.calleeId,
-        callerId: data.callerId,
-        roomId: data.roomId,
-        answer: data.answer,
+        ...result.metadata,
+        actionUserId: user.usr_id,
       });
       return { ok: true };
     } catch (error) {
@@ -863,12 +867,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.EndCall.bind(this.ChatGrpcService),
         data,
-      )) as Promise<ChatGatewayResponse>;
+      )) as ChatGatewayResponse;
+
+      if (result.statusCode !== 200) {
+        throw new BadRequestException(result.message);
+      }
+
       this.io.to(data.roomId).emit('call:end', {
-        callerId: data.callerId,
-        calleeId: data.calleeId,
-        roomId: data.roomId,
-        type: data.type,
+        ...result.metadata,
+        actionUserId: user.usr_id,
       });
       return { ok: true };
     } catch (error) {
@@ -903,7 +910,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     data.userId = user._id;
     try {
       this.io.to(data.roomId).emit('call:candidate', {
-        userId: data.userId,
+        roomId: data.roomId,
+        userId: user.usr_id,
         candidate: data.candidate,
       });
       return { ok: true };
