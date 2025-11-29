@@ -56,6 +56,10 @@ export class FilesystemService {
 
   async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
     const { userId, roomId, file, id } = dto;
+    console.log(
+      '🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ file:',
+      file,
+    );
     console.log('🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ id:', id);
     if (!file?.buffer) throw new Error('File or buffer is missing');
 
