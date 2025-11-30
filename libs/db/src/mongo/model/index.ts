@@ -113,5 +113,6 @@ export type { AIEmbeddingDocument } from './AIEmbedding.model';
 export { default as aIUsageLogModel } from './AIUsageLogs.model';
 export type { AIUsageLogDocument } from './AIUsageLogs.model';
 
+export { Document, DocumentSchema } from './Document.model';
 export { default as documentModel } from './Document.model';
 export type { DocumentDocuments, DocVisibility } from './Document.model';

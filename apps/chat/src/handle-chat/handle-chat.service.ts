@@ -1,4 +1,3 @@
-import { REDISKEY } from '@app/constants/RedisKey';
 import {
   CreateMessage,
   GetMsgFromRoomDTO,
@@ -20,7 +19,6 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import {
   Room,
-  User,
   Message,
   RoomsState,
   MessageRead,
@@ -41,22 +39,21 @@ import { KafkaEvent } from '@app/dto/enum.type';
 @Injectable()
 export class HandleChatService {
   private readonly utils = Utils;
-  private readonly key = REDISKEY;
+
   private readonly log = new Logger();
   constructor(
-    @InjectModel('Room') private readonly roomModel: Model<Room>,
-    @InjectModel('User') private readonly userModel: Model<User>,
-    @InjectModel('Message') private readonly messageModel: Model<Message>,
-    @InjectModel('MessageRead')
+    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
+    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
+    @InjectModel(MessageRead.name)
     private readonly messageReadModel: Model<MessageRead>,
-    @InjectModel('RoomsState')
+    @InjectModel(RoomsState.name)
     private readonly RoomsStateModel: Model<RoomsState>,
     private readonly roomService: RoomsService,
-    @InjectModel('RoomsUsersState')
+    @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
-    @InjectModel('MessageReaction')
+    @InjectModel(MessageReaction.name)
     private readonly messageReactionModel: Model<MessageReaction>,
-    @InjectModel('MessageHide')
+    @InjectModel(MessageHide.name)
     private readonly messageHideModel: Model<MessageHide>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
@@ -201,11 +198,15 @@ export class HandleChatService {
         },
         { upsert: true },
       ),
-      this.utils.dispatchEventKafka(this.aiClient, KafkaEvent.aiMsg, {
-        text: content,
-        roomId: finInfo._id,
-        messageId: createNewMsg._id,
-      }),
+      ...(type === 'text'
+        ? [
+            this.utils.dispatchEventKafka(this.aiClient, KafkaEvent.aiMsg, {
+              text: content,
+              roomId: finInfo._id,
+              messageId: createNewMsg._id,
+            }),
+          ]
+        : []),
     ]);
 
     // Update unread count for other members

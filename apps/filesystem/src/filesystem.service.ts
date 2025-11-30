@@ -32,10 +32,10 @@ export class FilesystemService {
 
   constructor(
     private configService: ConfigService,
-    @InjectModel('User') private readonly userModel: Model<User>,
-    @InjectModel('Attachment')
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
-    @InjectModel('Room') private readonly roomModel: Model<Room>,
+    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
   ) {
     this.s3 = new S3Client({
       region: this.configService.get<string>('s3.region') ?? 'us-east-1',
@@ -56,11 +56,6 @@ export class FilesystemService {
 
   async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
     const { userId, roomId, file, id, messageId } = dto;
-    console.log(
-      '🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ file:',
-      file,
-    );
-    console.log('🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ id:', id);
     if (!file?.buffer) throw new Error('File or buffer is missing');
 
     // Validate user and room
@@ -284,19 +279,20 @@ export class FilesystemService {
         const syncProbe = (probe as { sync?: (input: Buffer) => ProbeResult })
           .sync;
         if (typeof syncProbe === 'function') {
-          const result = syncProbe(buf);
+          const probeResultOrError = syncProbe(buf);
           if (
-            result &&
-            typeof result === 'object' &&
-            !(result instanceof Error) &&
-            'width' in result &&
-            'height' in result &&
-            typeof (result as ProbeResult).width === 'number' &&
-            typeof (result as ProbeResult).height === 'number'
+            probeResultOrError &&
+            typeof probeResultOrError === 'object' &&
+            !(probeResultOrError instanceof Error) &&
+            'width' in probeResultOrError &&
+            'height' in probeResultOrError &&
+            typeof (probeResultOrError as ProbeResult).width === 'number' &&
+            typeof (probeResultOrError as ProbeResult).height === 'number'
           ) {
+            const probeResult = probeResultOrError as ProbeResult;
             return {
-              width: (result as ProbeResult).width,
-              height: (result as ProbeResult).height,
+              width: probeResult.width,
+              height: probeResult.height,
             };
           }
         }

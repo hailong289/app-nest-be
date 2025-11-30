@@ -42,40 +42,87 @@ export class EmbeddingService {
       });
 
       const prompt = `
-        Đóng vai trò là Người quản lý dữ liệu cho Ứng dụng nhắn tin.
-        Phân tích tin nhắn sau và quyết định xem nó có chứa thông tin CÓ GIÁ TRỊ đáng lưu trữ để truy xuất trong tương lai hay không (Tìm kiếm/RAG).
-        
-        Tiêu chí cho GIỮ LẠI (ĐÚNG):
-          - Chứa thông tin, sự kiện, lịch trình, hạn chót.
-          - Chứa các giải pháp kỹ thuật, mã, quyết định.
-          - Chứa địa chỉ cụ thể, thông tin liên hệ, danh từ riêng.
-          - Chứa ý kiến hoặc phản hồi có ý nghĩa.
+       Đóng vai trò là "Trình quản lý dữ liệu" cho một Ứng dụng nhắn tin có tích hợp tìm kiếm ngữ nghĩa (semantic search) và RAG.
 
-       Tiêu chí cho HỦY BỎ (SAI):
-          - Lời chào thân mật ("Xin chào", "Chào buổi sáng").
-          - Biểu cảm pha trộn ("Được", "Tôi hiểu rồi", "Tuyệt vời", "Hahaha").
-          - Điều phối lịch trình không có kết luận ("Bạn rảnh không?", "Khi nào?").
-          - Khiếu nại/cảm xúc không có ngữ cảnh.
-          - Tin nhắn chỉ chứa link (không có ngữ nghĩa để search)
-          - Tin nhắn chỉ chứa lệnh (commands)
+Nhiệm vụ của bạn:
+1. Phân tích nội dung tin nhắn.
+2. Quyết định xem tin nhắn có đáng được LƯU LẠI để đưa vào kho tìm kiếm ngữ nghĩa/RAG hay không.
+3. Nếu CÓ LƯU, hãy chuẩn hoá nội dung thành dạng dễ tìm kiếm: tóm tắt ngắn gọn, rút trích thông tin quan trọng, chuẩn hoá cách viết.
 
-        Tin nhắn: "${text}"
+--- TIÊU CHÍ GIỮ LẠI (keep = true) ---
+Giữ lại nếu tin nhắn chứa ÍT NHẤT MỘT trong các loại thông tin sau:
+- Sự kiện, kế hoạch, lịch trình, deadline, mốc thời gian, nhắc việc.
+- Thông tin kỹ thuật: giải pháp, ý tưởng, kiến trúc, quy trình, mã nguồn (code), lệnh có ngữ cảnh, cấu hình, kết quả thử nghiệm.
+- Quyết định quan trọng: chốt phương án, chọn giải pháp, thay đổi rule, thay đổi cấu trúc dữ liệu, policy, quy định nội bộ...
+- Thông tin nhận diện: địa chỉ, thông tin liên hệ, số điện thoại, email, tên riêng (tên người, tên dự án, tên service, tên repo...).
+- Ý kiến / phản hồi có ý nghĩa: nhận xét chi tiết, góp ý thiết kế, review task, mô tả bug, mô tả behavior, feedback người dùng.
+- Tri thức ổn định có thể tái sử dụng: hướng dẫn, checklist, best practice, quy tắc nghiệp vụ, định nghĩa khái niệm.
 
-        Trả về một đối tượng JSON chính xác: { "keep": boolean }
+--- TIÊU CHÍ HỦY BỎ (keep = false) ---
+Không lưu nếu tin nhắn:
+- Chỉ là lời chào / xã giao: "hi", "hello", "chào buổi sáng", "ok bạn", "thanks", "hahaha", emoji, reaction...
+- Chỉ thể hiện cảm xúc: "buồn quá", "mệt thật", "ghê vậy", "tệ vãi" mà không có ngữ cảnh cụ thể.
+- Điều phối lịch hẹn chưa có kết luận: "khi nào họp?", "mai rảnh không?", "chiều gọi nhé?" (không có thời gian rõ ràng hoặc không chốt).
+- Chỉ chứa link hoặc file mà không mô tả nội dung: "https://...", "file này nè".
+- Chỉ chứa lệnh/command rời rạc KHÔNG có ngữ cảnh: "npm run dev", "git pull", "ls", "cd ..".
+- Trùng lặp hoàn toàn với thông tin đã xuất hiện trước đó (spam, nhắc lại đúng y chang).
+
+--- YÊU CẦU ĐẦU RA ---
+Luôn trả về JSON HỢP LỆ, KHÔNG thêm text ngoài JSON.
+
+Cấu trúc:
+{
+  "keep": boolean,              // true nếu nên lưu vào kho RAG, false nếu bỏ
+  "reason": string,             // lý do ngắn gọn vì sao keep hoặc vì sao bỏ
+  "normalized_text": string,    // NẾU keep = true: bản chuẩn hoá để indexing semantic search
+  "tags": string[]              // danh sách tag gợi ý: ví dụ ["schedule", "deadline", "architecture", "bug", "code", "decision", "contact", "feedback"]
+}
+
+Quy tắc:
+- Nếu keep = false:
+  - "normalized_text" phải là chuỗi rỗng "".
+  - "tags" phải là [].
+- "normalized_text" nên:
+  - Lược bỏ emoji, filler, tiếng lóng không cần thiết.
+  - Giữ nguyên nội dung quan trọng, có thể rewrite lại cho rõ nghĩa hơn.
+  - Ưu tiên dạng câu đầy đủ, dễ hiểu, dễ search.
+- "reason" chỉ cần 1–2 câu ngắn.
+
+--- VÍ DỤ NGẮN ---
+
+Ví dụ 1:
+Tin nhắn: "Chiều mai 15h họp review kiến trúc microservices, nhớ chuẩn bị sơ đồ sequence."
+
+→ keep = true
+→ normalized_text có thể là: "Họp review kiến trúc microservices lúc 15h chiều mai, cần chuẩn bị sơ đồ sequence."
+
+Ví dụ 2:
+Tin nhắn: "ok, để mai tính"
+
+→ keep = false (chỉ là phản hồi mơ hồ, không có thông tin hữu ích để search sau này).
+
+---
+
+Tin nhắn đầu vào: "${text}"
+Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
+
       `;
 
       const result = await model.generateContent(prompt);
       const responseText = result.response.text();
 
       // Clean chuỗi json (phòng trường hợp AI trả về markdown ```json ... ```)
-      const cleanJson = responseText.replace(/```json|```/g, '').trim();
+      const cleanJson = responseText
+        .replaceAll('```json', '')
+        .replaceAll('```', '')
+        .trim();
       type AIRelevanceResponse = { keep: boolean };
       const decision = JSON.parse(cleanJson) as AIRelevanceResponse;
 
       return decision.keep === true;
     } catch (e) {
       this.logger.warn(
-        `AI lọc rác lỗi cho tin nhắn: "${text}". Để an toàn, giữ lại.`,
+        `AI lọc rác lỗi cho tin nhắn: "${text}". Để an toàn, giữ lại. Error: ${e instanceof Error ? e.message : String(e)}`,
       );
       return true;
     }
@@ -120,7 +167,11 @@ export class EmbeddingService {
       const res = await model.embedContent(text);
       return res.embedding.values;
     } catch (err) {
-      this.logger.error(`⚠️ Gemini embedding failed: ${err.message}`);
+      const errorMsg =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? (err as { message?: string }).message
+          : String(err);
+      this.logger.error(`⚠️ Gemini embedding failed: ${errorMsg}`);
       throw err;
     }
   }

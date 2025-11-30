@@ -273,7 +273,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               'push_notification_users',
               {
                 title,
-                message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+                message:
+                  roomData.metadata.last_message &&
+                  typeof roomData.metadata.last_message === 'object' &&
+                  roomData.metadata.last_message !== null &&
+                  'content' in roomData.metadata.last_message
+                    ? ((roomData.metadata.last_message as { content?: string })
+                        ?.content ?? '')
+                    : '',
                 userIds: [member.user_id],
                 data: {
                   type: notifyType.noify_new_message,
@@ -440,14 +447,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           if (member.user_id !== user._id && !roomData?.metadata?.mute) {
             const title =
               roomData.metadata.type === RoomTypeEnum.Private
-                ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
-                : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
+                ? `${user.usr_fullname} thả cảm xúc đến bạn`
+                : `${user.usr_fullname} thả  cảm xúc đến tin nhắn của nhóm ${roomData.metadata.name}`;
             await this.gatewayService.dispatchServiceEvent(
               this.notificationClient,
               'push_notification_users',
               {
                 title,
-                message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+                message:
+                  roomData.metadata.last_message &&
+                  typeof roomData.metadata.last_message === 'object' &&
+                  roomData.metadata.last_message !== null &&
+                  'content' in roomData.metadata.last_message
+                    ? ((roomData.metadata.last_message as { content?: string })
+                        ?.content ?? '')
+                    : '',
                 userIds: [member.user_id],
                 data: {
                   type: notifyType.noify_new_message,

@@ -42,11 +42,11 @@ export class RoomsService {
   private readonly key = REDISKEY;
   private readonly log = new Logger();
   constructor(
-    @InjectModel('Room') private readonly roomModel: Model<Room>,
-    @InjectModel('User') private readonly userModel: Model<User>,
-    @InjectModel('RoomEvent') private readonly roomEvent: Model<RoomEvent>,
+    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(RoomEvent.name) private readonly roomEvent: Model<RoomEvent>,
     private readonly redis: RedisService,
-    @InjectModel('RoomsUsersState')
+    @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
   ) {}
   // handlog not public api

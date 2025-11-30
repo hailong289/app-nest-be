@@ -5,6 +5,7 @@ import { FilesystemService } from './filesystem.service';
 import s3Config from './config/app/s3.config';
 import path from 'path';
 import { mongoConfig, MongodbModule } from 'libs/db/src';
+import { DocumentsModule } from './documents/documents.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { mongoConfig, MongodbModule } from 'libs/db/src';
       ),
     }),
     MongodbModule,
+    DocumentsModule,
   ],
   controllers: [FilesystemController],
   providers: [FilesystemService],
