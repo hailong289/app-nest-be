@@ -2,7 +2,9 @@ import Utils from '@app/helpers/utils';
 import { registerAs } from '@nestjs/config';
 
 export default registerAs('firebase', () => {
-  const privateKey = Utils.parsePrivateKey(process.env.FIREBASE_PRIVATE_KEY || '');
+  const privateKey = Utils.parsePrivateKey(
+    process.env.FIREBASE_PRIVATE_KEY || '',
+  );
   return {
     type: process.env.FIREBASE_TYPE || 'service_account',
     projectId: process.env.FIREBASE_PROJECT_ID,
@@ -20,5 +22,5 @@ export default registerAs('firebase', () => {
       'https://www.googleapis.com/oauth2/v1/certs',
     clientX509CertUrl: process.env.FIREBASE_CLIENT_X509_CERT_URL,
     universeDomain: process.env.FIREBASE_UNIVERSE_DOMAIN || 'googleapis.com',
-  }
+  };
 });

@@ -77,13 +77,10 @@ export class GatewayFilesystemController implements OnModuleInit {
     body: {
       roomId: string;
       id?: string;
+      messageId?: string;
     },
     @Req() req: { user?: { _id?: string; usr_id?: string } },
   ) {
-    console.log(
-      '🚀 ~ GatewayFilesystemController ~ UploadFileByUser ~ body:',
-      body,
-    );
     console.log('� Upload request from user:', {
       userId: req.user?._id,
       body,

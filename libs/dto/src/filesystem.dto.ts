@@ -55,6 +55,7 @@ export class uploadSingleFileByUserDTo {
   userId: string;
   file: MulterFile;
   roomId: string;
+  messageId?: string;
 }
 
 export class UploadSingleFileForUserDto {

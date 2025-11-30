@@ -21,7 +21,7 @@ import ffmpegStatic from '@ffprobe-installer/ffprobe';
 import ffmpegImport from 'fluent-ffmpeg';
 const ffmpeg: typeof import('fluent-ffmpeg') = ffmpegImport;
 import sharp from 'sharp';
-import probe, { ProbeResult, SyncProbeFunction } from 'probe-image-size';
+import probe, { ProbeResult } from 'probe-image-size';
 
 @Injectable()
 export class FilesystemService {
@@ -55,7 +55,7 @@ export class FilesystemService {
   // ============================================================================
 
   async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
-    const { userId, roomId, file, id } = dto;
+    const { userId, roomId, file, id, messageId } = dto;
     console.log(
       '🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ file:',
       file,
@@ -103,6 +103,9 @@ export class FilesystemService {
       width: metadata.width,
       height: metadata.height,
       duration: metadata.duration,
+      ...(messageId && {
+        contextId: this.utils.convertToObjectIdMongoose(messageId),
+      }),
     };
 
     // Nếu có id hợp lệ, thêm vào attachmentData để dùng làm _id
@@ -273,10 +276,30 @@ export class FilesystemService {
 
     // Try probe-image-size
     try {
-      const syncProbe: any = (probe as any).sync;
-      if (typeof syncProbe === 'function') {
-        const info = syncProbe(buf) as ProbeResult;
-        if (info) return { width: info.width, height: info.height };
+      // probe-image-size exports a 'sync' method for buffer probing
+      if (
+        typeof (probe as { sync?: (input: Buffer) => ProbeResult }).sync ===
+        'function'
+      ) {
+        const syncProbe = (probe as { sync?: (input: Buffer) => ProbeResult })
+          .sync;
+        if (typeof syncProbe === 'function') {
+          const result = syncProbe(buf);
+          if (
+            result &&
+            typeof result === 'object' &&
+            !(result instanceof Error) &&
+            'width' in result &&
+            'height' in result &&
+            typeof (result as ProbeResult).width === 'number' &&
+            typeof (result as ProbeResult).height === 'number'
+          ) {
+            return {
+              width: (result as ProbeResult).width,
+              height: (result as ProbeResult).height,
+            };
+          }
+        }
       }
       /* ignore */
     } catch {
@@ -302,7 +325,7 @@ export class FilesystemService {
         height?: number;
         duration?: number;
       }>((resolve) => {
-        (ffmpeg(tmpFile) as any).ffprobe((err: any, data: any) => {
+        ffmpeg(tmpFile).ffprobe((err: Error | null, data: any) => {
           fs.unlink(tmpFile).catch(() => {
             /* ignore */
           });

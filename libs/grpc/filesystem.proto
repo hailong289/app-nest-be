@@ -94,6 +94,7 @@ message InputUploadSingleFileForUser{
     string roomId=2;
     FileRequest file = 3;
     string id=4;
+    string messageId=5;
 
 }
 
