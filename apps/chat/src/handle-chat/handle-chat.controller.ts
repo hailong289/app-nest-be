@@ -92,6 +92,7 @@ export class HandleChatController {
       roomId: string; // ID phòng gọi
     },
   ) {
+    console.log('🚀 ~ HandleChatController ~ AnswerCall ~ payload:', payload);
     const result = await this.hdChat.answerCall(payload);
     return result;
   }
@@ -103,9 +104,10 @@ export class HandleChatController {
       callerId: string; // Người gọi cuộc gọi
       calleeId: string; // Người nhận cuộc gọi
       roomId: string; // ID phòng gọi
-      type: CallStatus; // Loại kết thúc
+      status: CallStatus; // Loại kết thúc
     },
   ) {
+    console.log('🚀 ~ HandleChatController ~ EndCall ~ payload:', payload);
     const result = await this.hdChat.endCall(payload);
     return result;
   }

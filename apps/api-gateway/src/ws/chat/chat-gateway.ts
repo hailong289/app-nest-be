@@ -769,21 +769,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-    data.callerId = user._id;
+    data.callerId = user.usr_id;
     try {
+      console.log('🚀 ~ ChatGateway ~ handleCall ~ data:', {
+        actionUserId: user.usr_id,
+        offer: data.offer,
+      });
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.StartCall.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
 
-      if (result.statusCode !== 200) {
-        throw new BadRequestException(result.message);
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Bắt đầu cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
       }
 
       this.io.to(data.roomId).emit('call:start', {
         ...result.metadata,
         actionUserId: user.usr_id,
+        offer: data.offer,
       });
       return { ok: true };
     } catch (error) {
@@ -815,7 +823,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-    data.calleeId = user._id;
+    data.calleeId = user.usr_id;
     try {
       // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -823,8 +831,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
-      if (result.statusCode !== 200) {
-        throw new BadRequestException(result.message);
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Trả lời cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
       }
 
       this.io.to(data.roomId).emit('call:answer', {
@@ -852,7 +863,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       callerId?: string; // callerId or calleeId
       calleeId?: string;
       roomId: string;
-      type: CallStatus;
+      status: CallStatus;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -861,7 +872,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-    data.callerId = user._id;
+
     try {
       // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -869,8 +880,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
-      if (result.statusCode !== 200) {
-        throw new BadRequestException(result.message);
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Kết thúc cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
       }
 
       this.io.to(data.roomId).emit('call:end', {
@@ -907,7 +921,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-    data.userId = user._id;
+    data.userId = user.usr_id;
     try {
       this.io.to(data.roomId).emit('call:candidate', {
         roomId: data.roomId,

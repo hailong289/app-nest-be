@@ -743,173 +743,170 @@ export class HandleChatService {
 
   // bắt đầu cuộc gọi
   async startCall({ callerId, calleeId, roomId, callType }: any) {
-    const caller = await this.userModel.findById(callerId);
-    if (!caller) {
-      throw new NotFoundException('Người gọi cuộc gọi không tồn tại');
-    }
-    const callee = await this.userModel.findById(calleeId);
-    if (!callee) {
-      throw new NotFoundException('Người nhận cuộc gọi không tồn tại');
-    }
+    try {
+      const caller = await this.userModel.findOne({ usr_id: callerId });
+      if (!caller) {
+        throw new NotFoundException('Người gọi không tồn tại');
+      }
+      const callee = await this.userModel.findOne({ usr_id: calleeId });
+      if (!callee) {
+        throw new NotFoundException('Người nhận cuộc gọi không tồn tại');
+      }
 
-    const room = await this.roomModel.findById(roomId);
-    if (!room) {
-      throw new NotFoundException('Phòng gọi không tồn tại');
-    }
+      const room = await this.roomModel.findOne({ room_id: roomId });
+      if (!room) {
+        throw new NotFoundException('Phòng gọi không tồn tại');
+      }
 
-    const callHistory = await this.callHistoryModel.create({
-      caller_id: caller._id,
-      callee_id: callee._id,
-      room_id: room._id,
-      call_type: callType,
-      status: 'initiated',
-      started_at: new Date(),
-    });
-    if (!callHistory) {
+      const callHistory = await this.callHistoryModel.create({
+        caller_id: caller._id,
+        callee_id: callee._id,
+        room_id: room._id,
+        call_type: callType,
+        status: 'initiated',
+        started_at: new Date(),
+      });
+
+      if (!callHistory) {
+        throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
+      }
+
+      return Response.success(
+        {
+          history: callHistory,
+          room: room,
+          caller: Utils.pick(Utils.unprefix(caller.toObject(), 'usr_'), [
+            'id',
+            'fullname',
+            'avatar',
+          ]),
+          callee: Utils.pick(Utils.unprefix(callee.toObject(), 'usr_'), [
+            'id',
+            'fullname',
+            'avatar',
+          ]),
+          callType: callType,
+        },
+        'Cuộc gọi đã được tạo',
+      );
+    } catch (error) {
+      console.log('🚀 ~ HandleChatService ~ startCall ~ error:', error);
       throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
     }
-
-    const callerData = Utils.pick(Utils.unprefix(caller, 'usr_'), [
-      'id',
-      'fullname',
-      'avatar',
-    ]);
-    const calleeData = Utils.pick(Utils.unprefix(callee, 'usr_'), [
-      'id',
-      'fullname',
-      'avatar',
-    ]);
-
-    return Response.success(
-      {
-        history: callHistory,
-        room: room,
-        caller: CryptoJS.AES.encrypt(
-          JSON.stringify(callerData),
-          process.env.SECRET_KEY,
-        ).toString(),
-        callee: CryptoJS.AES.encrypt(
-          JSON.stringify(calleeData),
-          process.env.SECRET_KEY,
-        ).toString(),
-        callType: callType,
-      },
-      'Cuộc gọi đã được tạo',
-    );
   }
 
   // trả lời cuộc gọi
   async answerCall({ callerId, calleeId, roomId }: any) {
-    const caller = await this.userModel.findById(callerId);
-    if (!caller) {
-      throw new NotFoundException('Người gọi cuộc gọi không tồn tại');
-    }
-    const callee = await this.userModel.findById(calleeId);
-    if (!callee) {
-      throw new NotFoundException('Người nhận cuộc gọi không tồn tại');
-    }
-    const room = await this.roomModel.findById(roomId);
-    if (!room) {
-      throw new NotFoundException('Phòng gọi không tồn tại');
-    }
-    const callHistory = await this.callHistoryModel.findOneAndUpdate(
-      {
-        caller_id: caller._id,
-        callee_id: callee._id,
-        room_id: room._id,
-        status: 'answered',
-      },
-      {
-        status: 'answered',
-        answered_at: new Date(),
-      },
-    );
-    if (!callHistory) {
-      throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
-    }
+    try {
+      const caller = await this.userModel.findOne({ usr_id: callerId });
+      if (!caller) {
+        throw new NotFoundException('Người gọi cuộc gọi không tồn tại');
+      }
+      const callee = await this.userModel.findOne({ usr_id: calleeId });
+      if (!callee) {
+        throw new NotFoundException('Người nhận cuộc gọi không tồn tại');
+      }
+      const room = await this.roomModel.findOne({ room_id: roomId });
+      if (!room) {
+        throw new NotFoundException('Phòng gọi không tồn tại');
+      }
+      const callHistory = await this.callHistoryModel.findOneAndUpdate(
+        {
+          caller_id: caller._id,
+          callee_id: callee._id,
+          room_id: room._id,
+          status: 'initiated',
+        },
+        {
+          status: 'answered',
+          answered_at: new Date(),
+        },
+      );
+      if (!callHistory) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      }
 
-    const callerData = Utils.pick(Utils.unprefix(caller, 'usr_'), [
-      'id',
-      'fullname',
-      'avatar',
-    ]);
-
-    const calleeData = Utils.pick(Utils.unprefix(callee, 'usr_'), [
-      'id',
-      'fullname',
-      'avatar',
-    ]);
-    return Response.success(
-      {
-        history: callHistory,
-        room: room,
-        caller: CryptoJS.AES.encrypt(
-          JSON.stringify(callerData),
-          process.env.SECRET_KEY,
-        ).toString(),
-        callee: CryptoJS.AES.encrypt(
-          JSON.stringify(calleeData),
-          process.env.SECRET_KEY,
-        ).toString(),
-      },
-      'Cuộc gọi đã được trả lời',
-    );
+      return Response.success(
+        {
+          history: callHistory,
+          room: room,
+          caller: Utils.pick(Utils.unprefix(caller.toObject(), 'usr_'), [
+            'id',
+            'fullname',
+            'avatar',
+          ]),
+          callee: Utils.pick(Utils.unprefix(callee.toObject(), 'usr_'), [
+            'id',
+            'fullname',
+            'avatar',
+          ]),
+        },
+        'Cuộc gọi đã được trả lời',
+      );
+    } catch (error) {
+      console.log('🚀 ~ HandleChatService ~ answerCall ~ error:', error);
+      throw new BadRequestException('Không trả lời được cuộc gọi');
+    }
   }
 
   // kết thúc cuộc gọi
-  async endCall({ callerId, calleeId, roomId, type }: any) {
-    const caller = await this.userModel.findById(callerId);
-    const callee = await this.userModel.findById(calleeId);
-    const room = await this.roomModel.findById(roomId);
-    if (!caller || !callee || !room) {
-      throw new NotFoundException(
-        'Người gọi hoặc người nhận cuộc gọi không tồn tại',
-      );
-    }
+  async endCall({ callerId, calleeId, roomId, status }: any) {
+    try {
+      const caller = await this.userModel.findOne({ usr_id: callerId });
+      const callee = await this.userModel.findOne({ usr_id: calleeId });
+      const room = await this.roomModel.findOne({ room_id: roomId });
+      if (!caller || !callee || !room) {
+        throw new NotFoundException('Người gọi hoặc người nhận không tồn tại');
+      }
 
-    const callerData = Utils.pick(Utils.unprefix(caller, 'usr_'), [
-      'id',
-      'fullname',
-      'avatar',
-    ]);
-    const calleeData = Utils.pick(Utils.unprefix(callee, 'usr_'), [
-      'id',
-      'fullname',
-      'avatar',
-    ]);
-
-    const callHistory = await this.callHistoryModel.findOneAndUpdate(
-      {
+      const callHistory = await this.callHistoryModel.findOne({
         caller_id: caller._id,
         callee_id: callee._id,
         room_id: room._id,
         status: { $in: ['initiated', 'answered'] }, // trạng thái cuộc gọi đã bắt đầu hoặc đã trả lời
-      },
-      {
-        status: type,
-        ended_by: caller._id,
-        end_reason: 'normal',
-        ended_at: new Date(),
-      },
-    );
-    if (!callHistory) {
-      throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      });
+
+      if (!callHistory) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      }
+
+      await this.callHistoryModel.updateOne(
+        {
+          caller_id: caller._id,
+          callee_id: callee._id,
+          room_id: room._id,
+          status: { $in: ['initiated', 'answered'] },
+        },
+        {
+          status: status,
+          ended_by: caller._id,
+          ended_at: new Date(),
+          duration:
+            new Date().getTime() - (callHistory?.started_at?.getTime() || 0),
+        },
+      );
+
+      return Response.success(
+        {
+          history: callHistory,
+          room: room,
+          caller: Utils.pick(Utils.unprefix(caller.toObject(), 'usr_'), [
+            'id',
+            'fullname',
+            'avatar',
+          ]),
+          callee: Utils.pick(Utils.unprefix(callee.toObject(), 'usr_'), [
+            'id',
+            'fullname',
+            'avatar',
+          ]),
+        },
+        'Cuộc gọi đã được kết thúc',
+      );
+    } catch (error) {
+      console.log('🚀 ~ HandleChatService ~ endCall ~ error:', error);
+      throw new BadRequestException('Không kết thúc được cuộc gọi');
     }
-    return Response.success(
-      {
-        history: callHistory,
-        room: room,
-        caller: CryptoJS.AES.encrypt(
-          JSON.stringify(callerData),
-          process.env.SECRET_KEY,
-        ).toString(),
-        callee: CryptoJS.AES.encrypt(
-          JSON.stringify(calleeData),
-          process.env.SECRET_KEY,
-        ).toString(),
-      },
-      'Cuộc gọi đã được kết thúc',
-    );
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi

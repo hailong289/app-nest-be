@@ -458,5 +458,38 @@ message outputCall {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
-  google.protobuf.Struct metadata = 4;
+  CallMetadata metadata = 4;
+}
+
+message CallMetadata {
+  CallHistory history = 1;      
+  RoomResponse room = 2;         
+  UserInfo caller = 3;        // AES encrypted caller data
+  UserInfo callee = 4;       // AES encrypted callee data
+  string callType = 5;     
+}
+
+message UserInfo {
+  string id = 1;
+  string fullname = 2;
+  string avatar = 3;
+}
+
+message CallHistory {
+  string _id = 1;                    // MongoDB ObjectId as string
+  string room_id = 2;                 // MongoDB ObjectId as string
+  string caller_id = 3;               // MongoDB ObjectId as string
+  string callee_id = 4;               // MongoDB ObjectId as string
+  string call_type = 5;               // 'video' | 'audio'
+  string status = 6;                  // 'initiated' | 'answered' | 'ended' | 'missed' | 'rejected'
+  string started_at = 7;              // ISO timestamp string
+  string answered_at = 8;             // ISO timestamp string (optional, can be empty)
+  string ended_at = 9;                // ISO timestamp string (optional, can be empty)
+  int64 duration = 10;                // Duration in milliseconds
+  string ended_by = 11;               // MongoDB ObjectId as string (optional, can be empty)
+  string end_reason = 12;             // Reason for ending call
+  string call_id = 13;                // Business call ID
+  string createdAt = 14;              // ISO timestamp string
+  string updatedAt = 15;              // ISO timestamp string
+  int32 __v = 16;                     // Mongoose version key
 }
