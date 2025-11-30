@@ -1,8 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 export type DocVisibility = 'private' | 'room' | 'public';
-
+export type DocumentDocuments = HydratedDocument<Document>;
 /**
  * Document = tài liệu + wiki + ghi chú dài + nội dung collaborative (Yjs)
  */

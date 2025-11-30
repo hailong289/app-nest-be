@@ -49,7 +49,7 @@ export class EmbeddingService {
           - Chứa thông tin, sự kiện, lịch trình, hạn chót.
           - Chứa các giải pháp kỹ thuật, mã, quyết định.
           - Chứa địa chỉ cụ thể, thông tin liên hệ, danh từ riêng.
-          - Chứa ý kiến ​​hoặc phản hồi có ý nghĩa.
+          - Chứa ý kiến hoặc phản hồi có ý nghĩa.
 
        Tiêu chí cho HỦY BỎ (SAI):
           - Lời chào thân mật ("Xin chào", "Chào buổi sáng").
@@ -69,7 +69,8 @@ export class EmbeddingService {
 
       // Clean chuỗi json (phòng trường hợp AI trả về markdown ```json ... ```)
       const cleanJson = responseText.replace(/```json|```/g, '').trim();
-      const decision = JSON.parse(cleanJson);
+      type AIRelevanceResponse = { keep: boolean };
+      const decision = JSON.parse(cleanJson) as AIRelevanceResponse;
 
       return decision.keep === true;
     } catch (e) {
@@ -214,7 +215,7 @@ export class EmbeddingService {
       },
     ];
 
-    const matchStage: any = {
+    const matchStage: Record<string, string> = {
       contextType: 'room',
       contextId: roomId,
     };

@@ -3,7 +3,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
 export type AIEmbeddingDocument = HydratedDocument<AIEmbedding>;
-
+export type AIEmbeddingContextType = 'room' | 'doc';
 @Schema({ timestamps: true })
 export class AIEmbedding {
   @Prop({ required: true, index: true }) // Index để lọc nhanh theo service
@@ -29,7 +29,7 @@ export class AIEmbedding {
 
   // Metadata để filter (Hybrid Search)
   @Prop({ index: true })
-  contextType?: string; // 'room' | ...
+  contextType?: AIEmbeddingContextType; // 'room' | ...
 
   @Prop({ index: true })
   contextId?: string;

@@ -2,6 +2,7 @@ import { Controller } from '@nestjs/common';
 import { AIService } from './ai.service';
 import { GrpcMethod, MessagePattern } from '@nestjs/microservices';
 import { EmbeddingService } from './embedding.service';
+import { KafkaEvent } from '@app/dto/enum.type';
 
 @Controller()
 export class AIController {
@@ -15,7 +16,7 @@ export class AIController {
     return await this.service.checkMessage(data.text, data.userId);
   }
 
-  @MessagePattern('ai.createChatMessageEmbedding')
+  @MessagePattern(KafkaEvent.aiMsg)
   async createChatMessageEmbedding(data: {
     text: string;
     roomId: string;

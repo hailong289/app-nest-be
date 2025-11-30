@@ -11,6 +11,7 @@ import {
 import Utils from '@app/helpers/utils';
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotAcceptableException,
@@ -33,6 +34,9 @@ import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { buildMessageCorePipeline } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
+import { ClientKafka } from '@nestjs/microservices';
+import { SERVICES } from '@app/constants';
+import { KafkaEvent } from '@app/dto/enum.type';
 
 @Injectable()
 export class HandleChatService {
@@ -56,6 +60,8 @@ export class HandleChatService {
     private readonly messageHideModel: Model<MessageHide>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
+    @Inject(SERVICES.AI)
+    private readonly aiClient: ClientKafka,
   ) {}
 
   async createMessage(payload: CreateMessage) {
@@ -195,6 +201,11 @@ export class HandleChatService {
         },
         { upsert: true },
       ),
+      this.utils.dispatchEventKafka(this.aiClient, KafkaEvent.aiMsg, {
+        text: content,
+        roomId: finInfo._id,
+        messageId: createNewMsg._id,
+      }),
     ]);
 
     // Update unread count for other members

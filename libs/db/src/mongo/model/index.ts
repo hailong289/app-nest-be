@@ -105,3 +105,13 @@ export type {
   FlashcardDeckDocument,
   FlashcardProgressDocument,
 } from './flashcard.model';
+
+//
+export { default as aIEmbeddingModel } from './AIEmbedding.model';
+export type { AIEmbeddingDocument } from './AIEmbedding.model';
+
+export { default as aIUsageLogModel } from './AIUsageLogs.model';
+export type { AIUsageLogDocument } from './AIUsageLogs.model';
+
+export { default as documentModel } from './Document.model';
+export type { DocumentDocuments, DocVisibility } from './Document.model';
