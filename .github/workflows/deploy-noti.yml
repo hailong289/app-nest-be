@@ -20,7 +20,7 @@ jobs:
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
       - run: |
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/notification:latest"
-          docker build -t $IMAGE -f apps/auth/Dockerfile .
+          docker build -t $IMAGE -f apps/notification/Dockerfile .
           docker push $IMAGE
       - run: |
           gcloud run deploy notification-service \
@@ -39,7 +39,7 @@ jobs:
             --set-env-vars FIREBASE_TYPE=${{ secrets.FIREBASE_TYPE }} \
             --set-env-vars FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }} \
             --set-env-vars FIREBASE_PRIVATE_KEY_ID=${{ secrets.FIREBASE_PRIVATE_KEY_ID }} \
-            --set-env-vars FIREBASE_PRIVATE_KEY=${{ secrets.FIREBASE_PRIVATE_KEY }} \
+            --set-env-vars FIREBASE_PRIVATE_KEY='${{ secrets.FIREBASE_PRIVATE_KEY }}' \
             --set-env-vars FIREBASE_CLIENT_EMAIL=${{ secrets.FIREBASE_CLIENT_EMAIL }} \
             --set-env-vars FIREBASE_CLIENT_ID=${{ secrets.FIREBASE_CLIENT_ID }} \
             --set-env-vars FIREBASE_AUTH_URI=${{ secrets.FIREBASE_AUTH_URI }} \
@@ -48,9 +48,6 @@ jobs:
             --set-env-vars FIREBASE_CLIENT_X509_CERT_URL=${{ secrets.FIREBASE_CLIENT_X509_CERT_URL }} \
             --set-env-vars FIREBASE_UNIVERSE_DOMAIN=${{ secrets.FIREBASE_UNIVERSE_DOMAIN }} \
             --set-env-vars FIREBASE_STORAGE_BUCKET=${{ secrets.FIREBASE_STORAGE_BUCKET }} \
-            --set-env-vars FIREBASE_MESSAGING_SENDER_ID=${{ secrets.FIREBASE_MESSAGING_SENDER_ID }} \
-            --set-env-vars FIREBASE_APP_ID=${{ secrets.FIREBASE_APP_ID }} \
-            --set-env-vars FIREBASE_MEASUREMENT_ID=${{ secrets.FIREBASE_MEASUREMENT_ID }}
             --set-env-vars MAIL_HOST=${{ secrets.MAIL_HOST }} \
             --set-env-vars MAIL_PORT=${{ secrets.MAIL_PORT }} \
             --set-env-vars MAIL_USER=${{ secrets.MAIL_USER }} \
@@ -62,7 +59,7 @@ jobs:
             --set-env-vars KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }} \
             --set-env-vars KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }} \
             --set-env-vars KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }} \
-            --set-env-vars APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }} \ 
+            --set-env-vars APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }} \
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
             --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \

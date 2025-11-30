@@ -16,6 +16,8 @@ import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
 import { SERVICES } from '@app/constants';
+import { notifyType, socketEvent } from '../../../../../libs/dto/src/enum.type';
+import { RoomTypeEnum } from 'libs/db/src/mongo/model/room.model';
 
 interface JwtPayload {
   _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
@@ -128,21 +130,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
       await client.join(roomIds);
       // Gửi thông báo đến người dùng
-      this.io.to('system').emit('status:online', {
+      this.io.to('system').emit(socketEvent.STATUS, {
         id: client.user.usr_id,
         isOnline: true,
         onlineAt: new Date(),
       });
-      // client.emit('status', {
-      //   message: `Chào mừng ${payload.usr_fullname}, bạn đã online!`,
-      // });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(
         `[CONNECT] Authentication failed for client ${client.id}: ${errorMessage}`,
       );
-      client.emit('exception', {
+      client.emit(socketEvent.VERYFIỄPTION, {
         status: 'error',
         statusCode: 401,
         message: 'Mã xác thực không hợp lệ hoặc đã hết hạn',
@@ -157,9 +156,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: SocketWithUser) {
     const userId = client.userId;
     const fullname = client.user?.usr_fullname;
-    this.io.to('system').emit('status', {
+    this.io.to('system').emit(socketEvent.STATUS, {
       id: client.userId,
       isOnline: false,
+      onlineAt: new Date(),
     });
     // Luôn kiểm tra user vì socket có thể disconnect vì lý do mạng,
     // hoặc client bị ngắt trước khi Guard kịp chạy.
@@ -189,7 +189,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ========================================================
   // 💬 CÁC SUBSCRIBE MESSAGE (Giữ nguyên)
   // ========================================================
-  @SubscribeMessage('join')
+  @SubscribeMessage(socketEvent.JOINROOM)
   async join(
     @MessageBody() { roomId }: { roomId: string },
     @ConnectedSocket() client: SocketWithUser,
@@ -200,11 +200,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.join(roomId);
     this.logger.log(`${user.usr_fullname} joined room ${roomId}`); // Broadcast đến mọi người trong room
 
-    this.io.to(roomId).emit('system', `${user.usr_fullname} joined`);
+    this.io.to(roomId).emit(socketEvent.USERJOIN, {
+      name: user.usr_fullname,
+      roomId,
+      joinDated: new Date(),
+    });
     return { ok: true, user };
   }
 
-  @SubscribeMessage('message:send')
+  @SubscribeMessage(socketEvent.MSGSEND)
   async onMessage(
     @MessageBody()
     data: {
@@ -214,6 +218,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       content: string;
       attachments?: Array<string>;
       replyTo: string;
+      id?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -224,7 +229,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
+
     // this.logger.log(
     //   `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
     // );
@@ -235,13 +240,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
-      console.log('🚀 ~ ChatGateway ~ onMessage ~ result:', result);
       const { msgId, roomId, members } = result.metadata;
 
       // Lấy danh sách userId của members khác (để gửi notification)
-      const otherMemberUserIds = members
-        .filter((m) => m.user_id !== user._id)
-        .map((m) => m.user_id as string);
+      // const otherMemberUserIds = members
+      //   .filter((m) => m.user_id !== user._id)
+      //   .map((m) => m.user_id as string);
 
       // Batch gọi getRoom và GetOneMsg cho tất cả members song song
       const memberUpdates = await Promise.all(
@@ -253,13 +257,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             this.gatewayService.dispatchGrpcRequest(
               this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
               { userId: memberUserId, roomId },
-            ) as Promise<ChatGatewayResponse>,
+            ) as Promise<RoomGatewayResponse>,
             this.gatewayService.dispatchGrpcRequest(
               this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
               { userId: memberUserId, msgId },
             ),
           ]);
-
+          if (member.user_id !== user._id && !roomData?.metadata?.mute) {
+            const title =
+              roomData.metadata.type === RoomTypeEnum.Private
+                ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
+                : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
+            await this.gatewayService.dispatchServiceEvent(
+              this.notificationClient,
+              'push_notification_users',
+              {
+                title,
+                message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+                userIds: [member.user_id],
+                data: {
+                  type: notifyType.noify_new_message,
+                  room: roomData.metadata,
+                  msg: msgData,
+                },
+              },
+            );
+          }
           return {
             socketRoom: this.key.ROOM_CLIENT(member.id),
             roomData: roomData.metadata,
@@ -270,35 +293,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit events đến từng member
       memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit('room:upset', roomData);
-        this.io.to(socketRoom).emit('message:upset', msgData);
+        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
       });
-
-      // Gửi push notification (fire-and-forget, không chặn response)
-      if (otherMemberUserIds.length > 0) {
-        this.gatewayService
-          .dispatchServiceEvent(
-            this.notificationClient,
-            'push_notification_users',
-            {
-              title: 'Tin nhắn mới',
-              message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
-              userIds: otherMemberUserIds,
-              data,
-            },
-          )
-          .catch((err) =>
-            this.logger.error('[MESSAGE] Notification error:', err),
-          );
-      }
 
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error creating message:', error);
-      client.emit('error', {
+      client.emit(socketEvent.ERRORMSG, {
         message: 'Gửi tin nhắn thất bại',
         error: error instanceof Error ? error.message : String(error),
+        data,
       });
+
       return {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
@@ -306,7 +313,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  @SubscribeMessage('mark:read')
+  @SubscribeMessage(socketEvent.MSGMARKREAD)
   async MarkRead(
     @MessageBody()
     data: {
@@ -343,12 +350,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
 
-      // // Emit ngay cho chính user đã đọc (không cần đợi)
-      // this.io.to(this.key.ROOM_CLIENT(user.usr_id)).emit('mark:readed', {
-      //   lastMessageId: data.lastMessageId,
-      //   roomId: data.roomId,
-      // });
-
       // Batch gọi getRoom và GetOneMsg cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
@@ -376,8 +377,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit events đến từng member
       memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit('room:upset', roomData);
-        this.io.to(socketRoom).emit('message:upset', msgData);
+        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
       });
 
       return { ok: true, data: result };
@@ -393,7 +394,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
-  @SubscribeMessage('message:emoji')
+  @SubscribeMessage(socketEvent.MSGREACT)
   async SendEmoji(
     @MessageBody()
     data: {
@@ -409,10 +410,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
-
     try {
       // Tạo message qua gRPC
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -421,11 +419,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       )) as ChatGatewayResponse;
 
       const { msgId, roomId, members } = result.metadata;
-
       // Lấy danh sách userId của members khác (để gửi notification)
-      const otherMemberUserIds = members
-        .filter((m) => m.user_id !== user._id)
-        .map((m) => m.user_id as string);
 
       // Batch gọi getRoom và GetOneMsg cho tất cả members song song
       const memberUpdates = await Promise.all(
@@ -437,13 +431,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             this.gatewayService.dispatchGrpcRequest(
               this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
               { userId: memberUserId, roomId },
-            ) as Promise<ChatGatewayResponse>,
+            ) as Promise<RoomGatewayResponse>,
             this.gatewayService.dispatchGrpcRequest(
               this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
               { userId: memberUserId, msgId },
             ),
           ]);
-
+          if (member.user_id !== user._id && !roomData?.metadata?.mute) {
+            const title =
+              roomData.metadata.type === RoomTypeEnum.Private
+                ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
+                : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
+            await this.gatewayService.dispatchServiceEvent(
+              this.notificationClient,
+              'push_notification_users',
+              {
+                title,
+                message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+                userIds: [member.user_id],
+                data: {
+                  type: notifyType.noify_new_message,
+                  room: roomData.metadata,
+                  msg: msgData,
+                },
+              },
+            );
+          }
           return {
             socketRoom: this.key.ROOM_CLIENT(member.id),
             roomData: roomData.metadata,
@@ -454,27 +467,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit events đến từng member
       memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit('room:upset', roomData);
-        this.io.to(socketRoom).emit('message:upset', msgData);
+        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
       });
-
-      // Gửi push notification (fire-and-forget, không chặn response)
-      if (otherMemberUserIds.length > 0) {
-        this.gatewayService
-          .dispatchServiceEvent(
-            this.notificationClient,
-            'push_notification_users',
-            {
-              title: 'Tin nhắn mới',
-              message: `${user.usr_fullname} đã bày tỏ ${data.emoji}`,
-              userIds: otherMemberUserIds,
-              data,
-            },
-          )
-          .catch((err) =>
-            this.logger.error('[MESSAGE] Notification error:', err),
-          );
-      }
 
       return { ok: true, data: result };
     } catch (error) {
@@ -489,7 +484,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
-  @SubscribeMessage('message:pinned')
+  @SubscribeMessage(socketEvent.MSGPINNED)
   async MessagePinned(
     @MessageBody()
     data: {
@@ -544,8 +539,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Emit events đến từng member
       memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit('room:upset', roomData);
-        this.io.to(socketRoom).emit('message:upset', msgData);
+        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
       });
 
       return { ok: true, data: result };
@@ -561,7 +556,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
-  @SubscribeMessage('message:delete')
+  @SubscribeMessage(socketEvent.MSGDELETE)
   async MessageDelete(
     @MessageBody()
     data: {
@@ -578,7 +573,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ on delete ~ data:', data);
 
     try {
       // Tạo message qua gRPC
@@ -630,13 +624,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
       memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit('room:upset', roomData);
+        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
         if (Array.isArray(msgData)) {
           msgData.forEach((m) =>
-            this.io.to(socketRoom).emit('message:upset', m),
+            this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, m),
           );
         } else {
-          this.io.to(socketRoom).emit('message:upset', msgData);
+          this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
         }
       });
 
@@ -653,7 +647,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
-  @SubscribeMessage('message:recall')
+  @SubscribeMessage(socketEvent.MSGRECALL)
   async MessageReCall(
     @MessageBody()
     data: {
@@ -671,7 +665,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ MessageReCall ~ data:', data);
 
     try {
       // Gọi đúng hàm HandleDelete (recall) thay vì HandleDeleteForUser
@@ -723,13 +716,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
       memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit('room:upset', roomData);
+        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
         if (Array.isArray(msgData)) {
           msgData.forEach((m) =>
-            this.io.to(socketRoom).emit('message:upset', m),
+            this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, m),
           );
         } else {
-          this.io.to(socketRoom).emit('message:upset', msgData);
+          this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
         }
       });
 
@@ -745,6 +738,61 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+  @SubscribeMessage(socketEvent.USERSATUS)
+  async CheckUserOnline(
+    @MessageBody()
+    data: {
+      ids: string[];
+    },
+  ) {
+    const result = (await this.redis.SisMembers({
+      key: this.key.USERS_ONLINE,
+      values: data.ids,
+    })) as Array<{
+      key: string;
+      value: boolean;
+    }>;
+    if (result) {
+      const socketResult = result.map((i: { key: string; value: boolean }) => ({
+        id: i.key,
+        isOnline: i.value,
+      }));
+      console.log(
+        '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
+        socketResult,
+      );
+      for (const i of socketResult) {
+        this.io.to('system').emit('status:online', {
+          id: i.id,
+          isOnline: i.isOnline,
+          onlineAt: new Date(),
+        });
+      }
+    }
+
+    // this.io.emit('status_online', result);
+  }
+  @SubscribeMessage(socketEvent.USERTYPING)
+  onTypingIndicator(
+    @MessageBody()
+    data: {
+      roomId: string;
+      typing: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = {
+      id: client.user?.usr_id,
+      name: client.user?.usr_fullname,
+      avatar: client.user?.usr_avatar,
+    };
+
+    this.io.to(data.roomId).emit(socketEvent.STATUSTYPING, {
+      user,
+      typing: data.typing,
+      roomId: data.roomId,
+    });
   }
 }
 
@@ -772,4 +820,12 @@ interface ChatGatewayDeleteResponse<T = any> {
     roomId: string;
     // Có thể bổ sung các trường khác nếu cần
   };
+}
+
+interface RoomGatewayResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: Record<string, any>;
 }

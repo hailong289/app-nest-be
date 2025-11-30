@@ -16,13 +16,17 @@ import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
 import { mongoConfig } from 'libs/db/src';
+import { kafkaConfig } from 'libs/config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/ai/.env'),
-      load: [googleConfig, mongoConfig],
+      envFilePath: path.resolve(
+        process.cwd(),
+        `apps/ai/.env.${process.env.NODE_ENV || 'development'}`,
+      ),
+      load: [googleConfig, mongoConfig, kafkaConfig],
     }),
     MongodbModule,
     JwtModule.register({}),

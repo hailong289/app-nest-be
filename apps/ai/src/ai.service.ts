@@ -13,7 +13,7 @@ export class AIService {
     private readonly googleProvider: GoogleModerationProvider,
     // @InjectModel(AIUsageLog.name)
     // private readonly logModel: Model<AIUsageLog>,
-  ) { }
+  ) {}
 
   async checkMessage(text: string, userId: string, contextId?: string) {
     const result = await this.googleProvider.moderate(text);

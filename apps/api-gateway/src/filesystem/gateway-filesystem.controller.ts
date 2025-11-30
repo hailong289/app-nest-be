@@ -77,6 +77,7 @@ export class GatewayFilesystemController implements OnModuleInit {
     body: {
       roomId: string;
       id?: string;
+      messageId?: string;
     },
     @Req() req: { user?: { _id?: string; usr_id?: string } },
   ) {

@@ -412,6 +412,37 @@ class Utils {
     }
     return Response.success(true, 'Gửi event thành công');
   }
+
+  static parsePrivateKey(raw: string): string {
+    if (!raw) {
+      throw new Error('FIREBASE PRIVATE KEY is missing');
+    }
+
+    const trimmed = raw.trim();
+
+    // Nếu là base64 → giải mã
+    const isBase64 =
+      // chỉ gồm ký tự hợp lệ của base64
+      /^[A-Za-z0-9+/=]+$/.test(trimmed) &&
+      // độ dài divisible by 4
+      trimmed.length % 4 === 0;
+
+    if (isBase64) {
+      try {
+        const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+
+        // Kiểm tra xem sau khi decode có đúng PEM không
+        if (decoded.includes('BEGIN PRIVATE KEY')) {
+          return decoded;
+        }
+      } catch (err) {
+        // Nếu decode fail → rơi xuống dùng kiểu cũ
+      }
+    }
+
+    // Ngược lại là dạng chứa \n → convert
+    return trimmed.replace(/\\n/g, '\n');
+  }
 }
 
 export default Utils;
