@@ -232,3 +232,30 @@ export class RemoveFriendResponseDto {
   frp_status: string;
   removed_at: number;
 }
+
+export class GetBlockedFriendsDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  page?: number = 1;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  @Max(100)
+  limit?: number = 10;
+
+  @IsString()
+  @IsOptional()
+  search?: string = '';
+}
+
+export class GetFriendByUserIdDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+}

@@ -2,6 +2,8 @@ import {
   ChangeNickNameMemberDto,
   CreateRoomEvent,
   GetRoomDto,
+  MutedRoomDto,
+  PinnedRoomDto,
 } from './../../../../libs/dto/src/room.dto';
 import {
   BadRequestException,
@@ -128,7 +130,98 @@ export class RoomsService {
         },
       },
       { $set: { state: { $first: '$state' } } },
+      /** 🔥 NEW: Lookup RoomEvents → build timeline cho từng phòng */
+      {
+        $lookup: {
+          from: 'RoomEvents', // đúng theo collection trong schema
+          localField: '_id', // _id của Room
+          foreignField: 'room_id', // ref trong RoomEvent
+          pipeline: [
+            // Mới nhất trước
+            { $sort: { createdAt: -1 } },
+            // Tuỳ ông muốn limit bao nhiêu event
+            // { $limit: 20 },
+            {
+              $project: {
+                _id: 0,
+                id: '$_id',
+                // date: "YYYY-MM"
+                timestamp: '$createdAt',
 
+                // title: ưu tiên payload.title → fallback placeholder → event_type
+                title: {
+                  $ifNull: [
+                    '$payload.title',
+                    {
+                      $ifNull: ['$placeholder', '$event_type'],
+                    },
+                  ],
+                },
+
+                // description: ưu tiên payload.description → fallback event_type
+                description: {
+                  $ifNull: ['$payload.description', '$event_type'],
+                },
+
+                // status: ưu tiên payload.status → nếu không có thì map theo event_type
+                status: {
+                  $ifNull: [
+                    '$payload.status',
+                    {
+                      $switch: {
+                        branches: [
+                          {
+                            // join/create/add → success
+                            case: {
+                              $in: [
+                                '$event_type',
+                                [
+                                  'member.joined',
+                                  'member.added',
+                                  'member.create',
+                                ],
+                              ],
+                            },
+                            then: 'success',
+                          },
+                          {
+                            // left / deleted → danger
+                            case: {
+                              $in: [
+                                '$event_type',
+                                ['member.left', 'member.deleted'],
+                              ],
+                            },
+                            then: 'danger',
+                          },
+                          {
+                            // đổi tên, đổi avatar, đổi role → info
+                            case: {
+                              $in: [
+                                '$event_type',
+                                [
+                                  'member.edit',
+                                  'member.change.name',
+                                  'member.change.avatar',
+                                  'member.change.nickName',
+                                  'member.change.role',
+                                ],
+                              ],
+                            },
+                            then: 'info',
+                          },
+                        ],
+                        default: 'default',
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'roomEvents', // field mới trong Room
+        },
+      },
       /** 4) last_message_doc & sender */
       {
         $lookup: {
@@ -650,6 +743,7 @@ export class RoomsService {
           pinned_count: 1,
           isBlocked: 1,
           blockByMine: 1,
+          roomEvents: 1,
         },
       },
     ];
@@ -1477,5 +1571,83 @@ export class RoomsService {
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi tên thành công',
     );
+  }
+  async PinnendRoom({ roomId, userId, pinned }: PinnedRoomDto) {
+    if (!userId)
+      throw new NotFoundException('bạn không phải thành viên nhóm này');
+    const checkEixsting = await this.checkExistedMemberRoom(userId, roomId);
+
+    if (!checkEixsting) {
+      throw new NotFoundException('bạn dã thoát nhóm');
+    }
+    // get info user
+    const userInfo = await this.userModel.findById(
+      this.utils.convertToObjectIdMongoose(userId),
+    );
+    if (!userInfo) {
+      throw new NotFoundException('Không tìm thấy người dùng');
+    }
+    // get info
+    const findRoom = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(roomId, userInfo?.usr_id)],
+      },
+    });
+    if (!findRoom) {
+      throw new NotFoundException('không tìm thấy phòng');
+    }
+    await this.RoomsUsersState.findOneAndUpdate(
+      {
+        room_id: findRoom._id,
+        user_id: userInfo._id,
+      },
+      {
+        pinned: pinned,
+        pinned_at: pinned ? new Date() : null,
+      },
+    );
+    return await this.GetRoom({
+      userId,
+      roomId,
+    });
+  }
+
+  async MutedRoom({ roomId, userId, muted }: MutedRoomDto) {
+    if (!userId)
+      throw new NotFoundException('bạn không phải thành viên nhóm này');
+    const checkEixsting = await this.checkExistedMemberRoom(userId, roomId);
+
+    if (!checkEixsting) {
+      throw new NotFoundException('bạn dã thoát nhóm');
+    }
+    // get info user
+    const userInfo = await this.userModel.findById(
+      this.utils.convertToObjectIdMongoose(userId),
+    );
+    if (!userInfo) {
+      throw new NotFoundException('Không tìm thấy người dùng');
+    }
+    // get info
+    const findRoom = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(roomId, userInfo?.usr_id)],
+      },
+    });
+    if (!findRoom) {
+      throw new NotFoundException('không tìm thấy phòng');
+    }
+    await this.RoomsUsersState.findOneAndUpdate(
+      {
+        room_id: findRoom._id,
+        user_id: userInfo._id,
+      },
+      {
+        muted,
+      },
+    );
+    return await this.GetRoom({
+      userId,
+      roomId,
+    });
   }
 }

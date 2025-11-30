@@ -162,3 +162,19 @@ export class ChangeNickNameMemberDto {
   @IsNotEmpty()
   name: string;
 }
+
+export class PinnedRoomDto {
+  userId: string;
+
+  roomId: string;
+
+  pinned: boolean;
+}
+
+export class MutedRoomDto {
+  userId: string;
+
+  roomId: string;
+
+  muted: boolean;
+}

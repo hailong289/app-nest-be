@@ -17,6 +17,8 @@ service SocialService {
   rpc RemoveFriend(RemoveFriendRequest) returns (RemoveFriendResponse);
   rpc BlockFriend(BlockFriendRequest) returns (BlockFriendResponse);
   rpc OpenBlockedFriend(OpenBlockedFriendRequest) returns (OpenBlockedFriendResponse);
+  rpc GetBlockedFriends(GetBlockedFriendsRequest) returns (GetBlockedFriendsResponse);
+  rpc GetFriendByUserId(GetFriendByUserIdRequest) returns (GetFriendByUserIdResponse);
 }
 
 // Friend Request Messages
@@ -263,4 +265,47 @@ message OpenBlockedFriendResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   google.protobuf.Any metadata = 4;
+}
+
+
+// Trạng thái mối quan hệ
+enum FriendshipStatus {
+  FRIENDSHIP_INVALID  = 0;
+  FRIENDSHIP_PENDING  = 1;
+  FRIENDSHIP_ACCEPTED = 2;
+  FRIENDSHIP_REJECTED = 3;
+  FRIENDSHIP_BLOCKED  = 4;
+}
+
+message GetBlockedFriendsRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  string search = 4;
+}
+
+message GetBlockedFriendsResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetBlockedFriendsMetadata metadata = 4;
+}
+
+message GetBlockedFriendsMetadata {
+  repeated Friend blockedUsers = 1;
+  int64 totalPage = 2;
+  int64 total = 3;
+  int64 page = 4;
+  int64 limit = 5;
+}
+
+message GetFriendByUserIdRequest {
+  string userId = 1;
+}
+
+message GetFriendByUserIdResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  Friend metadata = 4;
 }

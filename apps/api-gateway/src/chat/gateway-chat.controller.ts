@@ -25,6 +25,7 @@ import {
 } from '@app/dto/room.dto';
 import { ChatGateway } from '../ws/chat/chat-gateway';
 import { REDISKEY } from '@app/constants/RedisKey';
+import { socketEvent } from '@app/dto/enum.type';
 interface ChatOutChangeGatewayResponse<T = any> {
   data: T;
   message: string;
@@ -108,7 +109,7 @@ export class GatewayChatController {
       // Emit to each member individually
       console.log('Room member keys:', memberIds);
       memberIds.forEach((memberId: string) => {
-        this.chatGateway.io.to(memberId).emit('room:upset', room);
+        this.chatGateway.io.to(memberId).emit(socketEvent.ROOMUPSERT, room);
       });
     }
 
@@ -128,10 +129,13 @@ export class GatewayChatController {
       body,
     );
     const usrId = req.user?.usr_id;
+
     if (usrId) {
-      this.chatGateway.io.to(this.key.ROOM_CLIENT(usrId)).emit('room:remove', {
-        roomId: body.roomId,
-      });
+      this.chatGateway.io
+        .to(this.key.ROOM_CLIENT(usrId))
+        .emit(socketEvent.ROOMDELETE, {
+          roomId: body.roomId,
+        });
     }
     return result;
   }
@@ -148,9 +152,11 @@ export class GatewayChatController {
       body,
     );
     body.memberIds.forEach((m) => {
-      this.chatGateway.io.to(this.key.ROOM_CLIENT(m)).emit('room:remove', {
-        roomId: body.roomId,
-      });
+      this.chatGateway.io
+        .to(this.key.ROOM_CLIENT(m))
+        .emit(socketEvent.ROOMDELETE, {
+          roomId: body.roomId,
+        });
     });
     return result;
   }
@@ -185,7 +191,7 @@ export class GatewayChatController {
     );
 
     roomsUpdate.forEach(({ socketRoom, roomData }) => {
-      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+      this.chatGateway.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
     });
     const safeResult =
       result && typeof result === 'object' && !Array.isArray(result)
@@ -246,7 +252,6 @@ export class GatewayChatController {
       this.RoomGrpcService.changeAvatar.bind(this.RoomGrpcService),
       body,
     )) as ChatOutChangeGatewayResponse;
-    console.log('🚀 ~ GatewayChatController ~ ChangeAvatar ~ result:', result);
     const roomsUpdate = await Promise.all(
       result.metadata.members.map(async (r) => {
         const data: GetRoomDto = {
@@ -265,7 +270,7 @@ export class GatewayChatController {
     );
 
     roomsUpdate.forEach(({ socketRoom, roomData }) => {
-      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+      this.chatGateway.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
     });
     return result;
   }
@@ -299,7 +304,7 @@ export class GatewayChatController {
     );
 
     roomsUpdate.forEach(({ socketRoom, roomData }) => {
-      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+      this.chatGateway.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
     });
     return result;
   }
@@ -339,7 +344,7 @@ export class GatewayChatController {
     );
 
     roomsUpdate.forEach(({ socketRoom, roomData }) => {
-      this.chatGateway.io.to(socketRoom).emit('room:upset', roomData);
+      this.chatGateway.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
     });
     return result;
   }
@@ -360,7 +365,6 @@ export class GatewayChatController {
       roomId,
       ...query,
     };
-    console.log('🚀 ~ GatewayChatController ~ GetMsgFromRoom ~ data:', data);
     return await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.getMsgFromRoom.bind(this.RoomGrpcService),
       data,
