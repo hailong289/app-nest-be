@@ -36,7 +36,6 @@ import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { buildMessageCorePipeline } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
-import * as CryptoJS from 'crypto-js';
 
 @Injectable()
 export class HandleChatService {

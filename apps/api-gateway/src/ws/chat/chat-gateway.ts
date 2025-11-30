@@ -841,6 +841,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.io.to(data.roomId).emit('call:answer', {
         ...result.metadata,
         actionUserId: user.usr_id,
+        answer: data.answer,
       });
       return { ok: true };
     } catch (error) {
@@ -922,6 +923,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { ok: false };
     }
     data.userId = user.usr_id;
+    console.log('🚀 ~ ChatGateway ~ handleCandidate ~ data:', data);
     try {
       this.io.to(data.roomId).emit('call:candidate', {
         roomId: data.roomId,
