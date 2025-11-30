@@ -27,6 +27,7 @@ import {
   MessageHide,
   Friendship,
   friendshipModel,
+  Attachment,
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -57,6 +58,8 @@ export class HandleChatService {
     private readonly messageHideModel: Model<MessageHide>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
+    @InjectModel(Attachment.name)
+    private readonly attachmentModel: Model<Attachment>,
     @Inject(SERVICES.AI)
     private readonly aiClient: ClientKafka,
   ) {}

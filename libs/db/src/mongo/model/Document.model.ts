@@ -1,8 +1,17 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-
+export enum DocVisibilityEnum {
+  private = 'private',
+  room = 'room',
+  public = 'public',
+}
+export enum sharedWithRoleEnum {
+  viewer = 'viewer',
+  editer = 'editer',
+}
 export type DocVisibility = 'private' | 'room' | 'public';
 export type DocumentDocuments = HydratedDocument<Document>;
+export type sharedWithRoleType = 'viewer' | 'editor';
 /**
  * Document = tài liệu + wiki + ghi chú dài + nội dung collaborative (Yjs)
  */
@@ -89,6 +98,10 @@ export class Document {
    *  - viewer: chỉ xem
    *  - editor: được sửa
    */
+
+  /**
+   * public []
+   */
   @Prop({
     type: [
       {
@@ -100,7 +113,7 @@ export class Document {
   })
   sharedWith?: {
     userId: Types.ObjectId;
-    role: 'viewer' | 'editor';
+    role: sharedWithRoleType;
   }[];
 }
 

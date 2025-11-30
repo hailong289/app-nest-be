@@ -279,10 +279,10 @@ class Utils {
     return microservice;
   }
 
-  static async createKafkaMicroserviceFromApplication(
+  static createKafkaMicroserviceFromApplication(
     application: INestApplication,
     serviceName: string,
-  ): Promise<INestMicroservice> {
+  ): INestMicroservice {
     const configService = application.get(ConfigService);
     const logger = new Logger('Create Microservice Kafka');
     const client_id =
@@ -352,11 +352,10 @@ class Utils {
         brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
       };
     }
-    const microservice =
-      await application.connectMicroservice<MicroserviceOptions>({
-        transport: Transport.KAFKA,
-        options,
-      });
+    const microservice = application.connectMicroservice<MicroserviceOptions>({
+      transport: Transport.KAFKA,
+      options,
+    });
     logger.log(`Create microservice ${serviceName} with Kafka`);
     return microservice;
   }
@@ -396,16 +395,24 @@ class Utils {
       await client.connect();
     } catch (error) {
       return Response.error(
-        `Không thể kết nối đến Kafka: ${error.message}`,
+        `Không thể kết nối đến Kafka: ${
+          error && typeof error === 'object' && 'message' in error
+            ? (error as { message: string }).message
+            : String(error)
+        }`,
         503,
         'SERVICE_UNAVAILABLE',
       );
     }
     try {
-      await client.emit(pattern, data);
+      await client.emit(pattern, data).toPromise();
     } catch (error) {
+      const errorMessage =
+        error && typeof error === 'object' && 'message' in error
+          ? (error as { message: string }).message
+          : String(error);
       return Response.error(
-        `Không thể gửi event ${pattern}: ${error.message}`,
+        `Không thể gửi event ${pattern}: ${errorMessage}`,
         503,
         'SERVICE_UNAVAILABLE',
       );
@@ -435,13 +442,30 @@ class Utils {
         if (decoded.includes('BEGIN PRIVATE KEY')) {
           return decoded;
         }
-      } catch (err) {
+      } catch {
         // Nếu decode fail → rơi xuống dùng kiểu cũ
       }
     }
 
     // Ngược lại là dạng chứa \n → convert
-    return trimmed.replace(/\\n/g, '\n');
+    return String.raw({ raw: trimmed }).replaceAll('\\n', '\n');
+  }
+
+  static extractUrls(text: string): string[] {
+    if (!text) return [];
+
+    const urlRegex = /((https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\S*)?)/gi;
+
+    return [...text.matchAll(urlRegex)].map((m) => {
+      let url = m[0];
+
+      // Nếu không có http/https → auto thêm
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+
+      return url;
+    });
   }
 }
 
