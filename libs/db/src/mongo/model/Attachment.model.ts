@@ -1,15 +1,35 @@
-import Utils from '@app/helpers/utils';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
-export type AttachmentKind = 'photo' | 'video' | 'file' | 'doc' | 'json';
+export type AttachmentKind =
+  | 'image'
+  | 'video'
+  | 'file'
+  | 'doc'
+  | 'json'
+  | 'audio';
+export enum AttachmentKindEnum {
+  image = 'image',
+  video = 'video',
+  file = 'file',
+  doc = 'doc',
+  json = 'json',
+  audio = 'audio',
+}
 export type AttachmentStatus = 'uploaded' | 'processing' | 'failed';
-
-@Schema({ _id: false, collection: 'Attachments' })
+export enum AttachmentStatusEnum {
+  uploaded = 'uploaded',
+  processing = 'processing',
+  failed = 'failed',
+}
+export type AttachmentContextType = 'message' | 'doc' | 'other';
+export enum AttachmentContextEnumType {
+  mesage = 'message',
+  doc = 'doc',
+  other = 'other',
+}
+@Schema({ collection: 'Attachments', timestamps: true })
 export class Attachment {
-  @Prop({ type: String, default: () => Utils.randomId() })
-  id: string;
-
   @Prop({ type: Types.ObjectId, ref: 'Rooms', required: true })
   room_id: Types.ObjectId;
 
@@ -18,7 +38,7 @@ export class Attachment {
 
   @Prop({
     type: String,
-    enum: ['photo', 'video', 'file', 'doc', 'json'],
+    enum: AttachmentKindEnum,
     required: true,
   })
   kind: AttachmentKind;
@@ -40,8 +60,8 @@ export class Attachment {
 
   @Prop({
     type: String,
-    enum: ['uploaded', 'processing', 'failed'],
-    default: 'uploaded',
+    enum: AttachmentStatusEnum,
+    default: AttachmentStatusEnum.uploaded,
   })
   status?: AttachmentStatus;
 
@@ -53,6 +73,15 @@ export class Attachment {
 
   @Prop({ type: Number })
   duration?: number;
+  @Prop({
+    type: String,
+    enum: AttachmentContextEnumType,
+    default: AttachmentContextEnumType.mesage,
+  })
+  contextType: AttachmentContextType;
+
+  @Prop({ type: Types.ObjectId, default: null })
+  contextId?: Types.ObjectId; // message_id hoặc document_id
 }
 
 export const AttachmentSchema = SchemaFactory.createForClass(Attachment);

@@ -2,19 +2,25 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type MessageDocument = HydratedDocument<Message>;
-export type MsgType = 'text' | 'image' | 'file' | 'system';
+export type MsgType =
+  | 'text'
+  | 'image'
+  | 'file'
+  | 'system'
+  | 'video'
+  | 'audio'
+  | 'gif';
 
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {
   @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })
-  msg_room: Types.ObjectId;
+  msg_roomId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   msg_sender: Types.ObjectId;
 
   @Prop({
     type: String,
-    enum: ['text', 'image', 'file', 'system'],
     default: 'text',
   })
   msg_type: MsgType;
@@ -25,8 +31,11 @@ export class Message {
   @Prop({ type: String, default: '' })
   msg_content_norm: string; // search không dấu
 
-  @Prop({ type: [String], default: [] })
-  attachment_ids: string[]; // id từ Upload Service
+  @Prop({
+    type: [{ type: Types.ObjectId, ref: 'Attachment' }],
+    default: [],
+  })
+  attachment_ids: Types.ObjectId[]; // id từ Attachments collection
 
   @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
   reply_to: Types.ObjectId | null;
@@ -49,14 +58,16 @@ export class Message {
 
   @Prop({ type: Date, default: null })
   editedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 export const MessageSchema = SchemaFactory.createForClass(Message);
 
 /** Indexes */
-MessageSchema.index({ msg_room: 1, createdAt: -1 });
+MessageSchema.index({ msg_roomId: 1, createdAt: -1 });
 MessageSchema.index({ msg_sender: 1, createdAt: -1 });
-MessageSchema.index({ msg_room: 1, msg_content_norm: 1 });
-MessageSchema.index({ msg_room: 1, deletedAt: 1, createdAt: -1 });
+MessageSchema.index({ msg_roomId: 1, msg_content_norm: 1 });
+MessageSchema.index({ msg_roomId: 1, deletedAt: 1, createdAt: -1 });
 
 /** Hooks */
 function normalizeVi(s = '') {
@@ -68,8 +79,13 @@ function normalizeVi(s = '') {
     .toLowerCase();
 }
 MessageSchema.pre('save', function (next) {
-  if (this.isModified('msg_content')) {
-    this.msg_content_norm = normalizeVi(this.msg_content || '');
+  // Chỉ normalize khi msg_content có nội dung
+  // Với gif, image, video, audio thì msg_content có thể rỗng
+  if (this.isModified('msg_content') && this.msg_content) {
+    this.msg_content_norm = normalizeVi(this.msg_content);
+  } else if (!this.msg_content) {
+    // Nếu content rỗng thì msg_content_norm cũng rỗng
+    this.msg_content_norm = '';
   }
   next();
 });

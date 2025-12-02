@@ -1,27 +1,28 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ChatController } from './chat.controller';
-import { ChatService } from './chat.service';
 import { RoomsModule } from './rooms/rooms.module';
 import { HandleChatModule } from './handle-chat/handle-chat.module';
-import { RedisModule } from 'libs/db/src/redis/redis.module';
-import path from 'path/win32';
-import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
-import redisConfig from './config/redis.config';
-import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
+import path from 'node:path';
+import { SocialModule } from './social/social.module';
+import redisConfig from 'libs/db/src/config/redis.config';
+import { mongoConfig, MongodbModule, RedisModule } from 'libs/db/src';
+import { kafkaConfig } from 'libs/config';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/chat/.env'),
-      load: [redisConfig, mongodbConfig],
+      envFilePath: path.resolve(
+        process.cwd(),
+        `apps/chat/.env.${process.env.NODE_ENV || 'development'}`,
+      ),
+      load: [redisConfig, mongoConfig, kafkaConfig],
     }),
     MongodbModule,
     RedisModule,
     RoomsModule,
     HandleChatModule,
+    forwardRef(() => SocialModule),
   ],
-  controllers: [ChatController],
-  providers: [ChatService],
 })
 export class AppModule {}

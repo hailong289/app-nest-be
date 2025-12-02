@@ -1,18 +1,22 @@
-import { Module, Global } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { join } from 'path';
 import { GatewayChatController } from './gateway-chat.controller';
+import { GatewaySocialController } from './social/gateway-social.controller';
 import { GatewayService } from '../gateway/gateway.service';
+import { ChatWebSocketModule } from '../ws/chat/chat.module';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
+    ChatWebSocketModule, // Import WebSocket module để có thể inject ChatGateway
     ClientsModule.register([
       {
         name: SERVICES.CHAT,
         transport: Transport.GRPC,
         options: {
-          package: 'chat',
+          package: ['chat', 'social'],
           protoPath: join(
             process.cwd(),
             process.env.GATEWAY_CHAT_PROTO_PATH || 'libs/grpc/chat.proto',
@@ -27,11 +31,15 @@ import { GatewayService } from '../gateway/gateway.service';
             const port = process.env.GATEWAY_CHAT_PORT || '5003';
             return `${host}:${port}`;
           })(),
+          credentials:
+            process.env.NODE_ENV === 'production'
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
           loader: {
             keepCase: true,
             longs: String,
             enums: String,
-            defaults: false,
+            defaults: true,
             oneofs: true,
             includeDirs: [
               join(process.cwd(), 'libs/grpc'), // chat.proto
@@ -42,7 +50,7 @@ import { GatewayService } from '../gateway/gateway.service';
       },
     ]),
   ],
-  controllers: [GatewayChatController],
+  controllers: [GatewayChatController, GatewaySocialController],
   providers: [GatewayService],
   exports: [ClientsModule],
 })

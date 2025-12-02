@@ -185,7 +185,28 @@ export class RedisService {
       return false;
     }
   }
+  async SisMembers({ key, values }: { key: string; values: string[] }) {
+    const pipeline = this.redis.pipeline();
 
+    for (const v of values) {
+      pipeline.sismember(key, v);
+    }
+
+    const results = await pipeline.exec();
+    // results: Array<[Error | null, number]>
+
+    if (!results) {
+      return values.map((uid) => ({
+        key: uid,
+        value: false,
+      }));
+    }
+
+    return values.map((uid, idx) => ({
+      key: uid,
+      value: results[idx][1] === 1,
+    }));
+  }
   /**
    * Get the number of members in a Redis Set.
    * @param key - The Redis key.

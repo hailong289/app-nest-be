@@ -22,7 +22,6 @@ jobs:
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest"
           docker build -t $IMAGE -f apps/auth/Dockerfile .
           docker push $IMAGE
-      - run: echo "${{ vars.TEST }}"
       - run: |
           gcloud run deploy auth-service \
             --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest \
@@ -32,7 +31,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \
-            --memory=128Mi \
+            --memory=512Mi \
             --port=8080 \
             --timeout=60s \
             --use-http2 \

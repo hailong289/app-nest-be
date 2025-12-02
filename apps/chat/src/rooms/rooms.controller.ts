@@ -4,7 +4,9 @@ import { GrpcMethod } from '@nestjs/microservices';
 import {
   ChangelinkAvatarRoomDto,
   ChangeNameRoomDto,
+  ChangeNickNameMemberDto,
   CreateRoomDto,
+  GetRoomDto,
   GetRoomType,
   LeavingRoomDto,
   RemoveMemberRoomDto,
@@ -25,7 +27,9 @@ export class RoomsController {
   }
   @GrpcMethod('ChatService', 'RemoveMember')
   async removeMbr(@Body() payload: RemoveMemberRoomDto) {
-    return this.roomsService.removeMemberByAdmin(payload);
+    const result = this.roomsService.removeMemberByAdmin(payload);
+    console.log('🚀 ~ RoomsController ~ removeMbr ~ result:', result);
+    return result;
   }
   @GrpcMethod('ChatService', 'AddMember')
   async addMbr(@Body() payload: RemoveMemberRoomDto) {
@@ -36,6 +40,13 @@ export class RoomsController {
     return this.roomsService.GetRooms(payload);
   }
 
+  @GrpcMethod('ChatService', 'GetRoom')
+  async GetRoom(@Body() payload: GetRoomDto) {
+    const result = await this.roomsService.GetRoom(payload);
+    console.log('🚀 ~ RoomsController ~ GetRoom ~ result:', result.metadata);
+    return result;
+  }
+
   @GrpcMethod('ChatService', 'ChangeAvatar')
   async ChangeAvatar(@Body() payload: ChangelinkAvatarRoomDto) {
     return this.roomsService.changeLinkAvatarRoom(payload);
@@ -44,5 +55,10 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'ChangeName')
   async ChangeName(@Body() payload: ChangeNameRoomDto) {
     return this.roomsService.changeNameRoom(payload);
+  }
+
+  @GrpcMethod('ChatService', 'ChangeNickName')
+  async ChangeNickName(@Body() payload: ChangeNickNameMemberDto) {
+    return this.roomsService.changeNickNameMember(payload);
   }
 }

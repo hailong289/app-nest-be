@@ -1,22 +1,25 @@
 import { Global, Logger, Module } from '@nestjs/common';
-import mongodbConfig from './configs/mongo.config';
-
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import path, { join } from 'path';
 import { MongooseModule } from '@nestjs/mongoose';
-import messagesModel from './model/messages.model';
-import userModel from './model/user.model';
-import roomModel from './model/room.model';
-import friendshipModel from './model/friendship.model';
-import keysModel from './model/keys.model';
-import otpModel from './model/otp.model';
+import {
+  flashcardModel,
+  flashcardDeckModel,
+  friendshipModel,
+  keysModel,
+  messageHidesModel,
+  messageReactionsModel,
+  messageReadsModel,
+  messagesModel,
+  otpModel,
+  quizModel,
+  roomEventsModel,
+  roomModel,
+  roomsStateModel,
+  roomsUsersStateModel,
+  userModel,
+} from './model';
 import AttachmentModel from './model/Attachment.model';
-import roomEventsModel from './model/room-events.model';
-import roomsStateModel from './model/rooms-state.model';
-import roomsUsersStateModel from './model/rooms-users-state.model';
-import messageReadsModel from './model/message-reads.model';
-import messageHidesModel from './model/message-hides.model';
-import messageReactionsModel from './model/message-reactions.model';
+
 @Global()
 @Module({
   imports: [
@@ -52,6 +55,9 @@ import messageReactionsModel from './model/message-reactions.model';
       messageReadsModel,
       messageHidesModel,
       messageReactionsModel,
+      quizModel,
+      flashcardModel,
+      flashcardDeckModel,
     ]),
   ],
   exports: [

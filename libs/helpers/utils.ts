@@ -1,12 +1,15 @@
-import { INestMicroservice, Type } from '@nestjs/common';
+import { INestMicroservice, Logger, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
+  ClientKafka,
   KafkaOptions,
   MicroserviceOptions,
   Transport,
 } from '@nestjs/microservices';
+import axios from 'axios';
 import { Types } from 'mongoose';
+import { Response } from './response';
 
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
@@ -25,7 +28,7 @@ class Utils {
     return typeof value === 'number' && isFinite(value);
   }
   static escapeRegex(str: string) {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   }
 
   static isBoolean(value: any): value is boolean {
@@ -60,11 +63,11 @@ class Utils {
     keys: K[],
   ): Pick<T, K> {
     const result = {} as Pick<T, K>;
-    keys.forEach((key) => {
+    for (const key of keys) {
       if (key in obj) {
         result[key] = obj[key];
       }
-    });
+    }
     return result;
   }
 
@@ -74,11 +77,11 @@ class Utils {
     keys: K[],
   ): Omit<T, K> {
     const result = { ...obj };
-    keys.forEach((key) => {
+    for (const key of keys) {
       if (key in result) {
         delete result[key];
       }
-    });
+    }
     return result;
   }
 
@@ -89,10 +92,10 @@ class Utils {
     excludeFields: string[] = [],
   ): Partial<Unprefixed<T, P>> {
     const result = {} as Partial<Unprefixed<T, P>>;
-    Object.keys(obj).forEach((key) => {
+    for (const key of Object.keys(obj)) {
       // Bỏ qua các trường ngoại lệ
       if (excludeFields.includes(key)) {
-        return;
+        continue;
       }
 
       if (key.startsWith(prefix)) {
@@ -107,7 +110,7 @@ class Utils {
           key as keyof T
         ] as unknown as Unprefixed<T, P>[keyof Unprefixed<T, P>];
       }
-    });
+    }
     return result;
   }
 
@@ -118,14 +121,14 @@ class Utils {
     excludeFields: string[] = [],
   ): { [K in keyof T as `${P}${string & K}`]: T[K] } {
     const result = {} as { [K in keyof T as `${P}${string & K}`]: T[K] };
-    Object.keys(obj).forEach((key) => {
+    for (const key of Object.keys(obj)) {
       // Bỏ qua các trường ngoại lệ
       if (excludeFields.includes(key)) {
-        return;
+        continue;
       }
       const newKey = `${prefix}${key}` as keyof typeof result;
       result[newKey] = obj[key as keyof T] as (typeof result)[typeof newKey];
-    });
+    }
     return result;
   }
 
@@ -193,23 +196,59 @@ class Utils {
     // Tạo context để lấy config
     const appContext = await NestFactory.createApplicationContext(module);
     const configService = appContext.get(ConfigService);
-
-    const client_id = configService.get('kafka.client_id');
-    const host = configService.get('kafka.host');
-    const port = configService.get('kafka.port');
-    const group_id = configService.get('kafka.group_id');
-    const isSasl = configService.get('kafka.is_sasl');
-    const mechanism = configService.get('kafka.mechanism');
-    const username = configService.get('kafka.username');
-    const password = configService.get('kafka.password');
+    const logger = new Logger('Create Microservice Kafka');
+    const client_id =
+      configService.get<string>('kafka.client_id') ||
+      configService.get<string>('kafka.clientId') ||
+      'nestjs-app';
+    const host = configService.get<string>('kafka.host') || 'localhost';
+    const port = configService.get<string>('kafka.port') || '9092';
+    const group_id =
+      configService.get<string>('kafka.group_id') ||
+      configService.get<string>('kafka.groupId') ||
+      'default-group';
+    const isSasl =
+      configService.get<boolean>('kafka.is_sasl') ||
+      configService.get<boolean>('kafka.isSasl') ||
+      false;
+    const mechanism =
+      configService.get<string>('kafka.mechanism') ||
+      configService.get<string>('kafka.sasl.mechanism') ||
+      'scram-sha-256';
+    const username =
+      configService.get<string>('kafka.username') ||
+      configService.get<string>('kafka.sasl.username') ||
+      '';
+    const password =
+      configService.get<string>('kafka.password') ||
+      configService.get<string>('kafka.sasl.password') ||
+      '';
+    const connectionTimeout =
+      configService.get<number>('kafka.connectionTimeout') || 10000;
+    const requestTimeout =
+      configService.get<number>('kafka.requestTimeout') || 30000;
+    const sessionTimeout =
+      configService.get<number>('kafka.consumer.sessionTimeout') || 30000;
+    const heartbeatInterval =
+      configService.get<number>('kafka.consumer.heartbeatInterval') || 3000;
 
     const options: KafkaOptions['options'] = {
       client: {
         clientId: client_id,
         brokers: [`${host}:${port}`],
+        connectionTimeout,
+        requestTimeout,
+        retry: {
+          initialRetryTime: 100,
+          retries: 8,
+          maxRetryTime: 30000,
+          multiplier: 2,
+        },
       },
       consumer: {
         groupId: group_id,
+        sessionTimeout,
+        heartbeatInterval,
       },
     };
 
@@ -218,10 +257,10 @@ class Utils {
         ...options.client,
         ssl: false,
         sasl: {
-          mechanism: mechanism,
-          username: username,
-          password: password,
-        },
+          mechanism,
+          username: username || '',
+          password: password || '',
+        } as never,
         brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
       };
     }
@@ -231,8 +270,91 @@ class Utils {
         transport: Transport.KAFKA,
         options,
       });
-
+    logger.log(`Create microservice ${serviceName} with Kafka`);
     return microservice;
+  }
+
+  static async callApiGateway(
+    url: string,
+    method: string,
+    body: Record<string, any> = {},
+    headers: Record<string, any> = {},
+    timeout: number = 5000,
+  ): Promise<any> {
+    // cho 5s
+    try {
+      const response = await axios.request({
+        url,
+        method,
+        data: body,
+        headers,
+        timeout,
+      });
+      return response.data;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return Response.error(message, 500, 'INTERNAL_SERVER_ERROR');
+    }
+  }
+
+  static async dispatchEventKafka(
+    client: ClientKafka,
+    pattern: string,
+    data: Record<string, unknown> = {},
+  ): Promise<
+    ReturnType<typeof Response.success> | ReturnType<typeof Response.error>
+  > {
+    // bắt đầu connection kafka
+    try {
+      await client.connect();
+    } catch (error) {
+      return Response.error(
+        `Không thể kết nối đến Kafka: ${error.message}`,
+        503,
+        'SERVICE_UNAVAILABLE',
+      );
+    }
+    try {
+      await client.emit(pattern, data);
+    } catch (error) {
+      return Response.error(
+        `Không thể gửi event ${pattern}: ${error.message}`,
+        503,
+        'SERVICE_UNAVAILABLE',
+      );
+    }
+    return Response.success(true, 'Gửi event thành công');
+  }
+
+  static parsePrivateKey(raw: string): string {
+    if (!raw) {
+      throw new Error('FIREBASE PRIVATE KEY is missing');
+    }
+
+    const trimmed = raw.trim();
+
+    // Nếu là base64 → giải mã
+    const isBase64 =
+      // chỉ gồm ký tự hợp lệ của base64
+      /^[A-Za-z0-9+/=]+$/.test(trimmed) &&
+      // độ dài divisible by 4
+      trimmed.length % 4 === 0;
+
+    if (isBase64) {
+      try {
+        const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+
+        // Kiểm tra xem sau khi decode có đúng PEM không
+        if (decoded.includes('BEGIN PRIVATE KEY')) {
+          return decoded;
+        }
+      } catch (err) {
+        // Nếu decode fail → rơi xuống dùng kiểu cũ
+      }
+    }
+
+    // Ngược lại là dạng chứa \n → convert
+    return trimmed.replace(/\\n/g, '\n');
   }
 }
 
