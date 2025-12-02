@@ -788,11 +788,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new BadRequestException(String(errorMessage));
       }
 
-      this.io.to(data.roomId).emit('call:start', {
-        ...result.metadata,
-        actionUserId: user.usr_id,
-        offer: data.offer,
-      });
+      this.io
+        .to(data.roomId)
+        .except(client.id)
+        .emit('call:start', {
+          ...result.metadata,
+          actionUserId: user.usr_id,
+          offer: data.offer,
+        });
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
@@ -838,11 +841,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new BadRequestException(String(errorMessage));
       }
 
-      this.io.to(data.roomId).emit('call:answer', {
-        ...result.metadata,
-        actionUserId: user.usr_id,
-        answer: data.answer,
-      });
+      this.io
+        .to(data.roomId)
+        .except(client.id)
+        .emit('call:answer', {
+          ...result.metadata,
+          actionUserId: user.usr_id,
+          answer: data.answer,
+        });
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error answering call:', error);
@@ -925,7 +931,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     data.userId = user.usr_id;
     console.log('🚀 ~ ChatGateway ~ handleCandidate ~ data:', data);
     try {
-      this.io.to(data.roomId).emit('call:candidate', {
+      this.io.to(data.roomId).except(client.id).emit('call:candidate', {
         roomId: data.roomId,
         userId: user.usr_id,
         candidate: data.candidate,
