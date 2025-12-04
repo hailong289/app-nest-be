@@ -285,6 +285,55 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
+    /** 6.2) Call history
+     *  Lưu ý:
+     *  - Proto `MessageCore` khai báo field: `CallHistory call_history = 20;`
+     *  - Nest gRPC sẽ map giữa JSON camelCase (`callHistory`) và snake_case (`call_history`)
+     *  - Vì vậy chúng ta cần:
+     *      + Lookup call histories theo `message_id`
+     *      + Lấy bản ghi mới nhất (nếu có nhiều)
+     *      + Project field dưới dạng `callHistory` (camelCase) trong kết quả cuối cùng
+     *        để gRPC có thể map sang field proto `call_history`
+     */
+    {
+      $lookup: {
+        from: 'CallHistories',
+        localField: '_id',
+        foreignField: 'message_id',
+        pipeline: [
+          { $sort: { createdAt: -1 } }, // bản ghi mới nhất trước
+          { $limit: 1 },
+          {
+            $project: {
+              _id: 1,
+              room_id: 1,
+              caller_id: 1,
+              callee_id: 1,
+              call_type: 1,
+              status: 1,
+              started_at: 1,
+              answered_at: 1,
+              ended_at: 1,
+              duration: 1,
+              ended_by: 1,
+              end_reason: 1,
+              call_id: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              __v: 1,
+            },
+          },
+        ],
+        as: 'callHistoryDoc',
+      },
+    },
+    // chuẩn hoá: luôn là 1 object hoặc null
+    {
+      $addFields: {
+        callHistoryDoc: { $first: '$callHistoryDoc' },
+      },
+    },
+
     /** 7) Project (roomId theo rule bạn yêu cầu) */
     {
       $project: {
@@ -360,6 +409,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         // 🔥 read list + count
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
+        // gRPC sẽ map `callHistory` (JSON) -> `call_history` (proto)
+        call_history: '$callHistoryDoc',
       },
     },
 

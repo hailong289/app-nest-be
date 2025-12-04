@@ -323,6 +323,7 @@ message MessageCore {
   repeated MessageReadBy read_by = 17;        // List of users who read
   int32 read_by_count = 18;  
   bool isDeleted=19; 
+  CallHistory call_history = 20;             // Call history
               // Count of users who read
 }
 
@@ -429,23 +430,24 @@ message HandleDeleteAllInput{
 
 
 message StartCallInput{
-  string callerId=1;
-  string calleeId=2;
-  string roomId=3;
-  string callType=4;
+  string callerId = 1;
+  string calleeId = 2;
+  string roomId = 3;
+  string callType = 4;
+  string messageId = 5;
 }
 
 message AnswerCallInput{
-  string callerId=1;
-  string calleeId=2;
-  string roomId=3;
+  string callerId = 1;
+  string calleeId = 2;
+  string roomId = 3;
 }
 
 message EndCallInput{
-  string callerId=1;
-  string calleeId=2;
-  string roomId=3;
-  string type=4;
+  string callerId = 1;
+  string calleeId = 2;
+  string roomId = 3;
+  string status = 4; // 'ended' | 'missed' | 'rejected'
 }
 
 message GetCallHistoryInput{

@@ -77,8 +77,10 @@ export class HandleChatController {
       calleeId: string; // Người nhận cuộc gọi
       roomId: string; // ID phòng gọi
       callType: 'video' | 'audio'; // Loại cuộc gọi
+      messageId: string; // ID tin nhắn cuộc gọi
     },
   ) {
+    console.log('🚀 ~ HandleChatController ~ StartCall ~ payload:', payload);
     const result = await this.hdChat.startCall(payload);
     return result;
   }

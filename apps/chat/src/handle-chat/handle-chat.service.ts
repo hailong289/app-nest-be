@@ -461,6 +461,7 @@ export class HandleChatService {
       { $limit: Number(limit) }, // Giới hạn số lượng
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
+    console.log('🚀 ~ HandleChatService ~ getMsgFromRoom ~ result:', result);
     return Response.success(result, 'Tin nhắn mới thành công');
   }
 
@@ -741,7 +742,7 @@ export class HandleChatService {
   }
 
   // bắt đầu cuộc gọi
-  async startCall({ callerId, calleeId, roomId, callType }: any) {
+  async startCall({ callerId, calleeId, roomId, callType, messageId }: any) {
     try {
       const caller = await this.userModel.findOne({ usr_id: callerId });
       if (!caller) {
@@ -764,6 +765,9 @@ export class HandleChatService {
         call_type: callType,
         status: 'initiated',
         started_at: new Date(),
+        message_id: messageId
+          ? this.utils.convertToObjectIdMongoose(messageId)
+          : null,
       });
 
       if (!callHistory) {

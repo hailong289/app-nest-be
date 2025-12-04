@@ -761,6 +761,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomId: string;
       callType: 'video' | 'audio';
       offer: string;
+      messageId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -775,6 +776,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         actionUserId: user.usr_id,
         offer: data.offer,
       });
+      // tạo tin nhắn cuộc gọi
+      // Tạo message qua gRPC
+      const resultMsg = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
+        {
+          userId: user._id,
+          roomId: data.roomId,
+          type: 'call',
+          content: '',
+          attachments: [],
+          replyTo: '',
+        },
+      )) as ChatGatewayResponse;
+
+      console.log('🚀 ~ ChatGateway ~ handleCall ~ resultMsg:', resultMsg);
+      if (!resultMsg || resultMsg.statusCode !== 200) {
+        const errorMessage = Array.isArray(resultMsg?.message)
+          ? resultMsg.message.join(', ')
+          : resultMsg?.message || 'Tạo tin nhắn cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+      const { msgId } = resultMsg.metadata;
+      data.messageId = msgId;
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.StartCall.bind(this.ChatGrpcService),

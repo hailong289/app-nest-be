@@ -10,7 +10,7 @@ export type CallStatus =
   | 'answered'
   | 'ended'
   | 'missed'
-  | 'rejected'; 
+  | 'rejected';
 
 @Schema({ timestamps: true, collection: 'CallHistories' })
 export class CallHistory {
@@ -24,6 +24,10 @@ export class CallHistory {
 
   @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })
   room_id: Types.ObjectId; // ID phòng gọi
+
+  // tin nhắn cuộc gọi
+  @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
+  message_id: Types.ObjectId | null; // ID tin nhắn cuộc gọi
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   caller_id: Types.ObjectId; // Người gọi cuộc gọi
