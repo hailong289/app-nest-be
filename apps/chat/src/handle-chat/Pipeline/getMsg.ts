@@ -303,26 +303,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         pipeline: [
           { $sort: { createdAt: -1 } }, // bản ghi mới nhất trước
           { $limit: 1 },
-          {
-            $project: {
-              _id: 1,
-              room_id: 1,
-              caller_id: 1,
-              callee_id: 1,
-              call_type: 1,
-              status: 1,
-              started_at: 1,
-              answered_at: 1,
-              ended_at: 1,
-              duration: 1,
-              ended_by: 1,
-              end_reason: 1,
-              call_id: 1,
-              createdAt: 1,
-              updatedAt: 1,
-              __v: 1,
-            },
-          },
         ],
         as: 'callHistoryDoc',
       },

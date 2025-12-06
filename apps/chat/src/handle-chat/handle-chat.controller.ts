@@ -69,33 +69,33 @@ export class HandleChatController {
     return result;
   }
 
-  @GrpcMethod('ChatService', 'StartCall')
-  async StartCall(
+  @GrpcMethod('ChatService', 'RequestCall')
+  async RequestCall(
     @Body()
     payload: {
-      callerId: string; // Người gọi cuộc gọi
-      calleeId: string; // Người nhận cuộc gọi
+      actionUserId: string; // Người bắt đầu cuộc gọi
+      membersIds: string[]; // ID các thành viên trong cuộc gọi
       roomId: string; // ID phòng gọi
       callType: 'video' | 'audio'; // Loại cuộc gọi
       messageId: string; // ID tin nhắn cuộc gọi
     },
   ) {
-    console.log('🚀 ~ HandleChatController ~ StartCall ~ payload:', payload);
-    const result = await this.hdChat.startCall(payload);
+    console.log('🚀 ~ HandleChatController ~ RequestCall ~ payload:', payload);
+    const result = await this.hdChat.requestCall(payload);
     return result;
   }
 
-  @GrpcMethod('ChatService', 'AnswerCall')
-  async AnswerCall(
+  @GrpcMethod('ChatService', 'AcceptCall')
+  async AcceptCall(
     @Body()
     payload: {
-      callerId: string; // Người gọi cuộc gọi
-      calleeId: string; // Người nhận cuộc gọi
-      roomId: string; // ID phòng gọi
+      actionUserId: string;
+      membersIds: string[];
+      roomId: string;
     },
   ) {
-    console.log('🚀 ~ HandleChatController ~ AnswerCall ~ payload:', payload);
-    const result = await this.hdChat.answerCall(payload);
+    console.log('🚀 ~ HandleChatController ~ AcceptCall ~ payload:', payload);
+    const result = await this.hdChat.acceptCall(payload);
     return result;
   }
 
@@ -103,10 +103,9 @@ export class HandleChatController {
   async EndCall(
     @Body()
     payload: {
-      callerId: string; // Người gọi cuộc gọi
-      calleeId: string; // Người nhận cuộc gọi
+      actionUserId: string; // Người gọi hoặc người nhận cuộc gọi
       roomId: string; // ID phòng gọi
-      status: CallStatus; // Loại kết thúc
+      status: 'ended' | 'missed' | 'rejected' | 'cancelled'; // Trạng thái cuộc gọi
     },
   ) {
     console.log('🚀 ~ HandleChatController ~ EndCall ~ payload:', payload);

@@ -7,10 +7,48 @@ export type CallHistoryDocument = HydratedDocument<CallHistory>;
 export type CallType = 'video' | 'audio';
 export type CallStatus =
   | 'initiated'
-  | 'answered'
-  | 'ended'
-  | 'missed'
-  | 'rejected';
+  | 'started' // Cuộc gọi đã bắt đầu
+  | 'ended'; // Cuộc gọi đã kết thúc
+
+export type MemberStatus =
+  | 'initiated'
+  | 'pending' // người nhận đã nhận cuộc gọi
+  | 'started'
+  | 'cancelled' // người gọi đã hủy cuộc gọi
+  | 'rejected' // người nhận đã từ chối cuộc gọi
+  | 'missed' // người nhận đã bỏ qua cuộc gọi
+  | 'ended'; // người nhận hoặc người gọi đã kết thúc cuộc gọi
+
+@Schema({ _id: false })
+export class Member {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  id: Types.ObjectId;
+
+  @Prop({ type: String, required: true })
+  fullname: string;
+
+  @Prop({ type: String, default: '' })
+  avatar: string;
+
+  @Prop({ type: Boolean, default: false, required: true })
+  is_caller: boolean; // true: người gọi, false: người nhận
+
+  @Prop({
+    type: String,
+    enum: [
+      'initiated',
+      'pending',
+      'started', // người nhận và người gọi đã bắt đầu cuộc gọi
+      'cancelled', // người gọi đã hủy cuộc gọi
+      'rejected',
+      'missed',
+      'ended',
+    ],
+    default: 'initiated',
+    required: true,
+  })
+  status: MemberStatus;
+}
 
 @Schema({ timestamps: true, collection: 'CallHistories' })
 export class CallHistory {
@@ -29,11 +67,11 @@ export class CallHistory {
   @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
   message_id: Types.ObjectId | null; // ID tin nhắn cuộc gọi
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
-  caller_id: Types.ObjectId; // Người gọi cuộc gọi
-
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
-  callee_id: Types.ObjectId; // Người nhận cuộc gọi
+  @Prop({
+    type: [Member],
+    required: true,
+  })
+  members: Member[]; // ID các thành viên trong cuộc gọi
 
   @Prop({
     type: String,
@@ -43,32 +81,14 @@ export class CallHistory {
   })
   call_type: CallType; // Loại cuộc gọi
 
-  @Prop({
-    type: String,
-    enum: ['initiated', 'answered', 'ended', 'missed', 'rejected'],
-    default: 'initiated',
-    required: true,
-    index: true,
-  })
-  status: CallStatus; // Trạng thái cuộc gọi
-
   @Prop({ type: Date, default: Date.now, required: true })
   started_at: Date; // Thời gian bắt đầu cuộc gọi
-
-  @Prop({ type: Date, default: null })
-  answered_at: Date | null; // Thời gian trả lời cuộc gọi
 
   @Prop({ type: Date, default: null })
   ended_at: Date | null; // Thời gian kết thúc cuộc gọi
 
   @Prop({ type: Number, default: 0 })
   duration: number; // Thời gian gọi
-
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
-  ended_by: Types.ObjectId | null; // Người kết thúc cuộc gọi
-
-  @Prop({ type: String, default: '' })
-  end_reason: string; // Lý do kết thúc (ví dụ: 'normal', 'timeout', 'error')
 
   createdAt: Date;
   updatedAt: Date;
@@ -78,9 +98,8 @@ export const CallHistorySchema = SchemaFactory.createForClass(CallHistory);
 
 /** Indexes */
 CallHistorySchema.index({ room_id: 1, started_at: -1 });
-CallHistorySchema.index({ caller_id: 1, started_at: -1 });
-CallHistorySchema.index({ callee_id: 1, started_at: -1 });
-CallHistorySchema.index({ status: 1, started_at: -1 });
+CallHistorySchema.index({ 'members.id': 1, started_at: -1 });
+CallHistorySchema.index({ 'members.status': 1, started_at: -1 });
 CallHistorySchema.index({ call_id: 1 }, { unique: true });
 
 /** Hooks */

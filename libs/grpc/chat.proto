@@ -25,8 +25,8 @@ service ChatService {
   rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
   rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
   // Call
-  rpc StartCall(StartCallInput)returns(outputCall);
-  rpc AnswerCall(AnswerCallInput)returns(outputCall);
+  rpc RequestCall(RequestCallInput)returns(outputCall);
+  rpc AcceptCall(AcceptCallInput)returns(outputCall);
   rpc EndCall(EndCallInput)returns(outputCall);
   rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
 }
@@ -429,25 +429,24 @@ message HandleDeleteAllInput{
 
 
 
-message StartCallInput{
-  string callerId = 1;
-  string calleeId = 2;
+message RequestCallInput{
+  string actionUserId = 1;
+  repeated string membersIds = 2;
   string roomId = 3;
   string callType = 4;
   string messageId = 5;
 }
 
-message AnswerCallInput{
-  string callerId = 1;
-  string calleeId = 2;
+message AcceptCallInput{
+  string actionUserId = 1;
+  repeated string membersIds = 2;
   string roomId = 3;
 }
 
 message EndCallInput{
-  string callerId = 1;
-  string calleeId = 2;
-  string roomId = 3;
-  string status = 4; // 'ended' | 'missed' | 'rejected'
+  string actionUserId = 1;
+  string roomId = 2;
+  string status = 3; // 'ended' | 'missed' | 'rejected' | 'cancelled'
 }
 
 message GetCallHistoryInput{
@@ -466,32 +465,24 @@ message outputCall {
 message CallMetadata {
   CallHistory history = 1;      
   RoomResponse room = 2;         
-  UserInfo caller = 3;        // AES encrypted caller data
-  UserInfo callee = 4;       // AES encrypted callee data
-  string callType = 5;     
+  string callType = 3;     
 }
 
-message UserInfo {
+message Member {
   string id = 1;
   string fullname = 2;
   string avatar = 3;
+  string status = 4;
+  bool is_caller = 5;
 }
-
 message CallHistory {
-  string _id = 1;                    // MongoDB ObjectId as string
-  string room_id = 2;                 // MongoDB ObjectId as string
-  string caller_id = 3;               // MongoDB ObjectId as string
-  string callee_id = 4;               // MongoDB ObjectId as string
-  string call_type = 5;               // 'video' | 'audio'
-  string status = 6;                  // 'initiated' | 'answered' | 'ended' | 'missed' | 'rejected'
-  string started_at = 7;              // ISO timestamp string
-  string answered_at = 8;             // ISO timestamp string (optional, can be empty)
-  string ended_at = 9;                // ISO timestamp string (optional, can be empty)
-  int64 duration = 10;                // Duration in milliseconds
-  string ended_by = 11;               // MongoDB ObjectId as string (optional, can be empty)
-  string end_reason = 12;             // Reason for ending call
-  string call_id = 13;                // Business call ID
-  string createdAt = 14;              // ISO timestamp string
-  string updatedAt = 15;              // ISO timestamp string
-  int32 __v = 16;                     // Mongoose version key
+  string _id = 1;         
+  string call_id = 2;
+  string room_id = 3;
+  string call_type = 4;
+  string message_id = 5;
+  repeated Member members = 6;
+  string started_at = 7;
+  string ended_at = 8;
+  int64 duration = 9;
 }

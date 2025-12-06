@@ -11,7 +11,7 @@ import { BadRequestException, Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CallStatus, RedisService } from 'libs/db/src';
+import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
@@ -46,8 +46,8 @@ export interface ChatGrpcService {
   HandlePinned(data: any): any;
   HandleDeleteForUser(data: any): any;
   HandleDelete(data: any): any;
-  StartCall(data: any): any;
-  AnswerCall(data: any): any;
+  RequestCall(data: any): any;
+  AcceptCall(data: any): any;
   EndCall(data: any): any;
   SendCandidate(data: any): any;
 }
@@ -751,31 +751,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // ==== call
-  @SubscribeMessage('call:start')
-  async handleCall(
+  @SubscribeMessage('call:request')
+  async handleCallRequest(
     @MessageBody()
     data: {
-      callerId?: string;
-      calleeId?: string;
+      actionUserId?: string;
+      membersIds?: string[];
       roomId: string;
       callType: 'video' | 'audio';
-      offer: string;
       messageId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-    data.callerId = user.usr_id;
     try {
-      console.log('🚀 ~ ChatGateway ~ handleCall ~ data:', {
-        actionUserId: user.usr_id,
-        offer: data.offer,
-      });
+      const user = await this.getUser(client);
       // tạo tin nhắn cuộc gọi
       // Tạo message qua gRPC
       const resultMsg = (await this.gatewayService.dispatchGrpcRequest(
@@ -790,7 +779,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         },
       )) as ChatGatewayResponse;
 
-      console.log('🚀 ~ ChatGateway ~ handleCall ~ resultMsg:', resultMsg);
       if (!resultMsg || resultMsg.statusCode !== 200) {
         const errorMessage = Array.isArray(resultMsg?.message)
           ? resultMsg.message.join(', ')
@@ -801,9 +789,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       data.messageId = msgId;
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.StartCall.bind(this.ChatGrpcService),
+        this.ChatGrpcService.RequestCall.bind(this.ChatGrpcService),
         data,
-      )) as ChatGatewayResponse;
+      )) as ChatGatewayCallResponse;
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -812,14 +800,90 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new BadRequestException(String(errorMessage));
       }
 
-      this.io
-        .to(data.roomId)
-        .except(client.id)
-        .emit('call:start', {
-          ...result.metadata,
-          actionUserId: user.usr_id,
-          offer: data.offer,
-        });
+      const { history, room, callType } = result.metadata;
+
+      this.io.to(data.roomId).except(client.id).emit('call:request', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: user.usr_id,
+        callType: callType,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error starting call:', error);
+      client.emit('error', {
+        message: 'Bắt đầu cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:accepted')
+  async handleAccept(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      membersIds?: string[];
+      roomId: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayCallResponse;
+
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Trả lời cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room } = result.metadata;
+
+      this.io.to(data.roomId).except(client.id).emit('call:accepted', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error answering call:', error);
+      client.emit('error', {
+        message: 'Trả lời cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ==== call
+  @SubscribeMessage('call:start')
+  async handleCall(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      offer: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:start', data);
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
@@ -838,41 +902,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleAnswer(
     @MessageBody()
     data: {
-      calleeId?: string;
-      callerId?: string;
+      actionUserId?: string;
       roomId: string;
       answer: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-    data.calleeId = user.usr_id;
     try {
-      // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
-      const result = (await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.AnswerCall.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayResponse;
-
-      if (!result || result.statusCode !== 200) {
-        const errorMessage = Array.isArray(result?.message)
-          ? result.message.join(', ')
-          : result?.message || 'Trả lời cuộc gọi thất bại';
-        throw new BadRequestException(String(errorMessage));
-      }
-
-      this.io
-        .to(data.roomId)
-        .except(client.id)
-        .emit('call:answer', {
-          ...result.metadata,
-          actionUserId: user.usr_id,
-          answer: data.answer,
-        });
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:answer', data);
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error answering call:', error);
@@ -891,25 +930,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleEnd(
     @MessageBody()
     data: {
-      callerId?: string; // callerId or calleeId
-      calleeId?: string;
+      actionUserId?: string;
       roomId: string;
       status: CallStatus;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-
     try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
       // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.EndCall.bind(this.ChatGrpcService),
         data,
-      )) as ChatGatewayResponse;
+      )) as ChatGatewayCallResponse;
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -918,9 +952,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         throw new BadRequestException(String(errorMessage));
       }
 
+      const { history, room } = result.metadata;
+
       this.io.to(data.roomId).emit('call:end', {
-        ...result.metadata,
-        actionUserId: user.usr_id,
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+        status: data.status,
       });
       return { ok: true };
     } catch (error) {
@@ -941,25 +979,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleCandidate(
     @MessageBody()
     data: {
-      userId?: string;
+      actionUserId?: string;
       roomId: string;
       candidate: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-    data.userId = user.usr_id;
-    console.log('🚀 ~ ChatGateway ~ handleCandidate ~ data:', data);
     try {
-      this.io.to(data.roomId).except(client.id).emit('call:candidate', {
-        roomId: data.roomId,
-        userId: user.usr_id,
-        candidate: data.candidate,
-      });
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:candidate', data);
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error sending candidate:', error);
@@ -972,6 +1001,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  async getUser(@ConnectedSocket() client: SocketWithUser) {
+    const user = client.user;
+    if (!user) {
+      throw new Error('Unauthorized');
+    }
+    return user;
   }
 }
 
@@ -998,5 +1035,17 @@ interface ChatGatewayDeleteResponse<T = any> {
     members: Array<Record<string, any>>;
     roomId: string;
     // Có thể bổ sung các trường khác nếu cần
+  };
+}
+
+interface ChatGatewayCallResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: {
+    history: CallHistory;
+    room: Room;
+    callType: string;
   };
 }
