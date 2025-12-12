@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package filesystem;
-
+import "document.proto";
 service FileSystemService {
     rpc UploadSingleFile(UploadSingleFileRequest) returns (UploadSingleFileResponse);
     rpc UploadMultipleFiles(UploadMultipleFilesRequest) returns (UploadMultipleFilesResponse);
@@ -116,3 +116,4 @@ message UploadSingleFileForUserResponse {
     string reasonStatusCode = 3;
     UploadSingleFileForUserCore metadata = 4;
 }
+

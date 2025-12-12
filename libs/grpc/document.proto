@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package document;
+
+service DocumentService {
+    rpc CreateDoc(CreateDocRequest) returns (DocumentResponse);
+    rpc GetDoc(GetDocRequest) returns (DocumentResponse);
+    rpc UpdateDoc(UpdateDocRequest) returns (DocumentResponse);
+    rpc DeleteDoc(DeleteDocRequest) returns (DocumentResponse);
+    rpc ListDocs(ListDocsRequest) returns (DocumentListResponse);
+}
+
+// ========================================================
+// Document Service Messages
+// ========================================================
+
+message SharedWithItem {
+    string userId = 1;
+    string role = 2;
+}
+
+message DocumentMetadata {
+    string _id = 1;
+    string ownerId = 2;
+    string title = 3;
+    string roomId = 4;
+    bytes yjsSnapshot = 5;
+    string plainText = 6;
+    string visibility = 7;
+    repeated SharedWithItem sharedWith = 8;
+    repeated string attachmentIds = 9;
+    string createdAt = 10;
+    string updatedAt = 11;
+}
+
+message CreateDocRequest {
+    string owerId = 1;
+    string title = 2;
+    string visibility = 3;
+    bytes yjsSnapshot = 4;
+    string plainText = 5;
+    repeated string attachmentIds = 6;
+    repeated SharedWithItem sharedWith = 7;
+}
+
+message GetDocRequest {
+    string docId = 1;
+    string userId = 2;
+}
+
+message UpdateDocRequest {
+    string docId = 1;
+    string userId = 2;
+    bytes yjsSnapshot = 3;
+    string plainText = 4;
+}
+
+message DeleteDocRequest {
+    string docId = 1;
+    string userId = 2;
+}
+
+message ListDocsRequest {
+    string roomId = 1;
+    string userId = 2;
+}
+
+message DocumentResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    DocumentMetadata metadata = 4;
+}
+
+message DocumentListResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated DocumentMetadata metadata = 4;
+}

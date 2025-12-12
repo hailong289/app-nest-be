@@ -1,14 +1,18 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule } from '@nestjs/config';
+import { DocGateway } from './doc-gateway';
+import { GatewayModule } from '../../gateway/gateway.module';
+import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import { join } from 'path';
-import { GatewayService } from '../gateway/gateway.service';
 import * as grpc from '@grpc/grpc-js';
-import { GatewayFilesystemController } from './gateway-filesystem.controller';
-import { GatewayDocumentController } from './docs/gateway-document.controller';
 
 @Module({
   imports: [
+    ConfigModule,
+    JwtModule.register({}),
+    GatewayModule,
     ClientsModule.registerAsync([
       {
         name: SERVICES.FILESYSTEM,
@@ -56,8 +60,7 @@ import { GatewayDocumentController } from './docs/gateway-document.controller';
       },
     ]),
   ],
-  controllers: [GatewayFilesystemController, GatewayDocumentController],
-  providers: [GatewayService],
-  exports: [ClientsModule],
+  providers: [DocGateway],
+  exports: [DocGateway],
 })
-export class GatewayFileSystemModule {}
+export class DocWebSocketModule {}

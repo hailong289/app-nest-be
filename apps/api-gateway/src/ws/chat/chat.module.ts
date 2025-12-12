@@ -5,7 +5,7 @@ import { ChatGateway } from './chat-gateway';
 import { GatewayNotificationModule } from '../../notification/gateway-notification.module';
 import { GatewayModule } from '../../gateway/gateway.module';
 import { join } from 'node:path';
-import { ClientsModule, KafkaOptions, Transport } from '@nestjs/microservices';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import notificationConfig from '../../config/notification.config';
 import * as grpc from '@grpc/grpc-js';
@@ -59,38 +59,39 @@ import * as grpc from '@grpc/grpc-js';
         name: SERVICES.NOTIFICATION,
         inject: [ConfigService],
         useFactory: (config: ConfigService) => {
-          const client_id = config.get('notification.client_id');
-          const host = config.get('notification.host');
-          const port = config.get('notification.port');
-          const group_id = config.get('notification.group_id');
-          const isSasl = config.get('notification.is_sasl');
-          const mechanism = config.get('notification.mechanism');
-          const username = config.get('notification.username');
-          const password = config.get('notification.password');
-          const options: KafkaOptions['options'] = {
-            client: {
-              clientId: client_id,
-              brokers: [`${host}:${port}`],
-            },
-            consumer: {
-              groupId: group_id,
-            },
+          const clientId =
+            config.get<string>('notification.client_id') || 'app-nest-be';
+          const host = config.get<string>('notification.host') || 'localhost';
+          const port = config.get<number>('notification.port') || 9092;
+          const groupId =
+            config.get<string>('notification.group_id') || 'default-group';
+          const isSasl = config.get<boolean>('notification.is_sasl') ?? false;
+          const mechanism =
+            config.get<string>('notification.mechanism') || 'plain';
+          const username = config.get<string>('notification.username');
+          const password = config.get<string>('notification.password');
+
+          const brokers = [`${host}:${port}`];
+          const clientConfig: Record<string, unknown> = {
+            clientId,
+            brokers,
           };
 
-          if (isSasl) {
-            options.client = {
-              ...options.client,
-              ssl: false,
-              sasl: {
-                mechanism: mechanism,
-                username: username,
-                password: password,
-              },
-              brokers: options.client?.brokers || [`${host}:${port}`],
+          if (isSasl && username && password) {
+            clientConfig.ssl = false;
+            clientConfig.sasl = {
+              mechanism,
+              username,
+              password,
             };
           }
 
-          console.log('options kafka', options);
+          const options: Record<string, unknown> = {
+            client: clientConfig,
+            consumer: {
+              groupId,
+            },
+          };
           return {
             transport: Transport.KAFKA,
             options,

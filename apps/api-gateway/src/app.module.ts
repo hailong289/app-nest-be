@@ -10,7 +10,9 @@ import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module'
 import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { ChatWebSocketModule } from './ws/chat/chat.module';
+import { DocWebSocketModule } from './ws/doc/doc.module';
 import redisConfig from 'libs/db/src/config/redis.config';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -18,7 +20,7 @@ import redisConfig from 'libs/db/src/config/redis.config';
       envFilePath: path.resolve(
         process.cwd(),
         `apps/api-gateway/.env.${process.env.NODE_ENV || 'development'}`,
-      ), // thay đổi file để load môi trường ví dụ .env.production
+      ),
       load: [redisConfig],
     }),
     WsSharedModule,
@@ -28,7 +30,8 @@ import redisConfig from 'libs/db/src/config/redis.config';
     GatewayNotificationModule,
     GatewayFileSystemModule,
     GatewayChatModule,
-    ChatWebSocketModule, // WebSocket Chat Gateway
+    ChatWebSocketModule,
+    DocWebSocketModule,
   ],
 })
 export class AppModule {
@@ -44,6 +47,8 @@ export class AppModule {
         { path: 'auth/update-profile', method: RequestMethod.POST },
         { path: 'chat/*path', method: RequestMethod.ALL },
         { path: 'social/*path', method: RequestMethod.ALL },
+        { path: 'documents', method: RequestMethod.ALL },
+        { path: 'documents/*path', method: RequestMethod.ALL },
         { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
       );
   }
