@@ -28,6 +28,8 @@ async function bootstrap() {
         process.env.PROTO_URL || 'libs/grpc/ai.proto',
       ),
       url: `${process.env.HOST}:${process.env.PORT}`,
+      maxReceiveMessageLength: 500 * 1024 * 1024, // 500MB
+      maxSendMessageLength: 500 * 1024 * 1024, // 500MB
     },
   });
 

@@ -4,6 +4,9 @@ package ai;
 
 service AIService {
   rpc Moderation(ModerationRequest) returns (ModerationResponse);
+  rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
+  rpc SummaryDocument(SummaryDocumentRequest) returns (SummaryDocumentResponse);
+  rpc Translation(TranslationRequest) returns (TranslationResponse);
 }
 
 message ModerationRequest {
@@ -24,3 +27,60 @@ message ModerationMetadata {
 }
 
 
+message SearchMessagesRequest {
+  string text = 1;
+  string roomId = 2;
+  int32 limit = 3;
+}
+
+message SearchMessagesResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  SearchMessagesMetadata metadata = 4;
+}
+
+message SearchMessagesMetadata {
+  repeated Message messages = 1;
+}
+
+message Message {
+  string _id = 1;
+  string content = 2;
+  string createdAt = 3;
+  string updatedAt = 4;
+}
+
+message SummaryDocumentRequest {
+  FileRequest file = 1;
+}
+
+message SummaryDocumentResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+message FileRequest {
+  string originalname = 1;
+  bytes buffer = 2;
+  string mimetype = 3;
+  string fieldname=4;
+  string encoding=5;
+  int64 size=6;
+}
+
+message TranslationRequest {
+  string text = 1;
+  string from = 2; // vi, en, ...
+  string to = 3; // vi, en, ...
+}
+
+
+message TranslationResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}

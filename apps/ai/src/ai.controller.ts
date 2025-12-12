@@ -3,7 +3,8 @@ import { AIService } from './ai.service';
 import { GrpcMethod, MessagePattern } from '@nestjs/microservices';
 import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
-
+import { SearchMessagesDto } from '@app/dto/ai.dto';
+import type { MulterFile } from '@app/dto';
 @Controller()
 export class AIController {
   constructor(
@@ -27,5 +28,24 @@ export class AIController {
       data.roomId,
       data.messageId,
     );
+  }
+
+  @GrpcMethod('AIService', 'SearchMessages')
+  async searchMessages(data: SearchMessagesDto) {
+    return await this.embeddingService.searchSimilarMessages(
+      data.text,
+      data.limit,
+      data.roomId,
+    );
+  }
+
+  @GrpcMethod('AIService', 'SummaryDocument')
+  async summaryDocument(data: { file: MulterFile }) {
+    return await this.service.summaryDocument(data.file);
+  }
+
+  @GrpcMethod('AIService', 'Translation')
+  async translation(data: { text: string; from: string; to: string }) {
+    return await this.service.translation(data.text, data.from, data.to);
   }
 }

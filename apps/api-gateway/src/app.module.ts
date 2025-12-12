@@ -11,6 +11,7 @@ import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { ChatWebSocketModule } from './ws/chat/chat.module';
 import redisConfig from 'libs/db/src/config/redis.config';
+import { GatewayAiModule } from './ai/gateway-ai.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -28,6 +29,7 @@ import redisConfig from 'libs/db/src/config/redis.config';
     GatewayNotificationModule,
     GatewayFileSystemModule,
     GatewayChatModule,
+    GatewayAiModule,
     ChatWebSocketModule, // WebSocket Chat Gateway
   ],
 })

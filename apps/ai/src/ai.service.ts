@@ -1,11 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { AIUsageLog } from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import { GoogleModerationProvider } from './google.provider';
 import { Model } from 'mongoose';
-import { Response } from '@app/helpers/response';
 import { EmbeddingService } from './embedding.service';
 import { Message } from 'libs/db/src';
+import { MulterFile } from '@app/dto';
 
 @Injectable()
 export class AIService {
@@ -37,5 +36,15 @@ export class AIService {
       msg_content: { $regex: new RegExp(text, 'i') },
     });
     return messages;
+  }
+
+  async summaryDocument(file: MulterFile) {
+    const result = await this.googleProvider.summaryDocument(file);
+    return result;
+  }
+
+  async translation(text: string, from: string, to: string) {
+    const result = await this.googleProvider.translation(text, from, to);
+    return result;
   }
 }
