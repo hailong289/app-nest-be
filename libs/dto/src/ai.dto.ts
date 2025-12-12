@@ -6,3 +6,17 @@ export class ModerationDto {
   @IsOptional()
   userId: string;
 }
+
+export class SearchMessagesDto {
+  @IsNotEmpty({ message: 'Nội dung không để trống' })
+  text: string;
+
+  @IsOptional()
+  userId: string;
+
+  @IsNotEmpty({ message: 'Phòng chat không để trống' })
+  roomId: string;
+
+  @IsOptional()
+  limit: number = 5;
+}

@@ -3,14 +3,15 @@ https://docs.nestjs.com/controllers#controllers
 */
 
 import { SERVICES } from '@app/constants';
-import { Body, Controller, Inject, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
-import { ModerationDto } from '@app/dto/ai.dto';
+import { ModerationDto, SearchMessagesDto } from '@app/dto/ai.dto';
 
 interface AiGrpcService {
   // Define AI service methods here
   moderation(data: ModerationDto): any;
+  searchMessages(data: SearchMessagesDto): any;
 }
 
 @Controller('ai')
@@ -30,6 +31,14 @@ export class GatewayAiController {
     return this.gatewayService.dispatchGrpcRequest(
       this.aiService.moderation,
       body,
+    );
+  }
+
+  @Get('search-messages')
+  async searchMessages(@Query() query: SearchMessagesDto) {
+    return this.gatewayService.dispatchGrpcRequest(
+      this.aiService.searchMessages,
+      query,
     );
   }
 }
