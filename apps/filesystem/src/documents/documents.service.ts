@@ -155,6 +155,9 @@ export class DocumentsService {
 
     // 🔥 OPTIMIZED MERGE LOGIC
     if (updateData.yjsSnapshot) {
+      console.log(
+        `🔄 Merging doc ${docId}. Incoming size: ${updateData.yjsSnapshot.length}`,
+      );
       // 1. Tạo Doc tạm để merge
       const mergedDoc = new Y.Doc();
 
@@ -175,6 +178,9 @@ export class DocumentsService {
       // 4. Encode lại thành Buffer để lưu vào Mongo
       // Dùng Buffer.from để đảm bảo Mongoose hiểu đây là Binary
       newYjsSnapshotBinary = Buffer.from(Y.encodeStateAsUpdate(mergedDoc));
+      console.log(
+        `✅ Merge complete. New size: ${newYjsSnapshotBinary.length}`,
+      );
     }
 
     const updatedDoc = await this.docsModel.findByIdAndUpdate(

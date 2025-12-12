@@ -269,13 +269,13 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Convert array number sang Uint8Array/Buffer để gRPC hoặc Service xử lý
     const yjsBuffer = data.yjsSnapshot
-      ? new Uint8Array(data.yjsSnapshot)
+      ? Buffer.from(data.yjsSnapshot)
       : undefined;
     const { docId, plainText } = data;
 
     try {
       this.logger.debug(
-        `[DOC-SAVE] User ${user.usr_fullname} saving snapshot for ${docId}`,
+        `[DOC-SAVE] User ${user.usr_fullname} saving snapshot for ${docId}. Size: ${yjsBuffer?.length ?? 0} bytes`,
       );
 
       // Gọi Service để lưu vào DB (Logic nặng)
@@ -283,7 +283,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.DocGrpcService.UpdateDoc.bind(this.DocGrpcService),
         {
           docId,
-          yjsSnapshot: yjsBuffer, // Truyền Buffer/Uint8Array
+          yjsSnapshot: yjsBuffer, // Truyền Buffer
           plainText,
           userId: user._id,
         },
@@ -331,7 +331,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.to(docRoom).emit('user:cursor', {
       userId: user.usr_id,
       fullname: user.usr_fullname,
-      // avatar: user.usr_avatar,
+      avatar: user.usr_avatar,
       cursorPosition,
       color: this.getUserColor(user.usr_id),
     });
