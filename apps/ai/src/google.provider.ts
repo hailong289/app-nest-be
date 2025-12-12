@@ -45,19 +45,69 @@ export class GoogleModerationProvider {
   }
 
   async summaryDocument(file: MulterFile) {
+    // 1. Soạn Prompt chi tiết để AI tóm tắt có cấu trúc
+    const prompt = `
+  Role: Bạn là chuyên gia phân tích và tổng hợp thông tin.
+  Nhiệm vụ: Đọc tài liệu đính kèm và tạo bản tóm tắt nội dung chính.
+
+  YÊU CẦU ĐẦU RA (JSON FORMAT):
+  Hãy trả về một object JSON duy nhất (không markdown) với cấu trúc sau:
+  {
+    "title": "Tiêu đề ngắn gọn phù hợp với nội dung tài liệu",
+    "summary": "Đoạn văn tóm tắt tổng quan khoảng 2-3 câu",
+    "key_points": [
+      "Ý chính 1",
+      "Ý chính 2",
+      "Ý chính 3 (Tối đa 5-7 ý chính quan trọng nhất)"
+    ],
+    "language": "Ngôn ngữ chính của tài liệu (ví dụ: Tiếng Việt, Tiếng Anh)"
+  }
+  
+  Lưu ý: Nếu tài liệu là tiếng nước ngoài, hãy dịch phần tóm tắt sang Tiếng Việt.
+`;
+
+    // 2. Cấu trúc request gửi lên Gemini
     const contents = [
-      { text: 'Tóm tắt tài liệu sau: ' },
       {
-        inlineData: {
-          mimeType: file.mimetype,
-          data: Buffer.from(file.buffer).toString('base64'),
-        },
+        role: 'user',
+        parts: [
+          { text: prompt }, // Gửi prompt hướng dẫn
+          {
+            inlineData: {
+              mimeType: file.mimetype,
+              data: Buffer.from(file.buffer).toString('base64'), // Gửi file binary
+            },
+          },
+        ],
       },
     ];
+
     try {
-      const result = await this.model.generateContent(contents);
+      // 3. Gọi model với config JSON
+      const result = await this.model.generateContent({
+        contents: contents,
+        generationConfig: {
+          temperature: 0.4, // Giữ mức sáng tạo vừa phải để tóm tắt chính xác
+          responseMimeType: 'application/json', // Bắt buộc trả về JSON
+        },
+      });
+
+      // 4. Parse kết quả
+      const jsonString = result.response.text();
+      const parsedData = JSON.parse(jsonString);
+
+      console.log('parsedData', parsedData);
+
+      // Map data để đảm bảo đúng structure với proto (keyPoints thay vì key_points)
+      const metadata = {
+        summary: parsedData.summary || '',
+        title: parsedData.title || '',
+        keyPoints: parsedData.key_points || parsedData.keyPoints || [],
+        language: parsedData.language || '',
+      };
+
       return Response.success(
-        result.response.text(),
+        metadata, // Trả về object đã structure đúng với proto
         'Tóm tắt tài liệu thành công',
         200,
         'OK',

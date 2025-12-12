@@ -59,7 +59,14 @@ message SummaryDocumentResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
-  string metadata = 4;
+  SummaryDocumentMetadata metadata = 4;
+}
+
+message SummaryDocumentMetadata {
+  string summary = 1;
+  string title = 2;
+  repeated string keyPoints = 3;
+  string language = 4;
 }
 
 message FileRequest {
