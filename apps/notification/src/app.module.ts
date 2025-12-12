@@ -10,7 +10,7 @@ import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
 import { kafkaConfig } from 'libs/config';
-import { redisConfig, RedisModule } from 'libs/db/src';
+import { redisConfig, RedisModule, MongodbModule } from 'libs/db/src';
 
 @Module({
   imports: [
@@ -51,8 +51,13 @@ import { redisConfig, RedisModule } from 'libs/db/src';
       },
     }),
     RedisModule,
+    MongodbModule,
   ],
   controllers: [NotificationController],
-  providers: [NotificationService, FirebaseService],
+  providers: [
+    NotificationService,
+    FirebaseService,
+    // Provide Key model for injection
+  ],
 })
 export class AppModule {}

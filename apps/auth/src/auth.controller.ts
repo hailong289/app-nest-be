@@ -8,6 +8,7 @@ import {
   UpdatePasswordDto,
   UpdateProfileDto,
   VerifyOtpDto,
+  SearchUserDto,
 } from '@app/dto';
 
 @Controller()
@@ -25,14 +26,16 @@ export class AuthController {
   }
 
   @GrpcMethod('AuthService', 'Logout')
-  async logout(data: { userId: string }) {
+  async logout(data: { userId: string; jti: string }) {
     console.log('Logout gRPC data:', data);
-    return await this.authService.logout(data.userId);
+    return await this.authService.logout(data.userId, data.jti);
   }
 
   @GrpcMethod('AuthService', 'RefreshToken')
-  async refreshToken(data: { userId: string }) {
-    return await this.authService.refreshToken(data.userId);
+  async refreshToken(data: { userId: string; jti: string }) {
+    // Support both legacy (refreshToken) and new (userId, jti) input
+
+    return await this.authService.refreshToken(data.userId, data.jti);
   }
 
   @GrpcMethod('AuthService', 'GetUser')
@@ -90,5 +93,10 @@ export class AuthController {
   @GrpcMethod('AuthService', 'UpdateProfile')
   async updateProfile(@Payload() data: UpdateProfileDto & { userId: string }) {
     return await this.authService.updateProfile(data);
+  }
+
+  @GrpcMethod('AuthService', 'SearchUser')
+  async searchUser(data: SearchUserDto) {
+    return await this.authService.searchUser(data);
   }
 }

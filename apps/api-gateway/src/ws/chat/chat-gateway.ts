@@ -32,6 +32,7 @@ interface JwtPayload {
   usr_dateOfBirth?: string; // "2003-03-04T00:00:00.000Z"
   createdAt?: string; // "2025-10-27T12:00:30.536Z"
   updatedAt?: string; // "2025-10-27T12:00:30.536Z"
+  jti: string;
   [key: string]: any;
 }
 
@@ -114,6 +115,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
+
+      // Check JTI in Redis
+      if (payload.jti && payload._id) {
+        const redisResult: string | number | boolean | null =
+          await this.redis.getData(
+            this.key.REFRESH_TOKEN(payload._id, payload.jti),
+          );
+        const isValid =
+          typeof redisResult === 'string' ||
+          typeof redisResult === 'number' ||
+          typeof redisResult === 'boolean'
+            ? Boolean(redisResult)
+            : !!redisResult;
+
+        if (!isValid) {
+          this.logger.warn(
+            `[CONNECT] Token revoked or expired for user ${payload._id}`,
+          );
+          client.emit('exception', {
+            status: 'error',
+            message: 'Phiên đăng nhập đã hết hạn hoặc bị thu hồi',
+          });
+          client.disconnect();
+          return;
+        }
+      }
+
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;

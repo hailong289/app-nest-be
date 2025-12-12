@@ -73,6 +73,11 @@ export class UpdateVisibilityRequest {
   visibility: string;
 }
 
+export class DuplicateDocRequest {
+  docId: string;
+  userId: string;
+}
+
 export class ResponseMetadata {
   [key: string]: any;
 }

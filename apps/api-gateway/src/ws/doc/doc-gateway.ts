@@ -26,6 +26,7 @@ interface JwtPayload {
   usr_avatar?: string;
   usr_id: string;
   usr_slug: string;
+  jti: string;
   [key: string]: any;
 }
 
@@ -126,6 +127,33 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
+
+      // Check JTI in Redis
+      if (payload.jti && payload._id) {
+        const redisResult: string | number | boolean | null =
+          await this.redis.getData(
+            this.key.REFRESH_TOKEN(payload._id, payload.jti),
+          );
+        const isValid =
+          typeof redisResult === 'string' ||
+          typeof redisResult === 'number' ||
+          typeof redisResult === 'boolean'
+            ? Boolean(redisResult)
+            : !!redisResult;
+
+        if (!isValid) {
+          this.logger.warn(
+            `[CONNECT] Token revoked or expired for user ${payload._id}`,
+          );
+          client.emit('exception', {
+            status: 'error',
+            message: 'Phiên đăng nhập đã hết hạn hoặc bị thu hồi',
+          });
+          client.disconnect();
+          return;
+        }
+      }
+
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;

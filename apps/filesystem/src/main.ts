@@ -12,7 +12,10 @@ async function bootstrap() {
       transport: Transport.GRPC,
       options: {
         package: ['filesystem', 'document'],
-        protoPath: join(process.cwd(), 'libs/grpc/filesystem.proto'),
+        protoPath: [
+          join(process.cwd(), 'libs/grpc/filesystem.proto'),
+          join(process.cwd(), 'libs/grpc/document.proto'),
+        ],
         url: `${process.env.HOST}:${process.env.PORT}`,
         maxReceiveMessageLength: 500 * 1024 * 1024, // 20MB
         maxSendMessageLength: 500 * 1024 * 1024,

@@ -19,11 +19,10 @@ import { GatewayDocumentController } from './docs/gateway-document.controller';
             package: ['filesystem', 'document'],
 
             // QUAN TRỌNG: Chỗ này phải là Array trỏ tới 2 file tương ứng
-            protoPath: join(
-              process.cwd(),
-              process.env.GATEWAY_FILESYSTEM_PROTO_PATH ||
-                'libs/grpc/filesystem.proto',
-            ),
+            protoPath: [
+              join(process.cwd(), 'libs/grpc/filesystem.proto'),
+              join(process.cwd(), 'libs/grpc/document.proto'),
+            ],
 
             url: (() => {
               const hostEnv = (

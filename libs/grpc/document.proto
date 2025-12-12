@@ -12,12 +12,11 @@ service DocumentService {
   rpc UnshareDocument(UnshareDocumentRequest) returns (DocumentResponse);
   rpc UpdateTitle(UpdateTitleRequest) returns (DocumentResponse);
   rpc UpdateVisibility(UpdateVisibilityRequest) returns (DocumentResponse);
+  rpc DuplicateDoc(DuplicateDocRequest) returns (DocumentResponse);
+  // ========================================================
+  // Document Service Messages
+  // ========================================================
 }
-
-// ========================================================
-// Document Service Messages
-// ========================================================
-
 message SharedWithItem {
   string userId = 1;
   string role   = 2;
@@ -93,6 +92,11 @@ message UpdateVisibilityRequest {
   string docId      = 1;
   string userId     = 2;
   string visibility = 3;
+}
+
+message DuplicateDocRequest {
+  string docId  = 1;
+  string userId = 2;
 }
 
 message DocumentResponse {

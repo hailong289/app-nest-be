@@ -13,6 +13,7 @@ import type {
   UpdateDocRequest,
   UpdateTitleRequest,
   UpdateVisibilityRequest,
+  DuplicateDocRequest,
 } from '@app/dto';
 import { DocVisibilityEnum } from 'libs/db/src';
 
@@ -317,6 +318,35 @@ export class DocumentsController {
           error instanceof Error
             ? error.message
             : 'Lỗi cập nhật quyền truy cập',
+      });
+    }
+  }
+
+  /**
+   * =====================================================
+   * Duplicate Document - gRPC Method
+   * =====================================================
+   * Tạo bản sao của tài liệu
+   */
+  @GrpcMethod('DocumentService', 'DuplicateDoc')
+  async duplicateDoc(request: DuplicateDocRequest): Promise<ServiceResponse> {
+    try {
+      const result = await this.documentsService.duplicateDoc(
+        request.docId,
+        request.userId,
+      );
+
+      return {
+        message: 'Tạo bản sao thành công',
+        statusCode: 200,
+        reasonStatusCode: 'OK',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        metadata: result?.metadata || result,
+      };
+    } catch (error) {
+      throw new RpcException({
+        code: 2,
+        message: error instanceof Error ? error.message : 'Lỗi tạo bản sao',
       });
     }
   }

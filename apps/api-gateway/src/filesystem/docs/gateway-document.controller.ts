@@ -28,6 +28,7 @@ interface DocumentService {
   UnshareDocument(data: any): Observable<any>;
   UpdateTitle(data: any): Observable<any>;
   UpdateVisibility(data: any): Observable<any>;
+  DuplicateDoc(data: any): Observable<any>;
 }
 
 @Controller('documents')
@@ -258,6 +259,28 @@ export class GatewayDocumentController implements OnModuleInit {
         docId,
         userId: req.user._id,
         visibility: body.visibility,
+      },
+    );
+  }
+
+  /**
+   * POST /filesystem/documents/:docId/duplicate - Duplicate document
+   */
+  @Post('/:docId/duplicate')
+  async duplicateDocument(
+    @Param('docId') docId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      this.documentService.DuplicateDoc.bind(this.documentService),
+      {
+        docId,
+        userId: req.user._id,
       },
     );
   }

@@ -364,10 +364,8 @@ export class DocumentsService {
         orConditions.push({ visibility: DocVisibilityEnum.room });
       }
     } else {
-      // If no roomId, maybe only list personal docs (roomId exists: false)
-      // or just list everything user has access to.
-      // Let's assume we list everything for now, or maybe just personal docs?
-      // query.roomId = { $exists: false }; // Uncomment if we want to separate personal docs
+      // If no roomId, list personal docs (roomId exists: false)
+      query.roomId = { $exists: false };
     }
 
     query.$or = orConditions;
@@ -398,7 +396,6 @@ export class DocumentsService {
     }
 
     // Kiểm tra chỉ owner mới có thể chia sẻ
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const docOwnerId = doc?.ownerId?.toString?.();
     const userObjId = this.utils.convertToObjectIdMongoose(userId).toString();
 
@@ -408,9 +405,8 @@ export class DocumentsService {
 
     // Kiểm tra user đã được chia sẻ chưa
     const shareUserObjId = this.utils.convertToObjectIdMongoose(shareUserId);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     const alreadyShared = doc.sharedWith?.some(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       (s: any) => s?.userId?.toString?.() === shareUserObjId.toString(),
     );
 
@@ -455,7 +451,6 @@ export class DocumentsService {
     }
 
     // Kiểm tra chỉ owner mới có thể thu hồi chia sẻ
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const docOwnerId = doc?.ownerId?.toString?.();
     const userObjId = this.utils.convertToObjectIdMongoose(userId).toString();
 
@@ -539,7 +534,6 @@ export class DocumentsService {
     }
 
     // Kiểm tra chỉ owner mới có thể thay đổi visibility
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
     const docOwnerId = doc?.ownerId?.toString?.();
     const userObjId = this.utils.convertToObjectIdMongoose(userId).toString();
 
@@ -561,5 +555,41 @@ export class DocumentsService {
     );
 
     return Response.success(updatedDoc, 'Cập nhật quyền truy cập thành công');
+  }
+
+  /**
+   * =====================================================
+   * Duplicate Document
+   * =====================================================
+   * Tạo bản sao của tài liệu
+   */
+  async duplicateDoc(docId: string, userId: string) {
+    const doc = await this.docsModel.findById(
+      this.utils.convertToObjectIdMongoose(docId),
+    );
+
+    if (!doc) {
+      throw new NotFoundException('Không tìm thấy tài liệu gốc');
+    }
+
+    // Check access (read access is enough to copy?)
+    const hasAccess = await this.checkDocAccess(doc, userId);
+    if (!hasAccess) {
+      throw new NotFoundException('Bạn không có quyền truy cập tài liệu này');
+    }
+
+    // Create new doc
+    const newDoc = await this.docsModel.create({
+      ownerId: this.utils.convertToObjectIdMongoose(userId),
+      title: `${doc.title} (Copy)`,
+      roomId: undefined, // Personal copy
+      visibility: DocVisibilityEnum.private,
+      yjsSnapshot: doc.yjsSnapshot, // Copy content
+      plainText: doc.plainText,
+      attachmentIds: [], // Don't copy attachments for now
+      sharedWith: [], // Reset sharing
+    });
+
+    return Response.success(newDoc, 'Tạo bản sao thành công');
   }
 }
