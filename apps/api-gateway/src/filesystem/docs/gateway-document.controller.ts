@@ -24,6 +24,10 @@ interface DocumentService {
   UpdateDoc(data: any): Observable<any>;
   DeleteDoc(data: any): Observable<any>;
   ListDocs(data: any): Observable<any>;
+  ShareDocument(data: any): Observable<any>;
+  UnshareDocument(data: any): Observable<any>;
+  UpdateTitle(data: any): Observable<any>;
+  UpdateVisibility(data: any): Observable<any>;
 }
 
 @Controller('documents')
@@ -45,10 +49,8 @@ export class GatewayDocumentController implements OnModuleInit {
     @Body()
     body: {
       title: string;
+      roomId?: string;
       visibility?: string;
-      plainText?: string;
-      yjsSnapshot?: Buffer;
-      attachmentIds?: string[];
     },
     @Req() req: AuthenticatedRequest,
   ) {
@@ -62,10 +64,8 @@ export class GatewayDocumentController implements OnModuleInit {
       {
         owerId: req.user._id,
         title: body.title || 'Untitled Document',
+        roomId: body.roomId,
         visibility: body.visibility || 'private',
-        yjsSnapshot: body.yjsSnapshot,
-        plainText: body.plainText || '',
-        attachmentIds: body.attachmentIds || [],
       },
     );
   }
@@ -75,11 +75,8 @@ export class GatewayDocumentController implements OnModuleInit {
    */
   @Get('')
   async listDocuments(
-    @Query('roomId')
-    @Req()
-    req: {
-      user?: { _id?: string };
-    },
+    @Query('roomId') roomId: string,
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!req.user?._id) {
       throw new NotFoundException('User not authenticated');
@@ -90,6 +87,7 @@ export class GatewayDocumentController implements OnModuleInit {
       this.documentService.ListDocs.bind(this.documentService),
       {
         userId: req.user._id,
+        roomId,
       },
     );
   }
@@ -163,6 +161,103 @@ export class GatewayDocumentController implements OnModuleInit {
       {
         docId,
         userId: req.user._id,
+      },
+    );
+  }
+
+  /**
+   * POST /filesystem/documents/:docId/share - Share document
+   */
+  @Post('/:docId/share')
+  async shareDocument(
+    @Param('docId') docId: string,
+    @Body() body: { shareUserId: string; role?: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      this.documentService.ShareDocument.bind(this.documentService),
+      {
+        docId,
+        userId: req.user._id,
+        shareUserId: body.shareUserId,
+        role: body.role || 'editor',
+      },
+    );
+  }
+
+  /**
+   * POST /filesystem/documents/:docId/unshare - Unshare document
+   */
+  @Post('/:docId/unshare')
+  async unshareDocument(
+    @Param('docId') docId: string,
+    @Body() body: { shareUserId: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      this.documentService.UnshareDocument.bind(this.documentService),
+      {
+        docId,
+        userId: req.user._id,
+        shareUserId: body.shareUserId,
+      },
+    );
+  }
+
+  /**
+   * PATCH /filesystem/documents/:docId/title - Update title
+   */
+  @Patch('/:docId/title')
+  async updateTitle(
+    @Param('docId') docId: string,
+    @Body() body: { title: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      this.documentService.UpdateTitle.bind(this.documentService),
+      {
+        docId,
+        userId: req.user._id,
+        title: body.title,
+      },
+    );
+  }
+
+  /**
+   * PATCH /filesystem/documents/:docId/visibility - Update visibility
+   */
+  @Patch('/:docId/visibility')
+  async updateVisibility(
+    @Param('docId') docId: string,
+    @Body() body: { visibility: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      this.documentService.UpdateVisibility.bind(this.documentService),
+      {
+        docId,
+        userId: req.user._id,
+        visibility: body.visibility,
       },
     );
   }

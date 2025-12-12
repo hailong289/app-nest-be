@@ -8,7 +8,11 @@ import type {
   GetDocRequest,
   ListDocsRequest,
   ServiceResponse,
+  ShareDocumentRequest,
+  UnshareDocumentRequest,
   UpdateDocRequest,
+  UpdateTitleRequest,
+  UpdateVisibilityRequest,
 } from '@app/dto';
 import { DocVisibilityEnum } from 'libs/db/src';
 
@@ -29,6 +33,7 @@ export class DocumentsController {
       const createDocDto: CreateDocDto = {
         owerId: request.owerId,
         title: request.title,
+        roomId: request.roomId,
         visibility:
           (request.visibility as DocVisibilityEnum) ||
           DocVisibilityEnum.private,
@@ -168,7 +173,10 @@ export class DocumentsController {
   @GrpcMethod('DocumentService', 'ListDocs')
   async listDocs(request: ListDocsRequest): Promise<ServiceResponse> {
     try {
-      const result = await this.documentsService.listDocs(request.userId);
+      const result = await this.documentsService.listDocs(
+        request.userId,
+        request.roomId,
+      );
 
       return {
         message: 'Lấy danh sách tài liệu thành công',
@@ -182,6 +190,133 @@ export class DocumentsController {
         code: 2,
         message:
           error instanceof Error ? error.message : 'Lỗi lấy danh sách tài liệu',
+      });
+    }
+  }
+
+  /**
+   * =====================================================
+   * Share Document - gRPC Method
+   * =====================================================
+   */
+  @GrpcMethod('DocumentService', 'ShareDocument')
+  async shareDocument(request: ShareDocumentRequest): Promise<ServiceResponse> {
+    try {
+      const result = await this.documentsService.shareDocument(
+        request.docId,
+        request.userId,
+        request.shareUserId,
+        request.role,
+      );
+
+      return {
+        message: 'Chia sẻ tài liệu thành công',
+        statusCode: 200,
+        reasonStatusCode: 'OK',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        metadata: result?.metadata || result,
+      };
+    } catch (error) {
+      throw new RpcException({
+        code: 2,
+        message:
+          error instanceof Error ? error.message : 'Lỗi chia sẻ tài liệu',
+      });
+    }
+  }
+
+  /**
+   * =====================================================
+   * Unshare Document - gRPC Method
+   * =====================================================
+   */
+  @GrpcMethod('DocumentService', 'UnshareDocument')
+  async unshareDocument(
+    request: UnshareDocumentRequest,
+  ): Promise<ServiceResponse> {
+    try {
+      const { docId, userId, shareUserId } = request;
+      const result = await this.documentsService.unshareDocument(
+        docId,
+        userId,
+        shareUserId,
+      );
+
+      return {
+        message: 'Thu hồi chia sẻ tài liệu thành công',
+        statusCode: 200,
+        reasonStatusCode: 'OK',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        metadata: result?.metadata || result,
+      };
+    } catch (error) {
+      throw new RpcException({
+        code: 2,
+        message: error instanceof Error ? error.message : 'Lỗi thu hồi chia sẻ',
+      });
+    }
+  }
+
+  /**
+   * =====================================================
+   * Update Title - gRPC Method
+   * =====================================================
+   */
+  @GrpcMethod('DocumentService', 'UpdateTitle')
+  async updateTitle(request: UpdateTitleRequest): Promise<ServiceResponse> {
+    try {
+      const result = await this.documentsService.updateTitle(
+        request.docId,
+        request.userId,
+        request.title,
+      );
+
+      return {
+        message: 'Cập nhật tiêu đề thành công',
+        statusCode: 200,
+        reasonStatusCode: 'OK',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        metadata: result?.metadata || result,
+      };
+    } catch (error) {
+      throw new RpcException({
+        code: 2,
+        message:
+          error instanceof Error ? error.message : 'Lỗi cập nhật tiêu đề',
+      });
+    }
+  }
+
+  /**
+   * =====================================================
+   * Update Visibility - gRPC Method
+   * =====================================================
+   */
+  @GrpcMethod('DocumentService', 'UpdateVisibility')
+  async updateVisibility(
+    request: UpdateVisibilityRequest,
+  ): Promise<ServiceResponse> {
+    try {
+      const result = await this.documentsService.updateVisibility(
+        request.docId,
+        request.userId,
+        request.visibility as DocVisibilityEnum,
+      );
+
+      return {
+        message: 'Cập nhật quyền truy cập thành công',
+        statusCode: 200,
+        reasonStatusCode: 'OK',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        metadata: result?.metadata || result,
+      };
+    } catch (error) {
+      throw new RpcException({
+        code: 2,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Lỗi cập nhật quyền truy cập',
       });
     }
   }

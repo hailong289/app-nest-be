@@ -4,6 +4,7 @@ import Utils from '@app/helpers/utils';
 import {
   BadGatewayException,
   Injectable,
+  NotAcceptableException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -13,6 +14,7 @@ import {
   Document,
   DocVisibilityEnum,
   Room,
+  User,
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import * as Y from 'yjs';
@@ -26,16 +28,17 @@ export class DocumentsService {
     @InjectModel(Document.name)
     private readonly docsModel: Model<Document>,
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
 
   /**
    * Helper: Check if user has access to document
    */
-  private checkDocAccess(
+  private async checkDocAccess(
     doc: any,
     userId: string,
     requireEdit = false,
-  ): boolean {
+  ): Promise<boolean> {
     try {
       const userObjId = this.utils.convertToObjectIdMongoose(userId);
       const userIdStr = userObjId.toString();
@@ -56,6 +59,25 @@ export class DocumentsService {
 
       // Owner luôn có quyền
       if (isOwner) return true;
+
+      // Check Room Access
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (doc.roomId) {
+        const room = await this.roomModel.findOne({
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          _id: doc.roomId,
+          'room_members.user_id': userObjId,
+        });
+
+        if (room) {
+          // Nếu là member của room
+          // Nếu requireEdit -> Cần check role trong room hoặc logic khác (tạm thời cho phép edit nếu là member room)
+          // Hoặc chỉ cho phép edit nếu visibility != private?
+          // Tạm thời: Member room có quyền như SharedWith
+          return true;
+        }
+      }
+
       // Nếu cần edit thì chỉ owner/shared được
       if (requireEdit) return isSharedWith;
       // View thì có thể public hoặc shared
@@ -63,6 +85,45 @@ export class DocumentsService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Helper: Create default BlockNote buffer
+   */
+  private createEmptyBlockNoteBuffer() {
+    const ydoc = new Y.Doc();
+    // Initialize the fragment but leave it empty.
+    // BlockNote will handle the initialization of the default paragraph on the client side.
+    ydoc.getXmlFragment('document-store');
+
+    const update = Y.encodeStateAsUpdate(ydoc);
+    // Ensure we don't return an empty buffer (00 00 is the minimal valid update)
+    if (update.byteLength === 0) {
+      return Buffer.from([0, 0]);
+    }
+    return Buffer.from(update);
+  }
+
+  /**
+   * Helper: Find Room by ID or Pair ID
+   */
+  private async findRoom(roomId: string, userId: string) {
+    // check user
+    const userInfo = await this.userModel.findById(userId);
+    if (!userInfo) {
+      throw new NotFoundException('không tìm thấy thông tin người dùng');
+    }
+
+    // get info room
+    const finInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!finInfo) {
+      throw new NotAcceptableException('Phòng không tồn tại');
+    }
+    return finInfo;
   }
 
   /**
@@ -77,21 +138,28 @@ export class DocumentsService {
   async createDoc({
     owerId,
     title,
+    roomId,
     visibility = DocVisibilityEnum.private,
-    yjsSnapshot = null,
-    plainText,
-    attachmentIds = [],
-    sharedWith = [],
   }: CreateDocDto) {
+    // Luôn tạo snapshot rỗng chuẩn cho BlockNote để tránh lỗi từ client
+    const finalSnapshot = this.createEmptyBlockNoteBuffer();
+
+    let roomObjectId: string | undefined;
+    if (roomId) {
+      const room = await this.findRoom(roomId, owerId);
+      roomObjectId = room._id?.toString();
+    }
+
     // Tạo document mới
     const newDoc = await this.docsModel.create({
       ownerId: this.utils.convertToObjectIdMongoose(owerId),
       title,
+      roomId: roomObjectId,
       visibility,
-      yjsSnapshot,
-      plainText,
-      attachmentIds,
-      sharedWith,
+      yjsSnapshot: finalSnapshot,
+      plainText: '',
+      attachmentIds: [],
+      sharedWith: [],
     });
 
     if (!newDoc) {
@@ -119,9 +187,35 @@ export class DocumentsService {
     }
 
     // Kiểm tra quyền truy cập
-    const hasAccess = this.checkDocAccess(doc, userId);
+    const hasAccess = await this.checkDocAccess(doc, userId);
     if (!hasAccess) {
       throw new NotFoundException('Bạn không có quyền truy cập tài liệu này');
+    }
+
+    // Nếu là public và user chưa có trong sharedWith thì add vào
+    const userObjId = this.utils.convertToObjectIdMongoose(userId);
+    const isOwner = doc.ownerId?.toString() === userObjId.toString();
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    const alreadyShared = doc.sharedWith?.some(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      (s: any) => s?.userId?.toString?.() === userObjId.toString(),
+    );
+
+    if (
+      (doc.visibility as DocVisibilityEnum) === DocVisibilityEnum.public &&
+      !isOwner &&
+      !alreadyShared
+    ) {
+      await this.docsModel.findByIdAndUpdate(doc._id, {
+        $push: {
+          sharedWith: {
+            userId: userObjId,
+            role: 'viewer',
+            sharedAt: new Date(),
+          },
+        },
+      });
     }
 
     return Response.success(doc, 'Lấy tài liệu thành công');
@@ -148,7 +242,7 @@ export class DocumentsService {
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
 
     // Check quyền edit... (giữ nguyên code cũ)
-    const canEdit = this.checkDocAccess(doc, userId, true);
+    const canEdit = await this.checkDocAccess(doc, userId, true);
     if (!canEdit) throw new NotFoundException('Quyền bị từ chối');
 
     let newYjsSnapshotBinary: Buffer | undefined;
@@ -245,19 +339,38 @@ export class DocumentsService {
    * - Chỉ show tài liệu mà user có quyền truy cập
    * - Owner/shared with hoặc public
    */
-  async listDocs(userId: string) {
+  async listDocs(userId: string, roomId?: string) {
     const userObjId = this.utils.convertToObjectIdMongoose(userId);
 
-    // Query documents where:
-    // 1. Match roomId (if provided)
-    // 2. AND (Owner is user OR Shared with user OR Public)
-    const query: any = {
-      $or: [
-        { ownerId: userObjId },
-        { 'sharedWith.userId': userObjId },
-        { visibility: DocVisibilityEnum.public },
-      ],
-    };
+    // Base query: User has explicit access
+    const orConditions: any[] = [
+      { ownerId: userObjId },
+      { 'sharedWith.userId': userObjId },
+    ];
+
+    const query: Record<string, unknown> = {};
+
+    if (roomId) {
+      const room = await this.findRoom(roomId, userId);
+      query.roomId = room._id;
+
+      // Check if user is member of the room
+      const isMember = room.room_members.some(
+        (m) => m.user_id.toString() === userObjId.toString(),
+      );
+
+      if (isMember) {
+        // If member, can also see 'room' visibility docs
+        orConditions.push({ visibility: DocVisibilityEnum.room });
+      }
+    } else {
+      // If no roomId, maybe only list personal docs (roomId exists: false)
+      // or just list everything user has access to.
+      // Let's assume we list everything for now, or maybe just personal docs?
+      // query.roomId = { $exists: false }; // Uncomment if we want to separate personal docs
+    }
+
+    query.$or = orConditions;
 
     const docs = await this.docsModel.find(query);
 
@@ -387,7 +500,7 @@ export class DocumentsService {
     }
 
     // Kiểm tra quyền edit
-    const canEdit = this.checkDocAccess(doc, userId, true);
+    const canEdit = await this.checkDocAccess(doc, userId, true);
     if (!canEdit) {
       throw new NotFoundException('Bạn không có quyền cập nhật tài liệu này');
     }

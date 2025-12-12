@@ -1,13 +1,13 @@
 import { DocVisibility, sharedWithRoleType } from 'libs/db/src';
 
-export type sharedWithType = {
+export class sharedWithType {
   userId: string;
   role: sharedWithRoleType;
-};
-export interface CreateDocDto {
+}
+export class CreateDocDto {
   owerId: string; // user id tạo
   title: string;
-
+  roomId?: string;
   visibility: DocVisibility;
   yjsSnapshot: Buffer | null;
   plainText: string;
@@ -15,7 +15,7 @@ export interface CreateDocDto {
   sharedWith?: Array<sharedWithType>;
 }
 
-export interface CreateDocRequest {
+export class CreateDocRequest {
   owerId: string;
   title: string;
   roomId: string;
@@ -26,33 +26,58 @@ export interface CreateDocRequest {
   sharedWith?: Array<{ userId: string; role: string }>;
 }
 
-export interface GetDocRequest {
+export class GetDocRequest {
   docId: string;
   userId: string;
 }
 
-export interface UpdateDocRequest {
+export class UpdateDocRequest {
   docId: string;
   userId: string;
   yjsSnapshot?: Buffer;
   plainText?: string;
 }
 
-export interface DeleteDocRequest {
+export class DeleteDocRequest {
   docId: string;
   userId: string;
 }
 
-export interface ListDocsRequest {
+export class ListDocsRequest {
   roomId: string;
   userId: string;
 }
 
-export interface ResponseMetadata {
+export class ShareDocumentRequest {
+  docId: string;
+  userId: string;
+  shareUserId: string;
+  role: string;
+}
+
+export class UnshareDocumentRequest {
+  docId: string;
+  userId: string;
+  shareUserId: string;
+}
+
+export class UpdateTitleRequest {
+  docId: string;
+  userId: string;
+  title: string;
+}
+
+export class UpdateVisibilityRequest {
+  docId: string;
+  userId: string;
+  visibility: string;
+}
+
+export class ResponseMetadata {
   [key: string]: any;
 }
 
-export interface ServiceResponse {
+export class ServiceResponse {
   message: string;
   statusCode: number;
   reasonStatusCode: string;

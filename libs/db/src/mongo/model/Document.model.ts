@@ -37,6 +37,8 @@ export class Document {
    * Tài liệu có thể gắn với một Room/Channel/Lớp
    * Nếu không gắn → tài liệu cá nhân kiểu Notion
    */
+  @Prop({ type: Types.ObjectId, ref: 'Room', required: false })
+  roomId?: Types.ObjectId;
 
   /**
    * Visibility:
