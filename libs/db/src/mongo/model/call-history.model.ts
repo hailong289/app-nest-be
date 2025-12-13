@@ -22,7 +22,10 @@ export type MemberStatus =
 @Schema({ _id: false })
 export class Member {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  id: Types.ObjectId;
+  user_id: Types.ObjectId;
+
+  @Prop({ type: String, default: '' })
+  id: string;
 
   @Prop({ type: String, required: true })
   fullname: string;

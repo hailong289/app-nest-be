@@ -829,6 +829,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       actionUserId?: string;
       membersIds?: string[];
       roomId: string;
+      offer: string;
+      targetUserId: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -850,10 +852,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { history, room } = result.metadata;
 
-      this.io.to(data.roomId).except(client.id).emit('call:accepted', {
+      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+
+      this.io.to(targetSocketId).emit('call:accepted', {
         members: history.members,
         roomId: room.room_id,
         actionUserId: data.actionUserId,
+        offer: data.offer,
       });
       return { ok: true };
     } catch (error) {
@@ -869,40 +874,41 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // ==== call
-  @SubscribeMessage('call:start')
-  async handleCall(
-    @MessageBody()
-    data: {
-      actionUserId?: string;
-      roomId: string;
-      offer: string;
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    try {
-      const user = await this.getUser(client);
-      data.actionUserId = user.usr_id;
-      this.io.to(data.roomId).except(client.id).emit('call:start', data);
-      return { ok: true };
-    } catch (error) {
-      this.logger.error('[CALL] Error starting call:', error);
-      client.emit('error', {
-        message: 'Bắt đầu cuộc gọi thất bại',
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+  // // ==== call
+  // @SubscribeMessage('call:start')
+  // async handleCall(
+  //   @MessageBody()
+  //   data: {
+  //     actionUserId?: string;
+  //     roomId: string;
+  //     offer: string;
+  //   },
+  //   @ConnectedSocket() client: SocketWithUser,
+  // ) {
+  //   try {
+  //     const user = await this.getUser(client);
+  //     data.actionUserId = user.usr_id;
+  //     this.io.to(data.roomId).except(client.id).emit('call:start', data);
+  //     return { ok: true };
+  //   } catch (error) {
+  //     this.logger.error('[CALL] Error starting call:', error);
+  //     client.emit('error', {
+  //       message: 'Bắt đầu cuộc gọi thất bại',
+  //       error: error instanceof Error ? error.message : String(error),
+  //     });
+  //     return {
+  //       ok: false,
+  //       error: error instanceof Error ? error.message : String(error),
+  //     };
+  //   }
+  // }
 
   @SubscribeMessage('call:answer')
   async handleAnswer(
     @MessageBody()
     data: {
       actionUserId?: string;
+      targetUserId: string;
       roomId: string;
       answer: string;
     },
@@ -911,7 +917,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-      this.io.to(data.roomId).except(client.id).emit('call:answer', data);
+      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+      // this.io.to(data.roomId).except(client.id).emit('call:answer', data);
+      this.io.to(targetSocketId).emit('call:answer', data);
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error answering call:', error);

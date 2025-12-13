@@ -773,11 +773,12 @@ export class HandleChatService {
       }
 
       const membersData = members.map((m) => ({
-        id: m._id,
+        user_id: m._id,
+        id: m.usr_id,
         fullname: m.usr_fullname,
         avatar: m.usr_avatar,
         is_caller: m.usr_id === actionUserId,
-        status: 'pending' as MemberStatus,
+        status: m.usr_id === actionUserId ? 'started' : 'pending' as MemberStatus,
       }));
 
       const callHistory = await this.callHistoryModel.create({
@@ -813,8 +814,8 @@ export class HandleChatService {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
 
       const members = await this.userModel.find({
-        _id: {
-          $in: membersIds.map((m) => this.utils.convertToObjectIdMongoose(m)),
+        usr_id: {
+          $in: membersIds.map((m) => m.toString()),
         },
       });
 
@@ -835,7 +836,7 @@ export class HandleChatService {
 
       const callHistory = await this.callHistoryModel.findOne({
         members: {
-          $elemMatch: { id: actionUser._id },
+          $elemMatch: { id: actionUser.usr_id },
         },
         room_id: room._id,
       });
@@ -846,7 +847,7 @@ export class HandleChatService {
 
       callHistory.members = callHistory.members.map((m) => {
         // So sánh ObjectId đúng cách
-        const isMatch = m.id.toString() === actionUser._id.toString();
+        const isMatch = m.id.toString() === actionUser.usr_id.toString();
         const shouldStart = isMatch || (m.is_caller && m.status === 'pending');
         return {
           ...m,
@@ -886,7 +887,7 @@ export class HandleChatService {
 
       const callHistory = await this.callHistoryModel.findOne({
         members: {
-          $elemMatch: { id: actionUser._id },
+          $elemMatch: { id: actionUser.usr_id },
         },
         room_id: room._id,
       });
@@ -900,7 +901,7 @@ export class HandleChatService {
       // Cập nhật status cho member hiện tại
       callHistory.members = callHistory.members.map((m) => {
         // So sánh ObjectId đúng cách
-        const isMatch = m.id.toString() === actionUser._id.toString();
+        const isMatch = m.id.toString() === actionUser.usr_id.toString();
         return {
           ...m,
           status: isMatch ? status : totalMembers === 2 ? 'ended' : m.status,
