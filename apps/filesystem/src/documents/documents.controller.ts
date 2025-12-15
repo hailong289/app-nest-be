@@ -29,7 +29,6 @@ export class DocumentsController {
    */
   @GrpcMethod('DocumentService', 'CreateDoc')
   async createDoc(request: CreateDocRequest): Promise<ServiceResponse> {
-    console.log('🚀 ~ DocumentsController ~ createDoc ~ request:', request);
     try {
       const createDocDto: CreateDocDto = {
         owerId: request.owerId,

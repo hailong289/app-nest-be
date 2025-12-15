@@ -20,9 +20,8 @@ import {
   documentModel,
   aIEmbeddingModel,
   aIUsageLogModel,
+  attachmentModel,
 } from './model';
-import AttachmentModel from './model/Attachment.model';
-import { Document } from './model/Document.model';
 
 @Global()
 @Module({
@@ -52,7 +51,7 @@ import { Document } from './model/Document.model';
       friendshipModel,
       keysModel,
       otpModel,
-      AttachmentModel,
+      attachmentModel,
       roomEventsModel,
       roomsStateModel,
       roomsUsersStateModel,

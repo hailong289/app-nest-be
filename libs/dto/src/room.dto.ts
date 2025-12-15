@@ -163,6 +163,24 @@ export class ChangeNickNameMemberDto {
   name: string;
 }
 
+export class ChangeRoleMemberDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  memberId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  role: string;
+}
+
 export class PinnedRoomDto {
   userId: string;
 

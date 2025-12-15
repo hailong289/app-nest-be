@@ -8,6 +8,8 @@ service FileSystemService {
     rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
     rpc GetPresignedUrl(GetPresignedUrlRequest) returns (GetPresignedUrlResponse);
     rpc UploadSingleFileForUser(InputUploadSingleFileForUser)returns (UploadSingleFileForUserResponse);
+    rpc UploadMultipleFilesForUser(InputUploadMultipleFilesForUser) returns (UploadMultipleFilesForUserResponse);
+    rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse);
 }
 
 message FileRequest {
@@ -115,5 +117,34 @@ message UploadSingleFileForUserResponse {
     int32 statusCode = 2;
     string reasonStatusCode = 3;
     UploadSingleFileForUserCore metadata = 4;
+}
+
+message InputUploadMultipleFilesForUser {
+    string userId = 1;
+    string roomId = 2;
+    repeated FileRequest files = 3;
+    string messageId = 4;
+}
+
+message UploadMultipleFilesForUserResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated UploadSingleFileForUserCore metadata = 4;
+}
+
+message GetAttachmentsRequest {
+    string roomId = 1;
+    string userId = 2;
+    string type = 3; // media, doc, link, or specific kind
+    int32 page = 4;
+    int32 limit = 5;
+}
+
+message GetAttachmentsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated UploadSingleFileForUserCore metadata = 4;
 }
 

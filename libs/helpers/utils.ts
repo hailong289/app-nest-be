@@ -15,6 +15,7 @@ import {
 import axios from 'axios';
 import { Types } from 'mongoose';
 import { Response } from './response';
+import { SharedKafkaConfig } from 'libs/kafka';
 
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
@@ -283,80 +284,42 @@ class Utils {
     application: INestApplication,
     serviceName: string,
   ): INestMicroservice {
+    const logger = new Logger(`KafkaSetup:${serviceName}`);
     const configService = application.get(ConfigService);
-    const logger = new Logger('Create Microservice Kafka');
-    const client_id =
-      configService.get<string>('kafka.client_id') ||
-      configService.get<string>('kafka.clientId') ||
-      'nestjs-app';
-    const host = configService.get<string>('kafka.host') || 'localhost';
-    const port = configService.get<string>('kafka.port') || '9092';
-    const group_id =
-      configService.get<string>('kafka.group_id') ||
-      configService.get<string>('kafka.groupId') ||
-      'default-group';
-    const isSasl =
-      configService.get<boolean>('kafka.is_sasl') ||
-      configService.get<boolean>('kafka.isSasl') ||
-      false;
-    const mechanism =
-      configService.get<string>('kafka.mechanism') ||
-      configService.get<string>('kafka.sasl.mechanism') ||
-      'scram-sha-256';
-    const username =
-      configService.get<string>('kafka.username') ||
-      configService.get<string>('kafka.sasl.username') ||
-      '';
-    const password =
-      configService.get<string>('kafka.password') ||
-      configService.get<string>('kafka.sasl.password') ||
-      '';
-    const connectionTimeout =
-      configService.get<number>('kafka.connectionTimeout') || 10000;
-    const requestTimeout =
-      configService.get<number>('kafka.requestTimeout') || 30000;
-    const sessionTimeout =
-      configService.get<number>('kafka.consumer.sessionTimeout') || 30000;
-    const heartbeatInterval =
-      configService.get<number>('kafka.consumer.heartbeatInterval') || 3000;
 
-    const options: KafkaOptions['options'] = {
-      client: {
-        clientId: client_id,
-        brokers: [`${host}:${port}`],
-        connectionTimeout,
-        requestTimeout,
-        retry: {
-          initialRetryTime: 100,
-          retries: 8,
-          maxRetryTime: 30000,
-          multiplier: 2,
-        },
-      },
-      consumer: {
-        groupId: group_id,
-        sessionTimeout,
-        heartbeatInterval,
-      },
-    };
-
-    if (isSasl) {
-      options.client = {
-        ...options.client,
-        ssl: false,
-        sasl: {
-          mechanism,
-          username: username || '',
-          password: password || '',
-        } as never,
-        brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
-      };
+    // 1. Lấy config chuẩn từ Lib
+    const kafkaConfig = configService.get<SharedKafkaConfig>('kafka');
+    // 👇 LOG RA ĐỂ BẮT TẬN TAY
+    console.log(`[DEBUG] AI Service Kafka Config:`);
+    console.log(`   - Brokers: ${String(kafkaConfig?.client?.brokers)}`);
+    console.log(`   - SASL: ${JSON.stringify(kafkaConfig?.client?.sasl)}`);
+    if (!kafkaConfig) {
+      throw new Error('❌ Kafka Config Not Found! Check import in AppModule.');
     }
+
+    // 🔥 QUAN TRỌNG: Lấy trực tiếp, không logic "thông minh", không fallback
+    // Ép kiểu as string[] để TS không báo lỗi
+    const brokers = kafkaConfig.client.brokers as string[];
+
+    // 👇 LOG RA ĐỂ CHECK VAR (Xem nó có đúng là IP 18.209... không)
+    logger.log(`=================================================`);
+    logger.log(`🔌 Service [${serviceName}] connecting to Kafka...`);
+    logger.log(`🎯 BROKERS: ${JSON.stringify(brokers)}`);
+    logger.log(`=================================================`);
+
     const microservice = application.connectMicroservice<MicroserviceOptions>({
       transport: Transport.KAFKA,
-      options,
+      options: {
+        client: {
+          ...kafkaConfig.client,
+          brokers: brokers, // Dùng đúng cái này
+          clientId: serviceName,
+        },
+        consumer: kafkaConfig.consumer,
+        producer: kafkaConfig.producer,
+      },
     });
-    logger.log(`Create microservice ${serviceName} with Kafka`);
+
     return microservice;
   }
 

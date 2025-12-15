@@ -12,6 +12,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import { ChatWebSocketModule } from './ws/chat/chat.module';
 import { DocWebSocketModule } from './ws/doc/doc.module';
 import redisConfig from 'libs/db/src/config/redis.config';
+import { kafkaConfig } from 'libs/kafka';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import redisConfig from 'libs/db/src/config/redis.config';
         process.cwd(),
         `apps/api-gateway/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [redisConfig],
+      load: [redisConfig, kafkaConfig],
     }),
     WsSharedModule,
     JwtModule.register({}),

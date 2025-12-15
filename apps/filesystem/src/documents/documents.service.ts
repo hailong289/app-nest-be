@@ -62,10 +62,29 @@ export class DocumentsService {
 
       // Check Room Access
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      if (doc.roomId) {
-        const room = await this.roomModel.findOne({
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-          _id: doc.roomId,
+      if (
+        doc &&
+        Array.isArray((doc as { roomIds?: unknown }).roomIds) &&
+        (doc as { roomIds: unknown[] }).roomIds.length > 0
+      ) {
+        interface RoomMember {
+          user_id: string;
+          [key: string]: any;
+        }
+
+        interface RoomDoc {
+          _id: string;
+          room_members: RoomMember[];
+          [key: string]: any;
+        }
+
+        const roomIdsArray = (doc as { roomIds: string[] }).roomIds;
+        const room: RoomDoc | null = await this.roomModel.findOne({
+          _id: {
+            $in: roomIdsArray.map((i: string) =>
+              this.utils.convertToObjectIdMongoose(i),
+            ),
+          },
           'room_members.user_id': userObjId,
         });
 
@@ -127,6 +146,104 @@ export class DocumentsService {
   }
 
   /**
+   * Helper: Aggregation Pipeline to populate Owner and Shared Users
+   */
+  private getPopulateDocsPipeline(matchQuery: Record<string, unknown>): any[] {
+    return [
+      { $match: matchQuery },
+      // Lookup Owner
+      {
+        $lookup: {
+          from: 'Users',
+          localField: 'ownerId',
+          foreignField: '_id',
+          as: 'owner_info',
+        },
+      },
+      {
+        $unwind: {
+          path: '$owner_info',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Unwind sharedWith to populate
+      {
+        $unwind: {
+          path: '$sharedWith',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Lookup sharedWith user
+      {
+        $lookup: {
+          from: 'Users',
+          localField: 'sharedWith.userId',
+          foreignField: '_id',
+          as: 'sharedWith.user_info',
+        },
+      },
+      {
+        $unwind: {
+          path: '$sharedWith.user_info',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Group back
+      {
+        $group: {
+          _id: '$_id',
+          root: { $first: '$$ROOT' },
+          sharedWith: {
+            $push: {
+              userId: '$sharedWith.userId',
+              role: '$sharedWith.role',
+              sharedAt: '$sharedWith.sharedAt',
+              user: {
+                _id: '$sharedWith.user_info._id',
+                usr_id: '$sharedWith.user_info.usr_id',
+                usr_slug: '$sharedWith.user_info.usr_slug',
+                usr_fullname: '$sharedWith.user_info.usr_fullname',
+                usr_avatar: '$sharedWith.user_info.usr_avatar',
+                usr_email: '$sharedWith.user_info.usr_email',
+              },
+            },
+          },
+        },
+      },
+      // Format output
+      {
+        $addFields: {
+          'root.sharedWith': {
+            $filter: {
+              input: '$sharedWith',
+              as: 'item',
+              cond: { $ifNull: ['$$item.userId', false] },
+            },
+          },
+          'root.owner': {
+            _id: '$root.owner_info._id',
+            usr_id: '$root.owner_info.usr_id',
+            usr_slug: '$root.owner_info.usr_slug',
+            usr_fullname: '$root.owner_info.usr_fullname',
+            usr_avatar: '$root.owner_info.usr_avatar',
+            usr_email: '$root.owner_info.usr_email',
+          },
+        },
+      },
+      {
+        $replaceRoot: { newRoot: '$root' },
+      },
+      // Cleanup temporary fields
+      {
+        $project: {
+          owner_info: 0,
+          'sharedWith.user_info': 0,
+        },
+      },
+    ];
+  }
+
+  /**
    * =====================================================
    * Create Document
    * =====================================================
@@ -144,17 +261,19 @@ export class DocumentsService {
     // Luôn tạo snapshot rỗng chuẩn cho BlockNote để tránh lỗi từ client
     const finalSnapshot = this.createEmptyBlockNoteBuffer();
 
-    let roomObjectId: string | undefined;
+    const roomObjectIds: string[] = [];
     if (roomId) {
       const room = await this.findRoom(roomId, owerId);
-      roomObjectId = room._id?.toString();
+      if (room._id) {
+        roomObjectIds.push(room._id.toString());
+      }
     }
 
     // Tạo document mới
     const newDoc = await this.docsModel.create({
       ownerId: this.utils.convertToObjectIdMongoose(owerId),
       title,
-      roomId: roomObjectId,
+      roomIds: roomObjectIds,
       visibility,
       yjsSnapshot: finalSnapshot,
       plainText: '',
@@ -178,12 +297,21 @@ export class DocumentsService {
    * - Trả về document đầy đủ
    */
   async getDoc(docId: string, userId: string) {
-    const doc = await this.docsModel.findById(
-      this.utils.convertToObjectIdMongoose(docId),
+    const docs = await this.docsModel.aggregate(
+      this.getPopulateDocsPipeline({
+        _id: this.utils.convertToObjectIdMongoose(docId),
+      }),
     );
+    const doc = docs[0] as Document & { _id: any };
 
     if (!doc) {
       throw new NotFoundException('Không tìm thấy tài liệu');
+    }
+
+    // Fix: Re-fetch yjsSnapshot directly to ensure binary data is correct
+    const rawDoc = await this.docsModel.findById(doc._id, { yjsSnapshot: 1 });
+    if (rawDoc?.yjsSnapshot) {
+      doc.yjsSnapshot = rawDoc.yjsSnapshot;
     }
 
     // Kiểm tra quyền truy cập
@@ -248,7 +376,7 @@ export class DocumentsService {
     let newYjsSnapshotBinary: Buffer | undefined;
 
     // 🔥 OPTIMIZED MERGE LOGIC
-    if (updateData.yjsSnapshot) {
+    if (updateData.yjsSnapshot && updateData.yjsSnapshot.length > 0) {
       console.log(
         `🔄 Merging doc ${docId}. Incoming size: ${updateData.yjsSnapshot.length}`,
       );
@@ -352,7 +480,7 @@ export class DocumentsService {
 
     if (roomId) {
       const room = await this.findRoom(roomId, userId);
-      query.roomId = room._id;
+      query.roomIds = { $in: [room._id] };
 
       // Check if user is member of the room
       const isMember = room.room_members.some(
@@ -364,13 +492,28 @@ export class DocumentsService {
         orConditions.push({ visibility: DocVisibilityEnum.room });
       }
     } else {
-      // If no roomId, list personal docs (roomId exists: false)
-      query.roomId = { $exists: false };
+      // If no roomId, list personal docs (roomIds is empty or not exists)
+      query.$or = [{ roomIds: { $exists: false } }, { roomIds: { $size: 0 } }];
     }
 
-    query.$or = orConditions;
+    // Combine conditions
+    if (roomId) {
+      query.$or = orConditions;
+    } else {
+      // For personal docs, we need to match (No Room) AND (Owner OR Shared)
+      // But wait, if it's personal doc, it MUST be owner or shared.
+      // The previous logic was: query.roomId = { $exists: false } AND $or = [owner, shared]
+      // So:
+      query.$and = [
+        { $or: [{ roomIds: { $exists: false } }, { roomIds: { $size: 0 } }] },
+        { $or: orConditions },
+      ];
+      delete query.$or; // Remove the previous $or assignment
+    }
 
-    const docs = await this.docsModel.find(query);
+    const docs = await this.docsModel.aggregate(
+      this.getPopulateDocsPipeline(query),
+    );
 
     return Response.success(docs, 'Lấy danh sách tài liệu thành công');
   }

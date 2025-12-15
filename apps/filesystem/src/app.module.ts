@@ -6,11 +6,12 @@ import s3Config from './config/app/s3.config';
 import path from 'path';
 import { mongoConfig, MongodbModule } from 'libs/db/src';
 import { DocumentsModule } from './documents/documents.module';
+import { kafkaConfig } from 'libs/kafka';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      load: [s3Config, mongoConfig],
+      load: [s3Config, mongoConfig, kafkaConfig],
       isGlobal: true,
       envFilePath: path.resolve(
         process.cwd(),

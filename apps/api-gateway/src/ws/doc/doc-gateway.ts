@@ -91,7 +91,6 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ========================================================
   async handleConnection(client: SocketWithUser) {
     try {
-      // Lấy token từ nhiều nguồn
       let token: string | undefined =
         (client.handshake.auth?.token as string) ||
         (client.handshake.query?.token as string) ||
@@ -101,6 +100,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.logger.warn(
           `[CONNECT] No token provided from client ${client.id}`,
         );
+        client.emit('error', { message: 'No token provided' });
         client.emit('exception', {
           status: 'error',
           message: 'Xác thực không thành công - Token không được cung cấp',
@@ -181,6 +181,13 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.warn(
         `[DOC-CONNECT] Authentication failed for client ${client.id}: ${errorMessage}`,
       );
+
+      // Emit error event explicitly to debug
+      client.emit('error', {
+        message: `DocGateway Auth Failed: ${errorMessage}`,
+        code: 401,
+      });
+
       client.emit(socketEvent.VERYFIỄPTION, {
         status: 'error',
         statusCode: 401,
@@ -296,9 +303,10 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     // Convert array number sang Uint8Array/Buffer để gRPC hoặc Service xử lý
-    const yjsBuffer = data.yjsSnapshot
-      ? Buffer.from(data.yjsSnapshot)
-      : undefined;
+    const yjsBuffer =
+      data.yjsSnapshot && data.yjsSnapshot.length > 0
+        ? Buffer.from(data.yjsSnapshot)
+        : undefined;
     const { docId, plainText } = data;
 
     try {
@@ -409,7 +417,29 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.leave(docRoom);
   }
+  @SubscribeMessage('doc:awareness')
+  onAwarenessUpdate(
+    @MessageBody()
+    data: {
+      docId: string;
+      awareness: [number, Record<string, any>][];
+      changed: { added: number[]; updated: number[]; removed: number[] };
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    const user = client.user;
+    if (!user) return;
 
+    const { docId, awareness, changed } = data;
+    const docRoom = `doc:${docId}`;
+
+    // Broadcast awareness to others
+    client.to(docRoom).emit('doc:awareness', {
+      awareness,
+      changed,
+      userId: user.usr_id,
+    });
+  }
   // ========================================================
   // Helpers
   // ========================================================

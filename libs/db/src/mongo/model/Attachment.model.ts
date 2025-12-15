@@ -48,6 +48,9 @@ export class Attachment {
   @Prop({ type: String, default: null })
   url: string;
 
+  createdAt?: Date;
+  updatedAt?: Date;
+
   @Prop({ type: String })
   name?: string;
 

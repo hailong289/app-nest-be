@@ -1,5 +1,6 @@
 import {
   CreateMessage,
+  GetDocumentsFromRoomDTO,
   GetMsgFromRoomDTO,
   HandleDeleteAllDto,
   HandleDeleteDto,
@@ -62,10 +63,21 @@ export class HandleChatService {
     private readonly attachmentModel: Model<Attachment>,
     @Inject(SERVICES.AI)
     private readonly aiClient: ClientKafka,
+    @Inject(SERVICES.FILESYSTEM)
+    private readonly fileClient: ClientKafka,
   ) {}
 
   async createMessage(payload: CreateMessage) {
-    const { roomId, userId, type, content, attachments, replyTo, id } = payload;
+    const {
+      roomId,
+      userId,
+      type,
+      content,
+      attachments,
+      replyTo,
+      id,
+      documentId,
+    } = payload;
 
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
@@ -100,10 +112,12 @@ export class HandleChatService {
       }
     } else {
       const checkGuest = finInfo.room_members.find(
-        (m) => m.id === userInfo.usr_id && m.role === 'guest',
+        (m) =>
+          m.user_id.toString() === userInfo._id.toString() &&
+          m.role === 'guest',
       );
       if (checkGuest) {
-        throw new BadRequestException('bạn đã bị chặn');
+        throw new BadRequestException('Bạn chỉ có quyền xem');
       }
     }
 
@@ -114,6 +128,7 @@ export class HandleChatService {
       reply_to: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
       attachment_ids: any[];
       msg_type: typeof type;
+      document_id?: any;
       _id?: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
     } = {
       msg_roomId: finInfo._id,
@@ -124,6 +139,9 @@ export class HandleChatService {
         ? attachments.map((i) => this.utils.convertToObjectIdMongoose(i))
         : [],
       msg_type: type,
+      document_id: documentId
+        ? this.utils.convertToObjectIdMongoose(documentId)
+        : null,
     };
     if (id) {
       data._id = this.utils.convertToObjectIdMongoose(id);
@@ -143,6 +161,10 @@ export class HandleChatService {
       }
       case 'file': {
         contentSnap = '[File đính kèm]';
+        break;
+      }
+      case 'document': {
+        contentSnap = '[Tài liệu]';
         break;
       }
       case 'video': {
@@ -221,6 +243,18 @@ export class HandleChatService {
         this.recomputeUnreadForUserRoom(i, finInfo._id.toString()),
       ),
     );
+
+    // Process links asynchronously via Kafka
+    if (content && /(https?:\/\/[^\s]+)/g.test(content)) {
+      console.log('link', content);
+      this.utils.dispatchEventKafka(this.fileClient, KafkaEvent.processLink, {
+        content,
+        userId,
+        roomId: finInfo._id.toString(),
+        messageId: createNewMsg._id.toString(),
+      });
+    }
+
     return Response.success(
       {
         msgId: createNewMsg._id.toString(),
@@ -470,6 +504,70 @@ export class HandleChatService {
     return Response.success(result, 'Tin nhắn mới thành công');
   }
 
+  async getDocumentsFromRoom({
+    roomId,
+    userId,
+    limit = 20,
+    page = 1,
+    type,
+  }: GetDocumentsFromRoomDTO) {
+    const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
+    if (!check) {
+      this.log.error('User không thuộc room:', { userId, roomId });
+      return {
+        msgId: null,
+        members: [],
+        roomId: null,
+      };
+    }
+    //check user
+    const userInfo = await this.roomService.getUserInfo(userId);
+    if (!userInfo) {
+      this.log.error('Người dùng không tồn tại:', userId);
+      return {
+        msgId: null,
+        members: [],
+        roomId: null,
+      };
+    }
+
+    // get info room
+    const roomInfo = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
+      },
+    });
+    if (!roomInfo) {
+      throw new NotAcceptableException('Phòng không tồn taij');
+    }
+
+    const skip = (page - 1) * limit;
+    const pipeLine = buildMessageCorePipeline(userId);
+
+    const matchStage: Record<string, any> = {
+      msg_roomId: roomInfo._id,
+    };
+
+    if (type === 'media') {
+      matchStage.msg_type = { $in: ['image', 'video', 'audio'] };
+    } else if (type) {
+      matchStage.msg_type = type;
+    } else {
+      matchStage.msg_type = 'document';
+    }
+
+    const result = await this.messageModel.aggregate([
+      {
+        $match: matchStage,
+      },
+      ...pipeLine,
+      { $sort: { createdAt: -1 } },
+      { $skip: Number(skip) },
+      { $limit: Number(limit) },
+    ]);
+    return Response.success(result, 'Lấy danh sách tài liệu thành công');
+  }
+
   async handleReact({ userId, roomId, msgId, emoji }: HandleReactDto) {
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
@@ -705,6 +803,25 @@ export class HandleChatService {
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
+
+    // Check permission: Only Sender or Admin can delete
+    const targetMsg = await this.messageModel.findOne({
+      _id: this.utils.convertToObjectIdMongoose(msgId),
+      msg_roomId: finInfo._id,
+    });
+    if (!targetMsg) throw new NotFoundException('Tin nhắn không tồn tại');
+
+    const isSender =
+      targetMsg.msg_sender.toString() === userInfo._id.toString();
+    const currentMember = finInfo.room_members.find(
+      (m) => m.user_id.toString() === userId,
+    );
+    const isAdmin = currentMember?.role === 'admin';
+
+    if (!isSender && !isAdmin) {
+      throw new BadRequestException('Bạn không có quyền xoá tin nhắn này');
+    }
+
     const findMsg = await this.messageModel
       .find({
         reply_to: this.utils.convertToObjectIdMongoose(msgId),

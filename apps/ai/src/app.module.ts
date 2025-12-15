@@ -16,7 +16,7 @@ import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
 import { mongoConfig } from 'libs/db/src';
-import { kafkaConfig } from 'libs/config';
+import { kafkaConfig } from 'libs/kafka';
 
 @Module({
   imports: [

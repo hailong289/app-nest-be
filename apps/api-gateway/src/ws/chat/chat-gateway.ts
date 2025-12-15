@@ -785,36 +785,51 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async CheckUserOnline(
     @MessageBody()
     data: {
-      ids: string[];
+      ids?: unknown;
     },
   ) {
-    const result = (await this.redis.SisMembers({
-      key: this.key.USERS_ONLINE,
-      values: data.ids,
-    })) as Array<{
-      key: string;
-      value: boolean;
-    }>;
-    if (result) {
-      const socketResult = result.map((i: { key: string; value: boolean }) => ({
-        id: i.key,
-        isOnline: i.value,
-      }));
-      console.log(
-        '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
-        socketResult,
-      );
-      for (const i of socketResult) {
-        this.io.to('system').emit('status:online', {
-          id: i.id,
-          isOnline: i.isOnline,
-          onlineAt: new Date(),
-        });
-      }
+    // 1️⃣ Normalize input (bắt client gửi bậy)
+    const ids: string[] = Array.isArray(data?.ids)
+      ? data.ids.filter((id): id is string => typeof id === 'string')
+      : [];
+
+    if (ids.length === 0) {
+      console.warn('⚠️ CheckUserOnline: ids is empty or invalid', data);
+      return;
     }
 
-    // this.io.emit('status_online', result);
+    // 2️⃣ Gọi Redis an toàn
+    let result: { key: string; value: boolean }[] = [];
+    try {
+      result = await this.redis.SisMembers({
+        key: this.key.USERS_ONLINE,
+        values: ids,
+      });
+    } catch (err) {
+      console.error('❌ Redis SisMembers failed:', err);
+      return;
+    }
+
+    if (!Array.isArray(result) || result.length === 0) return;
+
+    // 3️⃣ Map dữ liệu socket
+    const socketResult = result.map((i) => ({
+      id: i.key,
+      isOnline: Boolean(i.value),
+      onlineAt: new Date(),
+    }));
+
+    console.log(
+      '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
+      socketResult,
+    );
+
+    // 4️⃣ Emit 1 phát (KHÔNG spam)
+    this.io.to('system').emit('status:online:bulk', {
+      users: socketResult,
+    });
   }
+
   @SubscribeMessage(socketEvent.USERTYPING)
   onTypingIndicator(
     @MessageBody()

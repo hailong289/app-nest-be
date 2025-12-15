@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { ChatGateway } from './chat-gateway';
 import { GatewayNotificationModule } from '../../notification/gateway-notification.module';
 import { GatewayModule } from '../../gateway/gateway.module';
@@ -9,6 +9,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import notificationConfig from '../../config/notification.config';
 import * as grpc from '@grpc/grpc-js';
+import { SharedKafkaClientModule } from 'libs/kafka';
 @Module({
   imports: [
     ConfigModule, // WsJwtGuard cần ConfigService
@@ -54,51 +55,11 @@ import * as grpc from '@grpc/grpc-js';
         },
       },
     ]),
-    ClientsModule.registerAsync([
-      {
-        name: SERVICES.NOTIFICATION,
-        inject: [ConfigService],
-        useFactory: (config: ConfigService) => {
-          const clientId =
-            config.get<string>('notification.client_id') || 'app-nest-be';
-          const host = config.get<string>('notification.host') || 'localhost';
-          const port = config.get<number>('notification.port') || 9092;
-          const groupId =
-            config.get<string>('notification.group_id') || 'default-group';
-          const isSasl = config.get<boolean>('notification.is_sasl') ?? false;
-          const mechanism =
-            config.get<string>('notification.mechanism') || 'plain';
-          const username = config.get<string>('notification.username');
-          const password = config.get<string>('notification.password');
-
-          const brokers = [`${host}:${port}`];
-          const clientConfig: Record<string, unknown> = {
-            clientId,
-            brokers,
-          };
-
-          if (isSasl && username && password) {
-            clientConfig.ssl = false;
-            clientConfig.sasl = {
-              mechanism,
-              username,
-              password,
-            };
-          }
-
-          const options: Record<string, unknown> = {
-            client: clientConfig,
-            consumer: {
-              groupId,
-            },
-          };
-          return {
-            transport: Transport.KAFKA,
-            options,
-          };
-        },
-      },
-    ]),
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.NOTIFICATION, // Token để inject (bắt buộc)
+      clientId: 'notification-service', // Tên định danh (Optional - override mặc định)
+      groupId: 'notification-consumer', // Group ID (Optional - override mặc định)
+    }),
   ],
   providers: [ChatGateway],
   exports: [ChatGateway],
