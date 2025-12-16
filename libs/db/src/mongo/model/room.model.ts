@@ -3,6 +3,11 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type RoomDocument = HydratedDocument<Room>;
+export enum RoomTypeEnum {
+  Private = 'private',
+  Group = 'group',
+  Channel = 'channel',
+}
 export type roomType = 'private' | 'group' | 'channel';
 export type roleMember = 'member' | 'admin' | 'owner' | 'guest';
 export type memberType = {

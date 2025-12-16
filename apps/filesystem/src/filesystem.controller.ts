@@ -97,10 +97,7 @@ export class FilesystemController {
     );
     try {
       const result = await this.filesystemService.uploadSingleFileByUser(data);
-      console.log(
-        '🚀 ~ FilesystemController ~ uploadSingleFileForUser ~ result:',
-        result,
-      );
+
       return result;
     } catch (error) {
       console.error('❌ Upload single file by user error:', error);

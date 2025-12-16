@@ -1,4 +1,3 @@
-import { friendship } from './../../../../libs/db/src/mongo/model/friendship.model';
 import { REDISKEY } from '@app/constants/RedisKey';
 import {
   CreateMessage,
@@ -137,10 +136,6 @@ export class HandleChatService {
     // Generate content snapshot based on message type
     let contentSnap: string;
     switch (type) {
-      case 'text': {
-        contentSnap = content || '[Tin nhắn rỗng]';
-        break;
-      }
       case 'image': {
         contentSnap = '[Hình ảnh]';
         break;
