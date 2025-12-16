@@ -474,6 +474,7 @@ message Member {
   string avatar = 3;
   string status = 4;
   bool is_caller = 5;
+  string user_id = 6;
 }
 message CallHistory {
   string _id = 1;         

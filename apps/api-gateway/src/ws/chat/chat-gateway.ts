@@ -766,9 +766,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const user = await this.getUser(client);
       // tạo tin nhắn cuộc gọi
-      // Tạo message qua gRPC
-      const resultMsg = (await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
+      const handleSendMsg = await this.onMessage(
         {
           userId: user._id,
           roomId: data.roomId,
@@ -777,15 +775,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           attachments: [],
           replyTo: '',
         },
-      )) as ChatGatewayResponse;
+        client,
+      );
 
-      if (!resultMsg || resultMsg.statusCode !== 200) {
-        const errorMessage = Array.isArray(resultMsg?.message)
-          ? resultMsg.message.join(', ')
-          : resultMsg?.message || 'Tạo tin nhắn cuộc gọi thất bại';
-        throw new BadRequestException(String(errorMessage));
+      if (!handleSendMsg.ok) {
+        throw new BadRequestException(handleSendMsg.error);
       }
-      const { msgId } = resultMsg.metadata;
+
+      if (!handleSendMsg.data || !handleSendMsg.data.metadata) {
+        throw new BadRequestException('Tạo tin nhắn cuộc gọi thất bại');
+      }
+
+      const { msgId } = handleSendMsg.data.metadata;
+
+      const dataMsg = {
+        ...handleSendMsg.data.metadata,
+        call_history: null as any,
+      };
       data.messageId = msgId;
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -802,6 +808,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { history, room, callType } = result.metadata;
 
+      dataMsg.call_history = history;
+      // emit call:request
       this.io.to(data.roomId).except(client.id).emit('call:request', {
         members: history.members,
         roomId: room.room_id,
@@ -851,14 +859,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       const { history, room } = result.metadata;
-
       const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
-
       this.io.to(targetSocketId).emit('call:accepted', {
         members: history.members,
         roomId: room.room_id,
         actionUserId: data.actionUserId,
         offer: data.offer,
+        history: history,
       });
       return { ok: true };
     } catch (error) {
@@ -873,35 +880,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
-
-  // // ==== call
-  // @SubscribeMessage('call:start')
-  // async handleCall(
-  //   @MessageBody()
-  //   data: {
-  //     actionUserId?: string;
-  //     roomId: string;
-  //     offer: string;
-  //   },
-  //   @ConnectedSocket() client: SocketWithUser,
-  // ) {
-  //   try {
-  //     const user = await this.getUser(client);
-  //     data.actionUserId = user.usr_id;
-  //     this.io.to(data.roomId).except(client.id).emit('call:start', data);
-  //     return { ok: true };
-  //   } catch (error) {
-  //     this.logger.error('[CALL] Error starting call:', error);
-  //     client.emit('error', {
-  //       message: 'Bắt đầu cuộc gọi thất bại',
-  //       error: error instanceof Error ? error.message : String(error),
-  //     });
-  //     return {
-  //       ok: false,
-  //       error: error instanceof Error ? error.message : String(error),
-  //     };
-  //   }
-  // }
 
   @SubscribeMessage('call:answer')
   async handleAnswer(
@@ -967,6 +945,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         roomId: room.room_id,
         actionUserId: data.actionUserId,
         status: data.status,
+        history: history,
       });
       return { ok: true };
     } catch (error) {
@@ -1029,6 +1008,7 @@ interface ChatGatewayResponse<T = any> {
     msgId: string;
     members: Array<Record<string, any>>;
     roomId: string;
+    call_history?: CallHistory;
     // Có thể bổ sung các trường khác nếu cần
   };
 }
