@@ -6,33 +6,35 @@ import {
   UpdatePasswordDto,
   UpdateProfileDto,
   VerifyOtpDto,
+  SearchUserDto,
 } from '@app/dto';
 import {
   Body,
   Controller,
   Inject,
   Post,
+  Get,
+  Query,
   Req,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import type { AuthenticatedRequest } from 'libs/types';
-import { FileInterceptor } from '@nestjs/platform-express';
 
 interface AuthGrpcService {
   login(data: LoginDto): any;
   register(data: RegisterDto): any;
-  logout(data: { userId: string }): any;
+  logout(data: { userId: string; jti: string }): any;
   getUser(data: { userId: string }): any;
   updatePassword(data: UpdatePasswordDto & { userId: string }): any;
   verifyOtp(data: VerifyOtpDto): any;
   forgotPassword(data: ForgotPasswordDto): any;
   resetPassword(data: { userId: string; newPassword: string }): any;
-  updateAvatar(data: UpdateAvatarDto): any;
+  updateAvatar(data: UpdateAvatarDto & { userId: string }): any;
   updateProfile(data: UpdateProfileDto): any;
+  searchUser(data: SearchUserDto): any;
+  refreshToken(data: { refreshToken: string }): any;
 }
 
 @Controller('auth')
@@ -69,9 +71,23 @@ export class GatewayAuthController {
   @Post('logout')
   async logout(@Req() req: AuthenticatedRequest) {
     console.log('Logout request user:', req.user);
+    // Safely extract jti from user object
+    const jti: string | undefined =
+      req.user && typeof req.user === 'object' && 'jti' in req.user
+        ? (req.user as { jti?: string }).jti
+        : undefined;
+
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.logout.bind(this.authService),
-      { userId: req.user?.usr_id },
+      { userId: req.user?._id, jti },
+    );
+  }
+
+  @Get('search')
+  async searchUser(@Query() query: SearchUserDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.searchUser.bind(this.authService),
+      query,
     );
   }
 
@@ -80,6 +96,18 @@ export class GatewayAuthController {
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.verifyOtp.bind(this.authService),
       body,
+    );
+  }
+
+  @Post('refresh-token')
+  async refreshToken(@Req() req: AuthenticatedRequest) {
+    const jti: string | undefined =
+      req.user && typeof req.user === 'object' && 'jti' in req.user
+        ? (req.user as { jti?: string }).jti
+        : undefined;
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.authService.refreshToken.bind(this.authService),
+      { userId: req.user?._id, jti },
     );
   }
 
@@ -120,22 +148,14 @@ export class GatewayAuthController {
   }
 
   @Post('update-avatar')
-  @UseInterceptors(FileInterceptor('file'))
   async updateAvatar(
     @Req() req: AuthenticatedRequest,
-    @UploadedFile() file: any,
-    @Body('folder') folder: string,
+    @Body() body: UpdateAvatarDto,
   ) {
-    console.log('UpdateAvatar request user:', req.user, file, folder);
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.updateAvatar.bind(this.authService),
       {
-        file: {
-          originalname: file.originalname,
-          buffer: file.buffer,
-          mimetype: file.mimetype,
-        },
-        folder: folder || 'avatars/users',
+        avatarUrl: body.avatarUrl,
         userId: req.user?._id,
       },
     );

@@ -1,5 +1,6 @@
 import {
   ChangeNickNameMemberDto,
+  ChangeRoleMemberDto,
   CreateRoomEvent,
   GetRoomDto,
   MutedRoomDto,
@@ -42,11 +43,11 @@ export class RoomsService {
   private readonly key = REDISKEY;
   private readonly log = new Logger();
   constructor(
-    @InjectModel('Room') private readonly roomModel: Model<Room>,
-    @InjectModel('User') private readonly userModel: Model<User>,
-    @InjectModel('RoomEvent') private readonly roomEvent: Model<RoomEvent>,
+    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(RoomEvent.name) private readonly roomEvent: Model<RoomEvent>,
     private readonly redis: RedisService,
-    @InjectModel('RoomsUsersState')
+    @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
   ) {}
   // handlog not public api
@@ -1266,6 +1267,15 @@ export class RoomsService {
     });
     if (!roomInfo)
       throw new NotFoundException('không tìm thấy thông tin về group này');
+
+    // Check permission: Guest cannot add members
+    const currentUser = roomInfo.room_members.find(
+      (m) => m.user_id.toString() === userId,
+    );
+    if (currentUser?.role === 'guest') {
+      throw new BadRequestException('Bạn không có quyền thêm thành viên');
+    }
+
     const roomMember = roomInfo.room_members;
     // lấy thông tin user
     const users = await this.userModel
@@ -1397,6 +1407,19 @@ export class RoomsService {
     if (!checkEixsting) {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
+
+    // Check permission before update
+    const currentRoom = await this.roomModel.findOne({ room_id: roomId });
+    if (!currentRoom)
+      throw new NotFoundException('không tìm thấy thông tin về group này');
+
+    const currentUser = currentRoom.room_members.find(
+      (m) => m.user_id.toString() === userId,
+    );
+    if (currentUser?.role === 'guest') {
+      throw new BadRequestException('Bạn không có quyền thay đổi ảnh nhóm');
+    }
+
     // lấy thông tin room
     const roominfo = await this.roomModel.findOneAndUpdate(
       {
@@ -1432,6 +1455,19 @@ export class RoomsService {
     if (!checkEixsting) {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
+
+    // Check permission before update
+    const currentRoom = await this.roomModel.findOne({ room_id: roomId });
+    if (!currentRoom)
+      throw new NotFoundException('không tìm thấy thông tin về group này');
+
+    const currentUser = currentRoom.room_members.find(
+      (m) => m.user_id.toString() === userId,
+    );
+    if (currentUser?.role === 'guest') {
+      throw new BadRequestException('Bạn không có quyền đổi tên nhóm');
+    }
+
     // lấy thông tin room
     const room = await this.roomModel.findOneAndUpdate(
       {
@@ -1524,6 +1560,23 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
 
+    // Check permission: Guest cannot change nicknames
+    const currentRoom = await this.roomModel.findOne({
+      $or: [
+        { room_id: roomId },
+        { room_id: this.utils.pairRoomId(roomId, userInfo.usr_id) },
+      ],
+    });
+    if (!currentRoom)
+      throw new NotFoundException('không tìm thấy thông tin về group này');
+
+    const currentUser = currentRoom.room_members.find(
+      (m) => m.user_id.toString() === userId,
+    );
+    if (currentUser?.role === 'guest') {
+      throw new BadRequestException('Bạn không có quyền đổi biệt danh');
+    }
+
     // update
 
     const roomUpdate = await this.roomModel
@@ -1570,6 +1623,84 @@ export class RoomsService {
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi tên thành công',
+    );
+  }
+  async changeRoleMember(payload: ChangeRoleMemberDto) {
+    const { userId, roomId, memberId, role } = payload;
+    if (!userId) {
+      throw new NotFoundException('bạn không phải thành viên nhóm này');
+    }
+    const checkEixsting = await this.checkExistedMemberRoom(userId, roomId);
+    const userInfo = await this.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('Không tìm user');
+    }
+    if (!checkEixsting) {
+      throw new NotFoundException('bạn dã thoát nhóm');
+    }
+
+    // Check permission: Only Admin can change roles
+    const currentRoom = await this.roomModel.findOne({
+      $or: [
+        { room_id: roomId },
+        { room_id: this.utils.pairRoomId(roomId, userInfo.usr_id) },
+      ],
+    });
+    if (!currentRoom)
+      throw new NotFoundException('không tìm thấy thông tin về group này');
+
+    const currentUser = currentRoom.room_members.find(
+      (m) => m.user_id.toString() === userId,
+    );
+    if (currentUser?.role !== 'admin') {
+      throw new BadRequestException(
+        'Bạn không có quyền thay đổi vai trò thành viên',
+      );
+    }
+
+    // update
+    const roomUpdate = await this.roomModel
+      .findOneAndUpdate(
+        {
+          $or: [
+            { room_id: roomId },
+            { room_id: this.utils.pairRoomId(roomId, userInfo.usr_id) },
+          ],
+        },
+        {
+          $set: {
+            'room_members.$[elem].role': role, // field cần update
+          },
+        },
+        {
+          arrayFilters: [
+            { 'elem.id': memberId }, // điều kiện lọc phần tử trong mảng
+          ],
+          new: true, // trả về document sau update
+        },
+      )
+      .exec();
+
+    if (!roomUpdate) {
+      throw new BadRequestException('Không thể cập nhật quyền');
+    }
+    // ghi log
+    await this.writeLogRoom({
+      event_type: 'member.change.role',
+      room_id: roomUpdate._id,
+      actor_id: userInfo._id,
+      placeholder: `${userInfo.usr_fullname} đã đổi quyền của thành viên`,
+      targets: roomUpdate.room_members.map((m) => m.user_id),
+      payload: {
+        member_id: memberId,
+        new_role: role,
+        changed_by: userInfo._id,
+        changed_at: Date.now(),
+      },
+    } as CreateRoomEvent);
+    return Response.success(
+      { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
+      'Đổi quyền thành công',
     );
   }
   async PinnendRoom({ roomId, userId, pinned }: PinnedRoomDto) {

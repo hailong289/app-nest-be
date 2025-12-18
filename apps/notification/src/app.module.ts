@@ -9,8 +9,13 @@ import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
-import { kafkaConfig } from 'libs/config';
-import { redisConfig, RedisModule } from 'libs/db/src';
+import {
+  redisConfig,
+  RedisModule,
+  MongodbModule,
+  mongoConfig,
+} from 'libs/db/src';
+import { kafkaConfig } from 'libs/kafka';
 
 @Module({
   imports: [
@@ -20,7 +25,14 @@ import { redisConfig, RedisModule } from 'libs/db/src';
         process.cwd(),
         `apps/notification/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [firebaseConfig, mailConfig, appConfig, kafkaConfig, redisConfig],
+      load: [
+        firebaseConfig,
+        mailConfig,
+        appConfig,
+        kafkaConfig,
+        redisConfig,
+        mongoConfig,
+      ],
     }),
     MailerModule.forRootAsync({
       inject: [ConfigService],
@@ -51,8 +63,13 @@ import { redisConfig, RedisModule } from 'libs/db/src';
       },
     }),
     RedisModule,
+    MongodbModule,
   ],
   controllers: [NotificationController],
-  providers: [NotificationService, FirebaseService],
+  providers: [
+    NotificationService,
+    FirebaseService,
+    // Provide Key model for injection
+  ],
 })
 export class AppModule {}

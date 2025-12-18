@@ -58,6 +58,45 @@ export class uploadSingleFileByUserDTo {
   messageId?: string;
 }
 
+export class UploadMultipleFilesByUserDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FileUploadData)
+  files: FileUploadData[];
+
+  @IsNotEmpty()
+  @IsString()
+  userId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  roomId: string;
+
+  @IsOptional()
+  @IsString()
+  messageId?: string;
+}
+
+export class GetAttachmentsDto {
+  @IsOptional()
+  @IsString()
+  roomId?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  page?: number;
+
+  @IsOptional()
+  limit?: number;
+}
+
 export class UploadSingleFileForUserDto {
   @IsArray()
   @ValidateNested({ each: true })

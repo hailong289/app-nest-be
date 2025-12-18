@@ -17,8 +17,11 @@ import {
   roomsStateModel,
   roomsUsersStateModel,
   userModel,
+  documentModel,
+  aIEmbeddingModel,
+  aIUsageLogModel,
+  attachmentModel,
 } from './model';
-import AttachmentModel from './model/Attachment.model';
 
 @Global()
 @Module({
@@ -48,7 +51,7 @@ import AttachmentModel from './model/Attachment.model';
       friendshipModel,
       keysModel,
       otpModel,
-      AttachmentModel,
+      attachmentModel,
       roomEventsModel,
       roomsStateModel,
       roomsUsersStateModel,
@@ -58,6 +61,9 @@ import AttachmentModel from './model/Attachment.model';
       quizModel,
       flashcardModel,
       flashcardDeckModel,
+      documentModel,
+      aIEmbeddingModel,
+      aIUsageLogModel,
     ]),
   ],
   exports: [

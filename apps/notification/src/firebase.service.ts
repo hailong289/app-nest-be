@@ -2,7 +2,9 @@ import { REDISKEY } from '@app/constants/RedisKey';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
-import { RedisService } from 'libs/db/src';
+import { RedisService, Key } from 'libs/db/src';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 
 @Injectable()
 export class FirebaseService implements OnModuleInit {
@@ -12,6 +14,7 @@ export class FirebaseService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
+    @InjectModel(Key.name) private readonly keyModel: Model<Key>,
   ) {}
 
   onModuleInit() {
@@ -122,26 +125,30 @@ export class FirebaseService implements OnModuleInit {
     userIds: string[];
     data?: Record<string, any>;
   }) {
-    // get fctoken form redis
-    const fcms = (
-      await Promise.all(
-        userIds.map(async (u) => {
-          try {
-            return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
-          } catch (e) {
-            console.error(`Redis error for user ${u}:`, e);
-            return [];
-          }
-        }),
-      )
-    ).flat();
-    console.log(
-      '🚀 ~ FirebaseService ~ pushNotificationForUsers ~ fcms:',
-      fcms,
+    // get fctoken from redis, fallback to MongoDB if empty
+    let fcms: string[] = [];
+    const redisResults = await Promise.all(
+      userIds.map(async (u) => {
+        try {
+          return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
+        } catch (e) {
+          console.error(`Redis error for user ${u}:`, e);
+          return [];
+        }
+      }),
     );
-    if (fcms.length == 0) {
-      console.error(' không có fctoken');
-    } else {
+    fcms = redisResults.flat();
+    if (fcms.length === 0) {
+      // Fallback: fetch from MongoDB
+      const mongoKeys = await this.keyModel
+        .find({ tkn_userId: { $in: userIds } }, 'tkn_fcmToken')
+        .lean();
+      fcms = mongoKeys.flatMap((k) => k.tkn_fcmToken || []);
+      if (fcms.length === 0) {
+        console.error('Không có fctoken (Redis & MongoDB đều trống)');
+      }
+    }
+    if (fcms.length > 0) {
       await this.pushNotification({
         title,
         message,

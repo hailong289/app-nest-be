@@ -3,6 +3,7 @@ import { GrpcMethod } from '@nestjs/microservices';
 import { HandleChatService } from './handle-chat.service';
 import {
   CreateMessage,
+  GetDocumentsFromRoomDTO,
   GetMsgFromRoomDTO,
   HandleDeleteAllDto,
   HandleDeleteDto,
@@ -65,6 +66,12 @@ export class HandleChatController {
   async HandleDelete(@Body() payload: HandleDeleteAllDto) {
     const result = await this.hdChat.handleDelete(payload);
     // console.log('🚀 ~ HandleChatController ~ HandleDelete ~ result:', result);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'GetDocumentsFromRoom')
+  async GetDocumentsFromRoom(@Body() payload: GetDocumentsFromRoomDTO) {
+    const result = await this.hdChat.getDocumentsFromRoom(payload);
     return result;
   }
 }

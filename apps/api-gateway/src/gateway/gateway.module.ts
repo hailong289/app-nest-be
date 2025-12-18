@@ -1,10 +1,13 @@
-import { Module } from '@nestjs/common';
+import { Module, Global } from '@nestjs/common';
 import { GatewayService } from '../gateway/gateway.service';
 import { GatewayController } from './gateway.controller';
+import { RedisModule } from 'libs/db/src';
 
+@Global()
 @Module({
+  imports: [RedisModule],
   providers: [GatewayService],
   controllers: [GatewayController],
-  exports: [GatewayService],
+  exports: [GatewayService, RedisModule],
 })
 export class GatewayModule {}

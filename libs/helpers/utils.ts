@@ -1,4 +1,9 @@
-import { INestMicroservice, Logger, Type } from '@nestjs/common';
+import {
+  INestApplication,
+  INestMicroservice,
+  Logger,
+  Type,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -10,6 +15,7 @@ import {
 import axios from 'axios';
 import { Types } from 'mongoose';
 import { Response } from './response';
+import { SharedKafkaConfig } from 'libs/kafka';
 
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
@@ -274,6 +280,49 @@ class Utils {
     return microservice;
   }
 
+  static createKafkaMicroserviceFromApplication(
+    application: INestApplication,
+    serviceName: string,
+  ): INestMicroservice {
+    const logger = new Logger(`KafkaSetup:${serviceName}`);
+    const configService = application.get(ConfigService);
+
+    // 1. Lấy config chuẩn từ Lib
+    const kafkaConfig = configService.get<SharedKafkaConfig>('kafka');
+    // 👇 LOG RA ĐỂ BẮT TẬN TAY
+    console.log(`[DEBUG] AI Service Kafka Config:`);
+    console.log(`   - Brokers: ${String(kafkaConfig?.client?.brokers)}`);
+    console.log(`   - SASL: ${JSON.stringify(kafkaConfig?.client?.sasl)}`);
+    if (!kafkaConfig) {
+      throw new Error('❌ Kafka Config Not Found! Check import in AppModule.');
+    }
+
+    // 🔥 QUAN TRỌNG: Lấy trực tiếp, không logic "thông minh", không fallback
+    // Ép kiểu as string[] để TS không báo lỗi
+    const brokers = kafkaConfig.client.brokers as string[];
+
+    // 👇 LOG RA ĐỂ CHECK VAR (Xem nó có đúng là IP 18.209... không)
+    logger.log(`=================================================`);
+    logger.log(`🔌 Service [${serviceName}] connecting to Kafka...`);
+    logger.log(`🎯 BROKERS: ${JSON.stringify(brokers)}`);
+    logger.log(`=================================================`);
+
+    const microservice = application.connectMicroservice<MicroserviceOptions>({
+      transport: Transport.KAFKA,
+      options: {
+        client: {
+          ...kafkaConfig.client,
+          brokers: brokers, // Dùng đúng cái này
+          clientId: serviceName,
+        },
+        consumer: kafkaConfig.consumer,
+        producer: kafkaConfig.producer,
+      },
+    });
+
+    return microservice;
+  }
+
   static async callApiGateway(
     url: string,
     method: string,
@@ -309,16 +358,24 @@ class Utils {
       await client.connect();
     } catch (error) {
       return Response.error(
-        `Không thể kết nối đến Kafka: ${error.message}`,
+        `Không thể kết nối đến Kafka: ${
+          error && typeof error === 'object' && 'message' in error
+            ? (error as { message: string }).message
+            : String(error)
+        }`,
         503,
         'SERVICE_UNAVAILABLE',
       );
     }
     try {
-      await client.emit(pattern, data);
+      await client.emit(pattern, data).toPromise();
     } catch (error) {
+      const errorMessage =
+        error && typeof error === 'object' && 'message' in error
+          ? (error as { message: string }).message
+          : String(error);
       return Response.error(
-        `Không thể gửi event ${pattern}: ${error.message}`,
+        `Không thể gửi event ${pattern}: ${errorMessage}`,
         503,
         'SERVICE_UNAVAILABLE',
       );
@@ -348,13 +405,30 @@ class Utils {
         if (decoded.includes('BEGIN PRIVATE KEY')) {
           return decoded;
         }
-      } catch (err) {
+      } catch {
         // Nếu decode fail → rơi xuống dùng kiểu cũ
       }
     }
 
     // Ngược lại là dạng chứa \n → convert
-    return trimmed.replace(/\\n/g, '\n');
+    return String.raw({ raw: trimmed }).replaceAll('\\n', '\n');
+  }
+
+  static extractUrls(text: string): string[] {
+    if (!text) return [];
+
+    const urlRegex = /((https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\S*)?)/gi;
+
+    return [...text.matchAll(urlRegex)].map((m) => {
+      let url = m[0];
+
+      // Nếu không có http/https → auto thêm
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+
+      return url;
+    });
   }
 }
 

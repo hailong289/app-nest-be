@@ -1,5 +1,5 @@
 // scripts/create-topics.ts
-import { topic } from 'kafka.topic';
+import { topic } from 'libs/kafka/kafka.topic';
 import { Kafka } from 'kafkajs';
 
 async function main() {

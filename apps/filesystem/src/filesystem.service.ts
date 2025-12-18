@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   ObjectCannedACL,
   PutObjectCommand,
+  PutObjectCommandInput,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -11,9 +12,14 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
 import { InjectModel } from '@nestjs/mongoose';
 import { Attachment, AttachmentKind, Room, User } from 'libs/db/src';
-import { Model } from 'mongoose';
+import { Model, FilterQuery } from 'mongoose';
 import Utils from '@app/helpers/utils';
-import { MulterFile, uploadSingleFileByUserDTo } from '@app/dto';
+import {
+  MulterFile,
+  uploadSingleFileByUserDTo,
+  UploadMultipleFilesByUserDto,
+  GetAttachmentsDto,
+} from '@app/dto';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
@@ -21,7 +27,9 @@ import ffmpegStatic from '@ffprobe-installer/ffprobe';
 import ffmpegImport from 'fluent-ffmpeg';
 const ffmpeg: typeof import('fluent-ffmpeg') = ffmpegImport;
 import sharp from 'sharp';
-import probe, { ProbeResult } from 'probe-image-size';
+import probe from 'probe-image-size';
+import * as cheerio from 'cheerio';
+import axios from 'axios';
 
 @Injectable()
 export class FilesystemService {
@@ -32,10 +40,11 @@ export class FilesystemService {
 
   constructor(
     private configService: ConfigService,
-    @InjectModel('User') private readonly userModel: Model<User>,
-    @InjectModel('Attachment')
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
-    @InjectModel('Room') private readonly roomModel: Model<Room>,
+    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
+    @InjectModel('Message') private readonly messageModel: Model<any>,
   ) {
     this.s3 = new S3Client({
       region: this.configService.get<string>('s3.region') ?? 'us-east-1',
@@ -56,11 +65,6 @@ export class FilesystemService {
 
   async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
     const { userId, roomId, file, id, messageId } = dto;
-    console.log(
-      '🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ file:',
-      file,
-    );
-    console.log('🚀 ~ FilesystemService ~ uploadSingleFileByUser ~ id:', id);
     if (!file?.buffer) throw new Error('File or buffer is missing');
 
     // Validate user and room
@@ -161,6 +165,168 @@ export class FilesystemService {
     }
   }
 
+  async uploadMultipleFilesByUser(dto: UploadMultipleFilesByUserDto) {
+    const { files, userId, roomId, messageId } = dto;
+
+    // Validate user and room once
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
+    const room = await this.roomModel.findOne({
+      room_id: { $in: [roomId, roomPair] },
+    });
+    if (!room) throw new NotFoundException('Room not found');
+
+    const results = await Promise.all(
+      files.map(async (file) => {
+        try {
+          // Reuse uploadSingleFileByUser logic but we need to bypass the user/room check to avoid redundant DB calls
+          // However, uploadSingleFileByUser is tightly coupled with DB checks.
+          // For simplicity and correctness, we can just call uploadSingleFileByUser for each file.
+          // It might be slightly less efficient but ensures consistency.
+          // Or we can refactor uploadSingleFileByUser to accept pre-fetched user/room.
+
+          // Calling uploadSingleFileByUser directly:
+          const result = await this.uploadSingleFileByUser({
+            userId,
+            roomId,
+            file: {
+              ...file,
+              fieldname: '',
+              encoding: '7bit',
+              size: file.buffer.length,
+            },
+            messageId,
+          });
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+          return result.metadata;
+        } catch (error) {
+          console.error(`Failed to upload file ${file.originalname}:`, error);
+          return null;
+        }
+      }),
+    );
+
+    const successfulUploads = results.filter((r) => r !== null);
+
+    return Response.success(
+      successfulUploads,
+      'Upload multiple files successful',
+    );
+  }
+
+  async getAttachments(dto: GetAttachmentsDto) {
+    const { roomId, userId, type, page = 1, limit = 20 } = dto;
+    const skip = (page - 1) * limit;
+
+    const filter: FilterQuery<Attachment> = {};
+    if (roomId) {
+      // Try to find room by custom ID first
+      let room = await this.roomModel.findOne({ room_id: roomId });
+
+      // If not found, try by ObjectId if roomId is a valid ObjectId
+      if (!room && /^[0-9a-fA-F]{24}$/.test(roomId)) {
+        room = await this.roomModel.findById(roomId);
+      }
+
+      if (room) {
+        filter.room_id = room._id;
+      } else {
+        // If room not found, return empty list
+        return Response.success([], 'Room not found');
+      }
+    }
+
+    if (userId) {
+      const user = await this.userModel.findById(userId);
+      if (user) {
+        filter.user_id = user._id;
+      }
+    }
+
+    if (type) {
+      if (type === 'media') {
+        filter.kind = { $in: ['image', 'video', 'audio'] };
+      } else {
+        filter.kind = type as AttachmentKind;
+      }
+    }
+
+    const attachments = await this.attachmentModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Map to response format
+    const mapped = attachments.map((att) => ({
+      _id: att._id.toString(),
+      url: att.url,
+      kind: att.kind,
+      name: att.name,
+      mimeType: att.mimeType,
+      size: att.size,
+      status: att.status,
+      width: att.width,
+      height: att.height,
+      duration: att.duration,
+      createdAt: att.createdAt,
+    }));
+
+    return Response.success(mapped, 'Get attachments successful');
+  }
+
+  async processLinks(
+    content: string,
+    userId: string,
+    roomId: any,
+    messageId: any,
+  ) {
+    if (!content) return;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = content.match(urlRegex);
+    if (!urls) return;
+
+    for (const url of urls) {
+      try {
+        const response = await axios.get(url, { timeout: 5000 });
+        const $ = cheerio.load(response.data);
+
+        const title =
+          $('meta[property="og:title"]').attr('content') ||
+          $('title').text() ||
+          url;
+        const image = $('meta[property="og:image"]').attr('content') || '';
+
+        const attachment = await this.attachmentModel.create({
+          room_id: this.utils.convertToObjectIdMongoose(roomId),
+          user_id: this.utils.convertToObjectIdMongoose(userId),
+          kind: 'link',
+          url: url,
+          name: title,
+          thumbUrl: image,
+          contextId: this.utils.convertToObjectIdMongoose(messageId),
+          status: 'uploaded',
+          mimeType: 'text/html',
+          size: 0,
+        });
+
+        await this.messageModel.findByIdAndUpdate(messageId, {
+          $push: { attachment_ids: attachment._id },
+        });
+      } catch (e) {
+        console.error(
+          `Failed to process link ${url}: ${
+            typeof e === 'object' && e && 'message' in e
+              ? String((e as { message?: unknown }).message)
+              : String(e)
+          }`,
+        );
+      }
+    }
+  }
+
   // ============================================================================
   // OTHER PUBLIC METHODS
   // ============================================================================
@@ -226,7 +392,7 @@ export class FilesystemService {
   // ============================================================================
 
   private async uploadToS3WithRetry(
-    uploadParams: any,
+    uploadParams: PutObjectCommandInput,
     retries = this.MAX_RETRIES,
   ): Promise<void> {
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -277,31 +443,17 @@ export class FilesystemService {
     // Try probe-image-size
     try {
       // probe-image-size exports a 'sync' method for buffer probing
-      if (
-        typeof (probe as { sync?: (input: Buffer) => ProbeResult }).sync ===
-        'function'
-      ) {
-        const syncProbe = (probe as { sync?: (input: Buffer) => ProbeResult })
-          .sync;
-        if (typeof syncProbe === 'function') {
-          const result = syncProbe(buf);
-          if (
-            result &&
-            typeof result === 'object' &&
-            !(result instanceof Error) &&
-            'width' in result &&
-            'height' in result &&
-            typeof (result as ProbeResult).width === 'number' &&
-            typeof (result as ProbeResult).height === 'number'
-          ) {
-            return {
-              width: (result as ProbeResult).width,
-              height: (result as ProbeResult).height,
-            };
-          }
+      // eslint-disable-next-line
+      const probeAny = probe as any;
+      // eslint-disable-next-line
+      if (typeof probeAny.sync === 'function') {
+        // eslint-disable-next-line
+        const result = probeAny.sync(buf);
+        if (result) {
+          // eslint-disable-next-line
+          return { width: result.width, height: result.height };
         }
       }
-      /* ignore */
     } catch {
       // Ignore errors from probe-image-size
     }
@@ -329,14 +481,22 @@ export class FilesystemService {
           fs.unlink(tmpFile).catch(() => {
             /* ignore */
           });
-          if (err || !data?.streams?.[0]) return resolve({});
+          // eslint-disable-next-line
+          if (err || !data || !data.streams || !data.streams[0])
+            return resolve({});
 
+          // eslint-disable-next-line
           const stream = data.streams[0];
           resolve({
+            // eslint-disable-next-line
             width: stream.width,
+            // eslint-disable-next-line
             height: stream.height,
             duration: Number.parseFloat(
-              stream.duration || data.format?.duration || 0,
+              String(
+                // eslint-disable-next-line
+                stream.duration || (data.format && data.format.duration) || 0,
+              ),
             ),
           });
         });
