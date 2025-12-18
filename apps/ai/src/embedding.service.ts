@@ -38,7 +38,7 @@ export class EmbeddingService {
     try {
       // Dùng model Flash: Nhanh như điện, rẻ như cho
       const model = this.gemini.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-1.5-pro',
       });
 
       const prompt = `

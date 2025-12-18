@@ -75,19 +75,6 @@ export class Document {
    *  ATTACHMENTS
    * ============================= */
 
-  /**
-   * Danh sách file đính kèm (Attachment model)
-   * Không bắt buộc, vì file vẫn nằm trong Yjs JSON
-   * Nhưng field này giúp:
-   *  - cleanup S3 khi xoá doc
-   *  - hiện danh sách file ở sidebar
-   */
-  @Prop({
-    type: [{ type: Types.ObjectId, ref: 'Attachment' }],
-    default: [],
-  })
-  attachmentIds: Types.ObjectId[];
-
   /* =============================
    *  SHARING (optional)
    * ============================= */

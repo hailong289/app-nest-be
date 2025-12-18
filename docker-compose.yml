@@ -90,60 +90,70 @@ services:
   #   restart: unless-stopped
 
   # services api gateway and microservices
-  # api-gateway:
-  #   build:
-  #     context: .
-  #     dockerfile: apps/api-gateway/Dockerfile
-  #   ports:
-  #     - "5000:5000" # host dùng localhost:5000
-  #   env_file:
-  #     - apps/api-gateway/.env
-  #   depends_on:
-  #     - kafka
-  #     - auth
-  #     # - chat
-  #     # - filesystem
-  #     # - notification
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    ports:
+      - "5000:5000" # host dùng localhost:5000
+    env_file:
+      - apps/api-gateway/.env.development
+    depends_on:
+      - redpanda
+      - auth
+      - chat
+      - filesystem
+      - notification
 
-  # # service auth microservice
-  # auth:
-  #   build:
-  #     context: .
-  #     dockerfile: apps/auth/Dockerfile
-  #   env_file:
-  #     - apps/auth/.env
-  #   depends_on:
-  #     - kafka
+  # service auth microservice
+  auth:
+    build:
+      context: .
+      dockerfile: apps/auth/Dockerfile
+    env_file:
+      - apps/auth/.env.development
+    depends_on:
+      - redpanda
 
-# # service chat microservice
-#   chat:
-#     build:
-#       context: .
-#       dockerfile: apps/chat/Dockerfile
-#     environment:
-#       - KAFKA_BROKERS=kafka:29092
-#     depends_on:
-#       - kafka
+  # service chat microservice
+  chat:
+    build:
+      context: .
+      dockerfile: apps/chat/Dockerfile
+    env_file:
+      - apps/chat/.env.development
+    depends_on:
+      - redpanda
 
-# # service filesystem microservice
-#   filesystem:
-#     build:
-#       context: .
-#       dockerfile: apps/filesystem/Dockerfile
-#     environment:
-#       - KAFKA_BROKERS=kafka:29092
-#     depends_on:
-#       - kafka
+  # service filesystem microservice
+  filesystem:
+    build:
+      context: .
+      dockerfile: apps/filesystem/Dockerfile
+    env_file:
+      - apps/filesystem/.env.development
+    depends_on:
+      - redpanda
 
-# # service notification microservice
-#   notification:
-#     build:
-#       context: .
-#       dockerfile: apps/notification/Dockerfile
-#     environment:
-#       - KAFKA_BROKERS=kafka:29092
-#     depends_on:
-#       - kafka
+  # service notification microservice
+  notification:
+    build:
+      context: .
+      dockerfile: apps/notification/Dockerfile
+    env_file:
+      - apps/notification/.env.development
+    depends_on:
+      - redpanda
+
+  # service ai microservice
+  ai:
+    build:
+      context: .
+      dockerfile: apps/ai/Dockerfile
+    env_file:
+      - apps/ai/.env.development
+    depends_on:
+      - redpanda
 
 volumes:
   kafka_data:

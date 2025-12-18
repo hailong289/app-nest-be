@@ -10,8 +10,8 @@ RUN npm install
 # Copy toàn bộ source code (apps + libs)
 COPY . .
 
-# Build chỉ service filesystem
-RUN npm run build:filesystem
+# Build chỉ service ai
+RUN npm run build:ai
 
 # ---------- Stage 2: Production ----------
 FROM node:24-alpine AS runner
@@ -22,10 +22,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Copy dist của service filesystem từ builder
+# Copy dist của service ai từ builder
 COPY --from=builder /app/dist ./dist
 
 # Copy libs từ builder stage
 COPY libs ./libs
 
-CMD ["node", "dist/apps/filesystem/main.js"]
+CMD ["node", "dist/apps/ai/main.js"]

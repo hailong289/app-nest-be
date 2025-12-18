@@ -46,40 +46,35 @@ export class DocumentsService {
       const docOwnerId = doc?.ownerId?.toString?.();
       const isOwner = docOwnerId === userIdStr;
 
+      // Owner luôn có quyền
+      if (isOwner) return true;
+
+      // 1. Check explicit sharedWith (nếu doc đã được populate hoặc có sẵn)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const sharedArray = (doc?.sharedWith as unknown[]) ?? [];
-      const isSharedWith = sharedArray.some((s: any) => {
+      const sharedUser = sharedArray.find((s: any) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
         const sUserId = s?.userId?.toString?.();
         return sUserId === userIdStr;
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const isPublic = doc?.visibility === DocVisibilityEnum.public;
+      if (sharedUser) {
+        if (requireEdit) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          return (sharedUser as any).role === 'editor';
+        }
+        return true;
+      }
 
-      // Owner luôn có quyền
-      if (isOwner) return true;
-
-      // Check Room Access
+      // 2. Check Room Members (nếu doc chưa populate hoặc user không nằm trong sharedWith)
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (
         doc &&
         Array.isArray((doc as { roomIds?: unknown }).roomIds) &&
         (doc as { roomIds: unknown[] }).roomIds.length > 0
       ) {
-        interface RoomMember {
-          user_id: string;
-          [key: string]: any;
-        }
-
-        interface RoomDoc {
-          _id: string;
-          room_members: RoomMember[];
-          [key: string]: any;
-        }
-
         const roomIdsArray = (doc as { roomIds: string[] }).roomIds;
-        const room: RoomDoc | null = await this.roomModel.findOne({
+        const room = await this.roomModel.findOne({
           _id: {
             $in: roomIdsArray.map((i: string) =>
               this.utils.convertToObjectIdMongoose(i),
@@ -89,18 +84,27 @@ export class DocumentsService {
         });
 
         if (room) {
-          // Nếu là member của room
-          // Nếu requireEdit -> Cần check role trong room hoặc logic khác (tạm thời cho phép edit nếu là member room)
-          // Hoặc chỉ cho phép edit nếu visibility != private?
-          // Tạm thời: Member room có quyền như SharedWith
-          return true;
+          const member = room.room_members.find(
+            (m) => m.user_id.toString() === userIdStr,
+          );
+          if (member) {
+            const role = member.role === 'guest' ? 'viewer' : 'editor';
+            if (requireEdit) {
+              return role === 'editor';
+            }
+            return true;
+          }
         }
       }
 
-      // Nếu cần edit thì chỉ owner/shared được
-      if (requireEdit) return isSharedWith;
-      // View thì có thể public hoặc shared
-      return isSharedWith || isPublic;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const isPublic = doc?.visibility === DocVisibilityEnum.public;
+
+      // Nếu cần edit thì chỉ owner/shared editor được
+      if (requireEdit) return false;
+
+      // View thì có thể public
+      return isPublic;
     } catch {
       return false;
     }
@@ -167,9 +171,60 @@ export class DocumentsService {
         },
       },
       // Unwind sharedWith to populate
+      // --- NEW LOGIC: Merge Room Members into SharedWith ---
+      {
+        $lookup: {
+          from: 'Rooms',
+          localField: 'roomIds',
+          foreignField: '_id',
+          as: 'room_infos',
+        },
+      },
+      {
+        $addFields: {
+          room_members_normalized: {
+            $reduce: {
+              input: '$room_infos',
+              initialValue: [],
+              in: {
+                $concatArrays: [
+                  '$$value',
+                  {
+                    $map: {
+                      input: '$$this.room_members',
+                      as: 'member',
+                      in: {
+                        userId: '$$member.user_id',
+                        role: {
+                          $cond: {
+                            if: { $eq: ['$$member.role', 'guest'] },
+                            then: 'viewer',
+                            else: 'editor',
+                          },
+                        },
+                        sharedAt: '$$member.joinedAt',
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          combined_shared: {
+            $concatArrays: [
+              { $ifNull: ['$sharedWith', []] },
+              { $ifNull: ['$room_members_normalized', []] },
+            ],
+          },
+        },
+      },
       {
         $unwind: {
-          path: '$sharedWith',
+          path: '$combined_shared',
           preserveNullAndEmptyArrays: true,
         },
       },
@@ -177,14 +232,14 @@ export class DocumentsService {
       {
         $lookup: {
           from: 'Users',
-          localField: 'sharedWith.userId',
+          localField: 'combined_shared.userId',
           foreignField: '_id',
-          as: 'sharedWith.user_info',
+          as: 'combined_shared.user_info',
         },
       },
       {
         $unwind: {
-          path: '$sharedWith.user_info',
+          path: '$combined_shared.user_info',
           preserveNullAndEmptyArrays: true,
         },
       },
@@ -195,16 +250,16 @@ export class DocumentsService {
           root: { $first: '$$ROOT' },
           sharedWith: {
             $push: {
-              userId: '$sharedWith.userId',
-              role: '$sharedWith.role',
-              sharedAt: '$sharedWith.sharedAt',
+              userId: '$combined_shared.userId',
+              role: '$combined_shared.role',
+              sharedAt: '$combined_shared.sharedAt',
               user: {
-                _id: '$sharedWith.user_info._id',
-                usr_id: '$sharedWith.user_info.usr_id',
-                usr_slug: '$sharedWith.user_info.usr_slug',
-                usr_fullname: '$sharedWith.user_info.usr_fullname',
-                usr_avatar: '$sharedWith.user_info.usr_avatar',
-                usr_email: '$sharedWith.user_info.usr_email',
+                _id: '$combined_shared.user_info._id',
+                usr_id: '$combined_shared.user_info.usr_id',
+                usr_slug: '$combined_shared.user_info.usr_slug',
+                usr_fullname: '$combined_shared.user_info.usr_fullname',
+                usr_avatar: '$combined_shared.user_info.usr_avatar',
+                usr_email: '$combined_shared.user_info.usr_email',
               },
             },
           },
@@ -237,7 +292,11 @@ export class DocumentsService {
       {
         $project: {
           owner_info: 0,
+          room_infos: 0,
+          room_members_normalized: 0,
+          combined_shared: 0,
           'sharedWith.user_info': 0,
+          yjsSnapshot: 0, // Optimization: Remove heavy binary data
         },
       },
     ];
@@ -301,6 +360,10 @@ export class DocumentsService {
       this.getPopulateDocsPipeline({
         _id: this.utils.convertToObjectIdMongoose(docId),
       }),
+    );
+    console.log(
+      'DEBUG: getDoc result:',
+      JSON.stringify(docs[0] || {}, null, 2),
     );
     const doc = docs[0] as Document & { _id: any };
 
@@ -576,6 +639,24 @@ export class DocumentsService {
     );
 
     return Response.success(updatedDoc, 'Chia sẻ tài liệu thành công');
+  }
+
+  async shareDocumentForRoom(userId: string, room_id: string, docId: string) {
+    const doc = await this.docsModel.findById(
+      this.utils.convertToObjectIdMongoose(docId),
+    );
+
+    if (!doc) {
+      throw new NotFoundException('Không tìm thấy tài liệu');
+    }
+
+    // Kiểm tra chỉ owner mới có thể chia sẻ
+    const docOwnerId = doc?.ownerId?.toString?.();
+    const userObjId = this.utils.convertToObjectIdMongoose(userId).toString();
+
+    if (docOwnerId !== userObjId) {
+      throw new NotFoundException('Chỉ chủ sở hữu mới có thể chia sẻ tài liệu');
+    }
   }
 
   /**

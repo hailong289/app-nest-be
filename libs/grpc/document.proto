@@ -17,9 +17,20 @@ service DocumentService {
   // Document Service Messages
   // ========================================================
 }
+
+message UserInfo {
+  string _id          = 1;
+  string usr_id       = 2;
+  string usr_slug     = 3;
+  string usr_fullname = 4;
+  string usr_avatar   = 5;
+  string usr_email    = 6;
+}
+
 message SharedWithItem {
-  string userId = 1;
-  string role   = 2;
+  string   userId = 1;
+  string   role   = 2;
+  UserInfo user   = 3;
 }
 
 message DocumentMetadata {
@@ -34,6 +45,7 @@ message DocumentMetadata {
   repeated string         attachmentIds = 9;
   string                  createdAt     = 10;
   string                  updatedAt     = 11;
+  UserInfo                owner         = 12;
 }
 
 message CreateDocRequest {

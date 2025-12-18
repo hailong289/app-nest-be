@@ -247,12 +247,16 @@ export class HandleChatService {
     // Process links asynchronously via Kafka
     if (content && /(https?:\/\/[^\s]+)/g.test(content)) {
       console.log('link', content);
-      this.utils.dispatchEventKafka(this.fileClient, KafkaEvent.processLink, {
-        content,
-        userId,
-        roomId: finInfo._id.toString(),
-        messageId: createNewMsg._id.toString(),
-      });
+      await this.utils.dispatchEventKafka(
+        this.fileClient,
+        KafkaEvent.processLink,
+        {
+          content,
+          userId,
+          roomId: finInfo._id.toString(),
+          messageId: createNewMsg._id.toString(),
+        },
+      );
     }
 
     return Response.success(
