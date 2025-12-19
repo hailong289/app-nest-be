@@ -28,12 +28,7 @@ import { SharedKafkaClientModule } from 'libs/kafka';
             process.env.GATEWAY_CHAT_PROTO_PATH || 'libs/grpc/chat.proto',
           ),
           url: (() => {
-            const hostEnv = (process.env.GATEWAY_CHAT_HOST || '').trim();
-            const isDockerHost = hostEnv?.includes('chat');
-            const host =
-              isDockerHost && process.env.NODE_ENV !== 'production'
-                ? 'localhost'
-                : hostEnv || 'localhost';
+            const host = (process.env.GATEWAY_CHAT_HOST || 'localhost').trim();
             const port = process.env.GATEWAY_CHAT_PORT || '5003';
             return `${host}:${port}`;
           })(),
