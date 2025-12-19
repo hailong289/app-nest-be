@@ -25,10 +25,14 @@ service ChatService {
   rpc HandlePinned(HandlePinnedInput)returns(CreateMessageOutput);
   rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
   rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
+  // Call
+  rpc RequestCall(RequestCallInput)returns(outputCall);
+  rpc AcceptCall(AcceptCallInput)returns(outputCall);
+  rpc EndCall(EndCallInput)returns(outputCall);
+  rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
 
 }
-
 // Requests and Responses
 message GetDocumentsFromRoomInput {
   string userId = 1;
@@ -344,8 +348,8 @@ message MessageCore {
   repeated MessageReadBy read_by = 17;        // List of users who read
   int32 read_by_count = 18;  
   bool isDeleted=19; 
-  string documentId=20;
-              // Count of users who read
+  CallHistory call_history = 20;             // Call history
+  string documentId=21;
 }
 
 /** Nếu bạn muốn trả list: gói trong wrapper này (optional) */
@@ -447,5 +451,65 @@ message HandleDeleteAllInput{
   string roomId=2;
   string msgId=3;
   string placeholder=4;
+}
 
+
+
+message RequestCallInput{
+  string actionUserId = 1;
+  repeated string membersIds = 2;
+  string roomId = 3;
+  string callType = 4;
+  string messageId = 5;
+}
+
+message AcceptCallInput{
+  string actionUserId = 1;
+  repeated string membersIds = 2;
+  string roomId = 3;
+}
+
+message EndCallInput{
+  string actionUserId = 1;
+  string roomId = 2;
+  string status = 3; // 'ended' | 'missed' | 'rejected' | 'cancelled'
+}
+
+message GetCallHistoryInput{
+  string userId=1;
+  string roomId=2;
+  string type=3;
+}
+
+message outputCall {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  CallMetadata metadata = 4;
+}
+
+message CallMetadata {
+  CallHistory history = 1;      
+  RoomResponse room = 2;         
+  string callType = 3;     
+}
+
+message Member {
+  string id = 1;
+  string fullname = 2;
+  string avatar = 3;
+  string status = 4;
+  bool is_caller = 5;
+  string user_id = 6;
+}
+message CallHistory {
+  string _id = 1;         
+  string call_id = 2;
+  string room_id = 3;
+  string call_type = 4;
+  string message_id = 5;
+  repeated Member members = 6;
+  string started_at = 7;
+  string ended_at = 8;
+  int64 duration = 9;
 }

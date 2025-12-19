@@ -2,6 +2,7 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import {
+  callHistoryModel,
   flashcardModel,
   flashcardDeckModel,
   friendshipModel,
@@ -61,6 +62,7 @@ import {
       quizModel,
       flashcardModel,
       flashcardDeckModel,
+      callHistoryModel,
       documentModel,
       aIEmbeddingModel,
       aIUsageLogModel,

@@ -111,6 +111,14 @@ export type {
   FlashcardProgressDocument,
 } from './flashcard.model';
 
+// Call History models
+export { CallHistory, CallHistorySchema } from './call-history.model';
+export { default as callHistoryModel } from './call-history.model';
+export type {
+  CallHistoryDocument,
+  CallType,
+  CallStatus,
+} from './call-history.model';
 //
 export { default as aIEmbeddingModel } from './AIEmbedding.model';
 export type { AIEmbeddingDocument } from './AIEmbedding.model';

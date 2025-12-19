@@ -85,22 +85,38 @@ export class AuthService {
     );
 
     // Update Key document
-    const updateOps: {
-      $addToSet?: { tkn_fcmToken: string };
-    } = {};
-
     if (loginDto.fcmToken) {
-      updateOps.$addToSet = { tkn_fcmToken: loginDto.fcmToken };
+      // Check if Key document exists and fix tkn_fcmToken if it's a string
+      const existingKey = await this.keyModel
+        .findOne({ tkn_userId: user._id })
+        .lean()
+        .exec();
+
+      if (existingKey && typeof existingKey.tkn_fcmToken === 'string') {
+        // Convert string to array if needed
+        await this.keyModel.findOneAndUpdate(
+          { tkn_userId: user._id },
+          {
+            $set: {
+              tkn_fcmToken: [existingKey.tkn_fcmToken],
+            },
+          },
+        );
+      }
+
+      // Now safely use $addToSet
+      await this.keyModel.findOneAndUpdate(
+        { tkn_userId: user._id },
+        { $addToSet: { tkn_fcmToken: loginDto.fcmToken } },
+        { upsert: true },
+      );
+
       // save info redis
       await this.redis.sAdd(
         this.key.USER_FCM_TOKENS(user._id.toString()),
         loginDto.fcmToken,
       );
     }
-
-    await this.keyModel.findOneAndUpdate({ tkn_userId: user._id }, updateOps, {
-      upsert: true,
-    });
 
     return Response.success(
       {
