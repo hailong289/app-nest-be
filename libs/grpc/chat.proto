@@ -349,8 +349,7 @@ message MessageCore {
   int32 read_by_count = 18;  
   bool isDeleted=19; 
   CallHistory call_history = 20;             // Call history
-  string documentId=20;
-              // Count of users who read
+  string documentId=21;
 }
 
 /** Nếu bạn muốn trả list: gói trong wrapper này (optional) */
