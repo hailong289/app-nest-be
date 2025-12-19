@@ -66,6 +66,7 @@ export interface RoomGrpcService {
   changeName(data: any): any;
   changeNickName(data: any): any;
   getMsgFromRoom(data: any): any;
+  getDocumentsFromRoom(data: any): any;
 }
 
 @Controller('chat')
@@ -367,6 +368,28 @@ export class GatewayChatController {
     };
     return await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.getMsgFromRoom.bind(this.RoomGrpcService),
+      data,
+    );
+  }
+
+  @Get('documents/:roomId')
+  async GetDocumentsFromRoom(
+    @Req() req: { user?: { _id?: string } },
+    @Param('roomId') roomId: string,
+    @Query()
+    query: {
+      limit?: number;
+      page?: number;
+    },
+  ) {
+    const data = {
+      userId: req.user?._id,
+      roomId,
+      limit: query.limit || 20,
+      page: query.page || 1,
+    };
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.getDocumentsFromRoom.bind(this.RoomGrpcService),
       data,
     );
   }

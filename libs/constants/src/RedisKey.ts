@@ -15,7 +15,13 @@
 
 export const REDISKEY = {
   // ==========================================
-  // 💬 CHAT ROOM KEYS
+  // � AUTH KEYS
+  // ==========================================
+  REFRESH_TOKEN: (userId: string, jti: string) =>
+    `auth:refresh_token:${userId}:${jti}`,
+
+  // ==========================================
+  // �💬 CHAT ROOM KEYS
   // ==========================================
 
   /**

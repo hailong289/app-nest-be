@@ -385,6 +385,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         isRead: '$isRead',
         hiddenByMe: '$hiddenByMe',
         hiddenAt: '$hiddenAt',
+        documentId: '$document_id',
 
         // 🔥 read list + count
         read_by: '$read_list',

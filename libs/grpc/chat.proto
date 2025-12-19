@@ -15,6 +15,7 @@ service ChatService {
   rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
   rpc ChangeName(inputChangeName) returns (outputChange);
   rpc ChangeNickName(inputChangeNickName) returns (outputChange);
+  rpc ChangeRole(inputChangeRole) returns (outputChange);
   rpc GetRoom(inputGetRoom)returns (outputGetRoom);
   rpc CreateNewMsg(InputCreateMsg)returns (CreateMessageOutput);
   rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
@@ -29,8 +30,17 @@ service ChatService {
   rpc AcceptCall(AcceptCallInput)returns(outputCall);
   rpc EndCall(EndCallInput)returns(outputCall);
   rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
+  rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
+
 }
 // Requests and Responses
+message GetDocumentsFromRoomInput {
+  string userId = 1;
+  string roomId = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  string type = 5;
+}
 message CreateRoomRequest {
   string userId = 1;
   string name = 2;
@@ -204,6 +214,13 @@ message inputChangeNickName{
   string memberId=4;
 }
 
+message inputChangeRole{
+  string userId =1;
+  string roomId =2;
+  string role =3;
+  string memberId=4;
+}
+
 
 //chat
 
@@ -332,6 +349,7 @@ message MessageCore {
   int32 read_by_count = 18;  
   bool isDeleted=19; 
   CallHistory call_history = 20;             // Call history
+  string documentId=20;
               // Count of users who read
 }
 
@@ -351,6 +369,7 @@ message InputCreateMsg{
   bool pinned =6;
   string userId=7;
   string id=8;
+  string documentId=9;
 }
 
 message CreateMessageOutput{

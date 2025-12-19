@@ -28,4 +28,14 @@ export const topic = [
     numPartitions: 1,
     replicationFactor: -1,
   },
+  {
+    topic: 'ai.createChatMessageEmbedding',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  {
+    topic: 'filesystem.processLink',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
 ];

@@ -5,6 +5,7 @@ import {
   ChangelinkAvatarRoomDto,
   ChangeNameRoomDto,
   ChangeNickNameMemberDto,
+  ChangeRoleMemberDto,
   CreateRoomDto,
   GetRoomDto,
   GetRoomType,
@@ -28,7 +29,7 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'RemoveMember')
   async removeMbr(@Body() payload: RemoveMemberRoomDto) {
     const result = this.roomsService.removeMemberByAdmin(payload);
-    console.log('🚀 ~ RoomsController ~ removeMbr ~ result:', result);
+    // console.log('🚀 ~ RoomsController ~ removeMbr ~ result:', result);
     return result;
   }
   @GrpcMethod('ChatService', 'AddMember')
@@ -43,7 +44,7 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'GetRoom')
   async GetRoom(@Body() payload: GetRoomDto) {
     const result = await this.roomsService.GetRoom(payload);
-    console.log('🚀 ~ RoomsController ~ GetRoom ~ result:', result.metadata);
+    // console.log('🚀 ~ RoomsController ~ GetRoom ~ result:', result.metadata);
     return result;
   }
 
@@ -60,5 +61,10 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'ChangeNickName')
   async ChangeNickName(@Body() payload: ChangeNickNameMemberDto) {
     return this.roomsService.changeNickNameMember(payload);
+  }
+
+  @GrpcMethod('ChatService', 'ChangeRole')
+  async ChangeRole(@Body() payload: ChangeRoleMemberDto) {
+    return this.roomsService.changeRoleMember(payload);
   }
 }

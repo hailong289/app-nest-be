@@ -21,6 +21,7 @@ import {
   MultipleFilesUploadDto,
   SingleFileUploadDto,
   UploadSingleFileForUserDto,
+  GetAttachmentsDto,
 } from '@app/dto';
 
 interface UploadedFileType {
@@ -35,11 +36,16 @@ interface FileSystemService {
   deleteFile(data: { fileName: string; folder?: string }): any;
   getPresignedUrl(data: { fileName: string }): any;
   UploadSingleFileForUser(data: UploadSingleFileForUserDto): any;
+  UploadMultipleFilesForUser(data: any): any;
+  getAttachments(data: GetAttachmentsDto): any;
 }
 
 @Controller('filesystem')
 export class GatewayFilesystemController implements OnModuleInit {
   private filesystemService: FileSystemService;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   constructor(
     @Inject(SERVICES.FILESYSTEM) private readonly filesystemClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
@@ -103,6 +109,38 @@ export class GatewayFilesystemController implements OnModuleInit {
     );
   }
 
+  @Post('upload-multiple-user')
+  @UseInterceptors(FilesInterceptor('files', 10))
+  async uploadMultipleFilesForUser(
+    @UploadedFiles() files: UploadedFileType[],
+    @Body()
+    body: {
+      roomId: string;
+      messageId?: string;
+    },
+    @Req() req: { user?: { _id?: string } },
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.UploadMultipleFilesForUser.bind(
+        this.filesystemService,
+      ),
+      {
+        files: files.map((file) => ({
+          buffer: file.buffer,
+          originalname: file.originalname,
+          mimetype: file.mimetype,
+        })),
+        roomId: body.roomId,
+        messageId: body.messageId,
+        userId: req.user._id,
+      },
+    );
+  }
+
   @Post('upload-multiple')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultipleFiles(
@@ -137,4 +175,16 @@ export class GatewayFilesystemController implements OnModuleInit {
       { fileName },
     );
   }
+
+  @Get('attachments')
+  async getAttachments(@Query() query: GetAttachmentsDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.getAttachments.bind(this.filesystemService),
+      query,
+    );
+  }
+
+  // =====================================================
+  // Document API Endpoints
+  // =====================================================
 }

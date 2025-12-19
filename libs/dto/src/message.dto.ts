@@ -40,6 +40,7 @@ export class CreateMessage {
   content: string | null;
   attachments?: string[]; // ✅ Optional array of strings
   replyTo: string | null;
+  documentId?: string;
   // pinned?: boolean;
 }
 
@@ -77,4 +78,12 @@ export class HandleDeleteAllDto {
   userId: string;
   msgId: string;
   placeholder: string;
+}
+
+export class GetDocumentsFromRoomDTO {
+  roomId: string;
+  userId: string;
+  limit: number;
+  page: number;
+  type?: string;
 }

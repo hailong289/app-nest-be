@@ -43,7 +43,12 @@ export { default as messageHidesModel } from './message-hides.model';
 export type { MessageHideDocument } from './message-hides.model';
 
 // Attachment model
-export { Attachment, AttachmentSchema } from './Attachment.model';
+export {
+  Attachment,
+  AttachmentSchema,
+  AttachmentKindEnum,
+  AttachmentContextEnumType,
+} from './Attachment.model';
 export { default as attachmentModel } from './Attachment.model';
 export type { AttachmentKind, AttachmentStatus } from './Attachment.model';
 
@@ -114,3 +119,22 @@ export type {
   CallType,
   CallStatus,
 } from './call-history.model';
+//
+export { default as aIEmbeddingModel } from './AIEmbedding.model';
+export type { AIEmbeddingDocument } from './AIEmbedding.model';
+
+export { default as aIUsageLogModel } from './AIUsageLogs.model';
+export type { AIUsageLogDocument } from './AIUsageLogs.model';
+
+export {
+  Document,
+  DocumentSchema,
+  DocVisibilityEnum,
+  sharedWithRoleEnum,
+} from './Document.model';
+export { default as documentModel } from './Document.model';
+export type {
+  DocumentDocuments,
+  DocVisibility,
+  sharedWithRoleType,
+} from './Document.model';

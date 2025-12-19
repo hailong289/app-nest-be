@@ -32,6 +32,7 @@ interface JwtPayload {
   usr_dateOfBirth?: string; // "2003-03-04T00:00:00.000Z"
   createdAt?: string; // "2025-10-27T12:00:30.536Z"
   updatedAt?: string; // "2025-10-27T12:00:30.536Z"
+  jti: string;
   [key: string]: any;
 }
 
@@ -118,6 +119,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
+
+      // Check JTI in Redis
+      if (payload.jti && payload._id) {
+        const redisResult: string | number | boolean | null =
+          await this.redis.getData(
+            this.key.REFRESH_TOKEN(payload._id, payload.jti),
+          );
+        const isValid =
+          typeof redisResult === 'string' ||
+          typeof redisResult === 'number' ||
+          typeof redisResult === 'boolean'
+            ? Boolean(redisResult)
+            : !!redisResult;
+
+        if (!isValid) {
+          this.logger.warn(
+            `[CONNECT] Token revoked or expired for user ${payload._id}`,
+          );
+          client.emit('exception', {
+            status: 'error',
+            message: 'Phiên đăng nhập đã hết hạn hoặc bị thu hồi',
+          });
+          client.disconnect();
+          return;
+        }
+      }
+
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
@@ -277,7 +305,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               'push_notification_users',
               {
                 title,
-                message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+                message:
+                  roomData.metadata.last_message &&
+                  typeof roomData.metadata.last_message === 'object' &&
+                  roomData.metadata.last_message !== null &&
+                  'content' in roomData.metadata.last_message
+                    ? ((roomData.metadata.last_message as { content?: string })
+                        ?.content ?? '')
+                    : '',
                 userIds: [member.user_id],
                 data: {
                   type: notifyType.noify_new_message,
@@ -444,14 +479,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           if (member.user_id !== user._id && !roomData?.metadata?.mute) {
             const title =
               roomData.metadata.type === RoomTypeEnum.Private
-                ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
-                : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
+                ? `${user.usr_fullname} thả cảm xúc đến bạn`
+                : `${user.usr_fullname} thả  cảm xúc đến tin nhắn của nhóm ${roomData.metadata.name}`;
             await this.gatewayService.dispatchServiceEvent(
               this.notificationClient,
               'push_notification_users',
               {
                 title,
-                message: `Bạn có tin nhắn mới từ ${user.usr_fullname}`,
+                message:
+                  roomData.metadata.last_message &&
+                  typeof roomData.metadata.last_message === 'object' &&
+                  roomData.metadata.last_message !== null &&
+                  'content' in roomData.metadata.last_message
+                    ? ((roomData.metadata.last_message as { content?: string })
+                        ?.content ?? '')
+                    : '',
                 userIds: [member.user_id],
                 data: {
                   type: notifyType.noify_new_message,
@@ -995,36 +1037,51 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async CheckUserOnline(
     @MessageBody()
     data: {
-      ids: string[];
+      ids?: unknown;
     },
   ) {
-    const result = (await this.redis.SisMembers({
-      key: this.key.USERS_ONLINE,
-      values: data.ids,
-    })) as Array<{
-      key: string;
-      value: boolean;
-    }>;
-    if (result) {
-      const socketResult = result.map((i: { key: string; value: boolean }) => ({
-        id: i.key,
-        isOnline: i.value,
-      }));
-      console.log(
-        '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
-        socketResult,
-      );
-      for (const i of socketResult) {
-        this.io.to('system').emit('status:online', {
-          id: i.id,
-          isOnline: i.isOnline,
-          onlineAt: new Date(),
-        });
-      }
+    // 1️⃣ Normalize input (bắt client gửi bậy)
+    const ids: string[] = Array.isArray(data?.ids)
+      ? data.ids.filter((id): id is string => typeof id === 'string')
+      : [];
+
+    if (ids.length === 0) {
+      console.warn('⚠️ CheckUserOnline: ids is empty or invalid', data);
+      return;
     }
 
-    // this.io.emit('status_online', result);
+    // 2️⃣ Gọi Redis an toàn
+    let result: { key: string; value: boolean }[] = [];
+    try {
+      result = await this.redis.SisMembers({
+        key: this.key.USERS_ONLINE,
+        values: ids,
+      });
+    } catch (err) {
+      console.error('❌ Redis SisMembers failed:', err);
+      return;
+    }
+
+    if (!Array.isArray(result) || result.length === 0) return;
+
+    // 3️⃣ Map dữ liệu socket
+    const socketResult = result.map((i) => ({
+      id: i.key,
+      isOnline: Boolean(i.value),
+      onlineAt: new Date(),
+    }));
+
+    console.log(
+      '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
+      socketResult,
+    );
+
+    // 4️⃣ Emit 1 phát (KHÔNG spam)
+    this.io.to('system').emit('status:online:bulk', {
+      users: socketResult,
+    });
   }
+
   @SubscribeMessage(socketEvent.USERTYPING)
   onTypingIndicator(
     @MessageBody()

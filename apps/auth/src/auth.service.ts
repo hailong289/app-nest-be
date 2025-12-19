@@ -3,10 +3,11 @@ import {
   RegisterDto,
   UpdateAvatarDto,
   UpdateProfileDto,
+  SearchUserDto,
 } from '@app/dto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
@@ -21,7 +22,6 @@ import { REDISKEY } from '@app/constants/RedisKey';
 @Injectable()
 export class AuthService {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
-
   private readonly key = REDISKEY;
   constructor(
     @InjectModel(Userschema.name) private readonly userModel: Model<User>,
@@ -59,29 +59,48 @@ export class AuthService {
       '__v',
     ]);
 
-    const accessToken = this.jwtService.sign(userData, {
-      secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-      expiresIn: '7d', // access token sống 7 ngày
-    });
+    // Generate JTI
+    const jti = Utils.randomId();
 
-    const refreshToken = this.jwtService.sign(userData, {
-      secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-      expiresIn: '30d', // refresh token sống 30 ngày
-    });
+    const accessToken = this.jwtService.sign(
+      { ...userData, jti },
+      {
+        secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+        expiresIn: '7d', // access token sống 7 ngày
+      },
+    );
+
+    const refreshToken = this.jwtService.sign(
+      { ...userData, jti },
+      {
+        secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
+        expiresIn: '30d', // refresh token sống 30 ngày
+      },
+    );
+    // Store JTI in Redis
+    await this.redis.setData(
+      this.key.REFRESH_TOKEN(user._id.toString(), jti),
+      'valid',
+      30 * 24 * 60 * 60,
+    );
+
+    // Update Key document
+    const updateOps: {
+      $addToSet?: { tkn_fcmToken: string };
+    } = {};
 
     if (loginDto.fcmToken) {
-      // Lưu fcmToken vào database
-      await this.keyModel.create({
-        tkn_userId: user._id,
-        tkn_fcmToken: loginDto.fcmToken,
-        tkn_createdAt: new Date(),
-      });
+      updateOps.$addToSet = { tkn_fcmToken: loginDto.fcmToken };
       // save info redis
       await this.redis.sAdd(
         this.key.USER_FCM_TOKENS(user._id.toString()),
         loginDto.fcmToken,
       );
     }
+
+    await this.keyModel.findOneAndUpdate({ tkn_userId: user._id }, updateOps, {
+      upsert: true,
+    });
 
     return Response.success(
       {
@@ -142,21 +161,29 @@ export class AuthService {
         'usr_salt',
         '__v',
       ]);
-      const accessToken = this.jwtService.sign(userData, {
-        secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-        expiresIn: '7d', // access token sống 7 ngày
-      });
+      // Generate JTI
+      const jti = Utils.randomId();
+      const accessToken = this.jwtService.sign(
+        { ...userData, jti },
+        {
+          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+          expiresIn: '7d', // access token sống 7 ngày
+        },
+      );
 
-      const refreshToken = this.jwtService.sign(userData, {
-        secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-        expiresIn: '30d', // refresh token sống 30 ngày
-      });
+      const refreshToken = this.jwtService.sign(
+        { ...userData, jti },
+        {
+          secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
+          expiresIn: '30d', // refresh token sống 30 ngày
+        },
+      );
 
       if (registerDto.fcmToken) {
         // Lưu fcmToken vào database
         await this.keyModel.create({
           tkn_userId: newUser._id,
-          tkn_fcmToken: registerDto.fcmToken,
+          tkn_fcmToken: [registerDto.fcmToken],
           tkn_createdAt: new Date(),
         });
         // save to redis
@@ -165,6 +192,12 @@ export class AuthService {
           registerDto.fcmToken,
         );
       }
+      // Store JTI in Redis
+      await this.redis.setData(
+        this.key.REFRESH_TOKEN(newUser._id.toString(), jti),
+        'valid',
+        30 * 24 * 60 * 60,
+      );
 
       return Response.success(
         {
@@ -179,45 +212,6 @@ export class AuthService {
       console.error('Auth register error:', error);
       return Response.error('Đăng ký thất bại', 400);
     }
-  }
-
-  logout(userId: string) {
-    // Xóa hết key của user khi logout
-    void this.keyModel
-      .deleteMany({ tkn_userId: new Types.ObjectId(userId) })
-      .exec();
-    return Response.success(null, 'Đăng xuất thành công');
-  }
-
-  async refreshToken(userId: string) {
-    // Tạo access token mới dựa trên userId
-    const user = await this.userModel.findById(userId).exec();
-    if (!user) {
-      return Response.error('User not found', 404);
-    }
-    const userData: Record<string, any> = Utils.omit(user.toObject(), [
-      'usr_salt',
-      '__v',
-    ]);
-    const accessToken = this.jwtService.sign(userData, {
-      secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-      expiresIn: '7d', // access token sống 7 ngày
-    });
-
-    const refreshToken = this.jwtService.sign(userData, {
-      secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-      expiresIn: '30d', // refresh token sống 30 ngày
-    });
-
-    return Response.success(
-      {
-        accessToken,
-        refreshToken,
-        expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
-        user: Utils.unprefix(userData, 'usr_'),
-      },
-      'Đăng nhập thành công',
-    );
   }
 
   async getUser(userId: string) {
@@ -368,25 +362,10 @@ export class AuthService {
       return Response.error('Tài khoản không tồn tại', 404);
     }
     try {
-      const formData = new FormData();
-      const blob = new Blob([new Uint8Array(data.file.buffer)], {
-        type: data.file.mimetype,
-      });
-      formData.append('file', blob, data.file.originalname);
-      formData.append('folder', `${data.folder}/${user.usr_id}`);
-      const result = await axios.post<{ metadata: { url: string } }>(
-        `${this.gatewayUrl}/api/filesystem/upload-single`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-      user.usr_avatar = result.data.metadata.url;
+      user.usr_avatar = data.avatarUrl;
       await user.save();
       return Response.success(
-        { url: result.data.metadata.url },
+        { url: data.avatarUrl },
         'Cập nhật ảnh đại diện thành công',
       );
     } catch (error) {
@@ -410,5 +389,153 @@ export class AuthService {
     user.usr_dateOfBirth = new Date(data.dateOfBirth);
     await user.save();
     return Response.success(null, 'Cập nhật thông tin thành công');
+  }
+
+  async logout(userId: string, jti: string) {
+    try {
+      if (jti) {
+        // Remove from Redis
+        await this.redis.delKey(this.key.REFRESH_TOKEN(userId, jti));
+
+        // Add to Blacklist in DB
+        await this.keyModel.findOneAndUpdate(
+          { tkn_userId: Utils.convertToObjectIdMongoose(userId) },
+          { $addToSet: { tkn_jit: jti } },
+          { upsert: true },
+        );
+      }
+
+      return Response.success(null, 'Đăng xuất thành công');
+    } catch {
+      // Token invalid or expired, just ignore
+      return Response.success(null, 'Đăng xuất thành công');
+    }
+  }
+
+  /**
+   * Refresh token logic: now takes userId and jti as input, like logout, for consistency.
+   * Optionally, you can still support the old token string for backward compatibility.
+   */
+  /**
+   * Refresh token:
+   * - Input: userId và jti (được lấy từ Middleware/Guard)
+   * - Logic:
+   * 1. Check Redis & DB xem token cũ còn sống không.
+   * 2. Hủy token cũ (Remove Redis + Add Blacklist DB) -> Y hệt logout.
+   * 3. Lấy info user mới nhất từ DB (để đảm bảo role/permission update).
+   * 4. Ký token mới với jti mới.
+   */
+  async refreshToken(userId: string, jti: string) {
+    try {
+      // Input Validation
+      if (!userId || !jti) {
+        throw new UnauthorizedException('Token không hợp lệ (thiếu thông tin)');
+      }
+
+      // --- CHECK PHASE ---
+      // Check 1: Redis (Whitelist) - Xem session còn sống không
+      const isValidRedis: string | null = await this.redis.getData(
+        this.key.REFRESH_TOKEN(userId, jti),
+      );
+
+      // Check 2: MongoDB (Blacklist) - Xem token này đã bị revoke chưa
+      // Lưu ý: userId convert sang ObjectId để query chuẩn
+      const userObjectId = Utils.convertToObjectIdMongoose(userId);
+      const isBlacklisted = await this.keyModel
+        .findOne({
+          tkn_userId: userObjectId,
+          tkn_jit: jti,
+        })
+        .lean()
+        .exec();
+
+      // Nếu không có trong Redis HOẶC đã nằm trong Blacklist -> Chặn
+      if (!isValidRedis || isBlacklisted) {
+        // Security Alert: Có thể log lại vụ này vì nghi ngờ hack
+        throw new UnauthorizedException(
+          'Refresh token không hợp lệ hoặc đã bị thu hồi',
+        );
+      }
+
+      // --- REVOKE PHASE (Giống Logout) ---
+      // Xóa token cũ khỏi Redis & ném vào Blacklist DB
+      await Promise.all([
+        this.redis.delKey(this.key.REFRESH_TOKEN(userId, jti)),
+        this.keyModel.updateOne(
+          { tkn_userId: userObjectId },
+          { $addToSet: { tkn_jit: jti } },
+          { upsert: true },
+        ),
+      ]);
+
+      // --- ISSUE PHASE ---
+      // Lấy user mới nhất từ DB (để đảm bảo role/permission không bị cũ)
+      const user = await this.userModel.findById(userId).lean().exec();
+      if (!user) throw new UnauthorizedException('User không tồn tại');
+
+      const newJti = Utils.randomId();
+      const userData = Utils.omit(user, ['usr_salt', '__v']);
+
+      // Payload mới
+      const payload = {
+        ...userData, // Reset time
+        jti: newJti,
+        _id: userId,
+      };
+
+      // Ký cặp token mới
+      const [newAccessToken, newRefreshToken] = await Promise.all([
+        this.jwtService.signAsync(payload, {
+          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+          expiresIn: '7d',
+        }),
+        this.jwtService.signAsync(payload, {
+          secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
+          expiresIn: '30d',
+        }),
+      ]);
+
+      // Active token mới trong Redis
+      await this.redis.setData(
+        this.key.REFRESH_TOKEN(userId, newJti),
+        'valid',
+        30 * 24 * 60 * 60,
+      );
+
+      return Response.success(
+        {
+          accessToken: newAccessToken,
+          refreshToken: newRefreshToken,
+          expiresIn: 7 * 24 * 60 * 60,
+          user: Utils.unprefix(userData, 'usr_'),
+        },
+        'Làm mới token thành công',
+      );
+    } catch (error) {
+      throw new UnauthorizedException(
+        `Lỗi refresh token: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async searchUser(searchDto: SearchUserDto) {
+    const { keyword, page = 1, limit = 10 } = searchDto;
+    const skip = (page - 1) * limit;
+    const regex = new RegExp(keyword, 'i');
+
+    const users = await this.userModel
+      .find({
+        $or: [
+          { usr_fullname: regex },
+          { usr_email: regex },
+          { usr_phone: regex },
+        ],
+      })
+      .skip(skip)
+      .limit(limit)
+      .select('-usr_password -usr_salt -__v')
+      .exec();
+
+    return Response.success(users, 'Tìm kiếm thành công');
   }
 }
