@@ -36,9 +36,9 @@ export class EmbeddingService {
    */
   private async checkRelevanceWithAI(text: string): Promise<boolean> {
     try {
-      // Dùng model Flash: Nhanh như điện, rẻ như cho
+      // Dùng model Pro (stable API)
       const model = this.gemini.getGenerativeModel({
-        model: 'gemini-1.5-pro',
+        model: 'gemini-2-5-flash',
       });
 
       const prompt = `
@@ -205,6 +205,13 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       // Tạo vector
       const vector = await this.generateVector(text);
       const hash = this.hashText(text);
+
+      // Kiểm tra hash trùng trước khi insert
+      const existingHash = await this.embedModel.exists({ hash });
+      if (existingHash) {
+        this.logger.debug(`Skipped duplicate hash for message ${messageId}`);
+        return;
+      }
 
       await this.embedModel.create({
         service: 'chat',
