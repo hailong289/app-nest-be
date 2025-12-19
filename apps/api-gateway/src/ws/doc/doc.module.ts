@@ -29,14 +29,9 @@ import * as grpc from '@grpc/grpc-js';
             ],
 
             url: (() => {
-              const hostEnv = (
-                process.env.GATEWAY_FILESYSTEM_HOST || ''
+              const host = (
+                process.env.GATEWAY_FILESYSTEM_HOST || 'localhost'
               ).trim();
-              const isDockerHost = hostEnv?.includes('filesystem');
-              const host =
-                isDockerHost && process.env.NODE_ENV !== 'production'
-                  ? 'localhost'
-                  : hostEnv || 'localhost';
               const port = process.env.GATEWAY_FILESYSTEM_PORT || '5002';
               return `${host}:${port}`;
             })(),

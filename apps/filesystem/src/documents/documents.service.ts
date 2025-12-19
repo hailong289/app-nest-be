@@ -67,7 +67,6 @@ export class DocumentsService {
       }
 
       // 2. Check Room Members (nếu doc chưa populate hoặc user không nằm trong sharedWith)
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (
         doc &&
         Array.isArray((doc as { roomIds?: unknown }).roomIds) &&
@@ -387,9 +386,8 @@ export class DocumentsService {
     const userObjId = this.utils.convertToObjectIdMongoose(userId);
     const isOwner = doc.ownerId?.toString() === userObjId.toString();
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     const alreadyShared = doc.sharedWith?.some(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       (s: any) => s?.userId?.toString?.() === userObjId.toString(),
     );
 
@@ -657,6 +655,24 @@ export class DocumentsService {
     if (docOwnerId !== userObjId) {
       throw new NotFoundException('Chỉ chủ sở hữu mới có thể chia sẻ tài liệu');
     }
+
+    // Tìm phòng và kiểm tra quyền
+    const room = await this.findRoom(room_id, userId);
+
+    // Add roomId vào doc
+    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+      doc._id,
+      {
+        $addToSet: { roomIds: room._id },
+        $set: { updatedAt: new Date() },
+      },
+      { new: true },
+    );
+
+    return Response.success(
+      updatedDoc,
+      'Chia sẻ tài liệu vào phòng thành công',
+    );
   }
 
   /**

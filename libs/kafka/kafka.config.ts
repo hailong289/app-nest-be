@@ -1,6 +1,7 @@
 import { registerAs } from '@nestjs/config';
 import { SharedKafkaConfig, SaslMechanism } from './kafka.interface';
 import { SASLOptions } from '@nestjs/microservices/external/kafka.interface';
+import { Partitioners } from 'kafkajs';
 
 function parseBoolean(v?: string): boolean {
   return (v || '').trim().toLowerCase() === 'true';
@@ -57,17 +58,17 @@ export default registerAs('kafka', (): SharedKafkaConfig => {
       brokers,
       ssl,
       sasl: saslConfig,
-      connectionTimeout: parseInt(
+      connectionTimeout: Number.parseInt(
         process.env.KAFKA_CONNECTION_TIMEOUT || '10000',
         10,
       ),
-      requestTimeout: parseInt(
+      requestTimeout: Number.parseInt(
         process.env.KAFKA_REQUEST_TIMEOUT || '30000',
         10,
       ),
       retry: {
         initialRetryTime: 100,
-        retries: parseInt(process.env.KAFKA_RETRIES || '8', 10),
+        retries: Number.parseInt(process.env.KAFKA_RETRIES || '8', 10),
         maxRetryTime: 30000,
         multiplier: 2,
       },
@@ -76,15 +77,15 @@ export default registerAs('kafka', (): SharedKafkaConfig => {
     // Nhóm cấu hình Consumer
     consumer: {
       groupId: process.env.KAFKA_GROUP_ID || 'nestjs-consumer-group',
-      sessionTimeout: parseInt(
+      sessionTimeout: Number.parseInt(
         process.env.KAFKA_SESSION_TIMEOUT || '30000',
         10,
       ),
-      heartbeatInterval: parseInt(
+      heartbeatInterval: Number.parseInt(
         process.env.KAFKA_HEARTBEAT_INTERVAL || '3000',
         10,
       ),
-      rebalanceTimeout: parseInt(
+      rebalanceTimeout: Number.parseInt(
         process.env.KAFKA_REBALANCE_TIMEOUT || '60000',
         10,
       ),
@@ -95,10 +96,11 @@ export default registerAs('kafka', (): SharedKafkaConfig => {
 
     // Nhóm cấu hình Producer
     producer: {
+      createPartitioner: Partitioners.LegacyPartitioner,
       allowAutoTopicCreation: parseBoolean(
         process.env.KAFKA_AUTO_CREATE_TOPICS,
       ),
-      transactionTimeout: parseInt(
+      transactionTimeout: Number.parseInt(
         process.env.KAFKA_TRANSACTION_TIMEOUT || '60000',
         10,
       ),

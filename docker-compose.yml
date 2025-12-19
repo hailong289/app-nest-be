@@ -20,6 +20,8 @@ services:
       - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
       - --advertise-kafka-addr
       - PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --set
+      - redpanda.auto_create_topics_enabled=true
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -97,7 +99,9 @@ services:
     ports:
       - "5000:5000" # host dùng localhost:5000
     env_file:
-      - apps/api-gateway/.env.development
+      - apps/api-gateway/.env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redpanda
       - auth
@@ -110,8 +114,12 @@ services:
     build:
       context: .
       dockerfile: apps/auth/Dockerfile
+    ports:
+      - "5001:5001" # Expose to host for hybrid mode
     env_file:
-      - apps/auth/.env.development
+      - apps/auth/.env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redpanda
 
@@ -120,8 +128,12 @@ services:
     build:
       context: .
       dockerfile: apps/chat/Dockerfile
+    ports:
+      - "5003:5003" # Expose to host for hybrid mode
     env_file:
-      - apps/chat/.env.development
+      - apps/chat/.env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redpanda
 
@@ -130,8 +142,12 @@ services:
     build:
       context: .
       dockerfile: apps/filesystem/Dockerfile
+    ports:
+      - "5002:5002" # Expose to host for hybrid mode
     env_file:
-      - apps/filesystem/.env.development
+      - apps/filesystem/.env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redpanda
 
@@ -140,8 +156,12 @@ services:
     build:
       context: .
       dockerfile: apps/notification/Dockerfile
+    ports:
+      - "5005:5005" # Expose to host for hybrid mode
     env_file:
-      - apps/notification/.env.development
+      - apps/notification/.env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redpanda
 
@@ -150,8 +170,12 @@ services:
     build:
       context: .
       dockerfile: apps/ai/Dockerfile
+    ports:
+      - "5006:5006" # Expose to host for hybrid mode
     env_file:
-      - apps/ai/.env.development
+      - apps/ai/.env.docker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - redpanda
 

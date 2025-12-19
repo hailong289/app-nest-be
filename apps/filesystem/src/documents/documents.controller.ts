@@ -1,19 +1,25 @@
 import { Controller } from '@nestjs/common';
-import { GrpcMethod, RpcException } from '@nestjs/microservices';
+import {
+  EventPattern,
+  GrpcMethod,
+  Payload,
+  RpcException,
+} from '@nestjs/microservices';
 import { DocumentsService } from './documents.service';
-import type {
-  CreateDocDto,
-  CreateDocRequest,
-  DeleteDocRequest,
-  GetDocRequest,
-  ListDocsRequest,
-  ServiceResponse,
-  ShareDocumentRequest,
-  UnshareDocumentRequest,
-  UpdateDocRequest,
-  UpdateTitleRequest,
-  UpdateVisibilityRequest,
-  DuplicateDocRequest,
+import {
+  type CreateDocDto,
+  type CreateDocRequest,
+  type DeleteDocRequest,
+  type GetDocRequest,
+  type ListDocsRequest,
+  type ServiceResponse,
+  type ShareDocumentRequest,
+  type UnshareDocumentRequest,
+  type UpdateDocRequest,
+  type UpdateTitleRequest,
+  type UpdateVisibilityRequest,
+  type DuplicateDocRequest,
+  KafkaEvent,
 } from '@app/dto';
 import { DocVisibilityEnum } from 'libs/db/src';
 
@@ -348,5 +354,21 @@ export class DocumentsController {
         message: error instanceof Error ? error.message : 'Lỗi tạo bản sao',
       });
     }
+  }
+  @EventPattern(KafkaEvent.shareDocForRoom)
+  async handleShareForRoom(
+    @Payload()
+    data: {
+      userId: string;
+      roomId: string;
+      docId: string;
+    },
+  ) {
+    console.log('share document room', data);
+    await this.documentsService.shareDocumentForRoom(
+      data.userId,
+      data.roomId,
+      data.docId,
+    );
   }
 }
