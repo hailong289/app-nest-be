@@ -38,6 +38,11 @@ export const topic = [
     numPartitions: 1,
     replicationFactor: -1,
   },
+  {
+    topic: 'document.shareforRoom',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
   // Notification topics
   {
     topic: 'send_otp',

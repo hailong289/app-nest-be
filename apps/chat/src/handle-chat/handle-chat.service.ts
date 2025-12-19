@@ -146,7 +146,7 @@ export class HandleChatService {
     if (id) {
       data._id = this.utils.convertToObjectIdMongoose(id);
     }
-    this.log.debug(data);
+
     // create new message (without transaction for standalone MongoDB)
     const createNewMsg = await this.messageModel.create(data);
     if (!createNewMsg) {
@@ -232,6 +232,33 @@ export class HandleChatService {
             }),
           ]
         : []),
+      ...(content && /(https?:\/\/[^\s]+)/g.test(content)
+        ? [
+            this.utils.dispatchEventKafka(
+              this.fileClient,
+              KafkaEvent.processLink,
+              {
+                content,
+                userId,
+                roomId: finInfo._id.toString(),
+                messageId: createNewMsg._id.toString(),
+              },
+            ),
+          ]
+        : []),
+      ...(documentId
+        ? [
+            this.utils.dispatchEventKafka(
+              this.fileClient,
+              KafkaEvent.shareDocForRoom,
+              {
+                roomId,
+                userId,
+                docId: documentId,
+              },
+            ),
+          ]
+        : []),
     ]);
 
     // Update unread count for other members
@@ -243,22 +270,6 @@ export class HandleChatService {
         this.recomputeUnreadForUserRoom(i, finInfo._id.toString()),
       ),
     );
-
-    // Process links asynchronously via Kafka
-    if (content && /(https?:\/\/[^\s]+)/g.test(content)) {
-      console.log('link', content);
-      await this.utils.dispatchEventKafka(
-        this.fileClient,
-        KafkaEvent.processLink,
-        {
-          content,
-          userId,
-          roomId: finInfo._id.toString(),
-          messageId: createNewMsg._id.toString(),
-        },
-      );
-    }
-
     return Response.success(
       {
         msgId: createNewMsg._id.toString(),
