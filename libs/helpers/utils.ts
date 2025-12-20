@@ -1,4 +1,9 @@
-import { INestMicroservice, Logger, Type } from '@nestjs/common';
+import {
+  INestApplication,
+  INestMicroservice,
+  Logger,
+  Type,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import {
@@ -10,6 +15,7 @@ import {
 import axios from 'axios';
 import { Types } from 'mongoose';
 import { Response } from './response';
+import { SharedKafkaConfig } from 'libs/kafka';
 
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
@@ -197,73 +203,30 @@ class Utils {
     const appContext = await NestFactory.createApplicationContext(module);
     const configService = appContext.get(ConfigService);
     const logger = new Logger('Create Microservice Kafka');
-    const client_id =
-      configService.get<string>('kafka.client_id') ||
-      configService.get<string>('kafka.clientId') ||
-      'nestjs-app';
-    const host = configService.get<string>('kafka.host') || 'localhost';
-    const port = configService.get<string>('kafka.port') || '9092';
-    const group_id =
-      configService.get<string>('kafka.group_id') ||
-      configService.get<string>('kafka.groupId') ||
-      'default-group';
-    const isSasl =
-      configService.get<boolean>('kafka.is_sasl') ||
-      configService.get<boolean>('kafka.isSasl') ||
-      false;
-    const mechanism =
-      configService.get<string>('kafka.mechanism') ||
-      configService.get<string>('kafka.sasl.mechanism') ||
-      'scram-sha-256';
-    const username =
-      configService.get<string>('kafka.username') ||
-      configService.get<string>('kafka.sasl.username') ||
-      '';
-    const password =
-      configService.get<string>('kafka.password') ||
-      configService.get<string>('kafka.sasl.password') ||
-      '';
-    const connectionTimeout =
-      configService.get<number>('kafka.connectionTimeout') || 10000;
-    const requestTimeout =
-      configService.get<number>('kafka.requestTimeout') || 30000;
-    const sessionTimeout =
-      configService.get<number>('kafka.consumer.sessionTimeout') || 30000;
-    const heartbeatInterval =
-      configService.get<number>('kafka.consumer.heartbeatInterval') || 3000;
+
+    // Get kafka config from the proper nested structure with proper typing
+    const kafkaConfig = configService.get<SharedKafkaConfig>('kafka');
+
+    if (!kafkaConfig) {
+      throw new Error('❌ Kafka Config Not Found! Check import in AppModule.');
+    }
 
     const options: KafkaOptions['options'] = {
       client: {
-        clientId: client_id,
-        brokers: [`${host}:${port}`],
-        connectionTimeout,
-        requestTimeout,
-        retry: {
-          initialRetryTime: 100,
-          retries: 8,
-          maxRetryTime: 30000,
-          multiplier: 2,
-        },
+        clientId: kafkaConfig.client.clientId,
+        brokers: kafkaConfig.client.brokers as string[],
+        connectionTimeout: kafkaConfig.client.connectionTimeout,
+        requestTimeout: kafkaConfig.client.requestTimeout,
+        ssl: kafkaConfig.client.ssl,
+        sasl: kafkaConfig.client.sasl as never,
+        retry: kafkaConfig.client.retry,
       },
       consumer: {
-        groupId: group_id,
-        sessionTimeout,
-        heartbeatInterval,
+        groupId: kafkaConfig.consumer.groupId,
+        sessionTimeout: kafkaConfig.consumer.sessionTimeout,
+        heartbeatInterval: kafkaConfig.consumer.heartbeatInterval,
       },
     };
-
-    if (isSasl) {
-      options.client = {
-        ...options.client,
-        ssl: false,
-        sasl: {
-          mechanism,
-          username: username || '',
-          password: password || '',
-        } as never,
-        brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
-      };
-    }
 
     const microservice =
       await NestFactory.createMicroservice<MicroserviceOptions>(module, {
@@ -271,6 +234,42 @@ class Utils {
         options,
       });
     logger.log(`Create microservice ${serviceName} with Kafka`);
+    return microservice;
+  }
+
+  static createKafkaMicroserviceFromApplication(
+    application: INestApplication,
+    serviceName: string,
+  ): INestMicroservice {
+    const logger = new Logger(`KafkaSetup:${serviceName}`);
+    const configService = application.get(ConfigService);
+
+    const kafkaConfig = configService.get<SharedKafkaConfig>('kafka');
+    if (!kafkaConfig) {
+      throw new Error('❌ Kafka Config Not Found! Check import in AppModule.');
+    }
+
+    const brokers = kafkaConfig.client.brokers as string[];
+
+    logger.log(`=================================================`);
+    logger.log(`🔌 Service [${serviceName}] connecting to Kafka...`);
+    logger.log(`🎯 BROKERS: ${JSON.stringify(brokers)}`);
+    logger.log(`🎯 GROUP_ID: ${kafkaConfig.consumer.groupId}`);
+    logger.log(`=================================================`);
+
+    const microservice = application.connectMicroservice<MicroserviceOptions>({
+      transport: Transport.KAFKA,
+      options: {
+        client: {
+          ...kafkaConfig.client,
+          brokers: brokers,
+          clientId: serviceName,
+        },
+        consumer: kafkaConfig.consumer,
+        producer: kafkaConfig.producer,
+      },
+    });
+
     return microservice;
   }
 
@@ -309,16 +308,24 @@ class Utils {
       await client.connect();
     } catch (error) {
       return Response.error(
-        `Không thể kết nối đến Kafka: ${error.message}`,
+        `Không thể kết nối đến Kafka: ${
+          error && typeof error === 'object' && 'message' in error
+            ? (error as { message: string }).message
+            : String(error)
+        }`,
         503,
         'SERVICE_UNAVAILABLE',
       );
     }
     try {
-      await client.emit(pattern, data);
+      await client.emit(pattern, data).toPromise();
     } catch (error) {
+      const errorMessage =
+        error && typeof error === 'object' && 'message' in error
+          ? (error as { message: string }).message
+          : String(error);
       return Response.error(
-        `Không thể gửi event ${pattern}: ${error.message}`,
+        `Không thể gửi event ${pattern}: ${errorMessage}`,
         503,
         'SERVICE_UNAVAILABLE',
       );
@@ -348,13 +355,30 @@ class Utils {
         if (decoded.includes('BEGIN PRIVATE KEY')) {
           return decoded;
         }
-      } catch (err) {
+      } catch {
         // Nếu decode fail → rơi xuống dùng kiểu cũ
       }
     }
 
     // Ngược lại là dạng chứa \n → convert
-    return trimmed.replace(/\\n/g, '\n');
+    return String.raw({ raw: trimmed }).replaceAll('\\n', '\n');
+  }
+
+  static extractUrls(text: string): string[] {
+    if (!text) return [];
+
+    const urlRegex = /((https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\S*)?)/gi;
+
+    return [...text.matchAll(urlRegex)].map((m) => {
+      let url = m[0];
+
+      // Nếu không có http/https → auto thêm
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
+
+      return url;
+    });
   }
 }
 

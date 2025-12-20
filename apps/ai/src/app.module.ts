@@ -10,24 +10,31 @@ import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
 import path from 'path';
 import { AIController } from './ai.controller';
 import { AIService } from './ai.service';
+import { EmbeddingService } from './embedding.service';
 import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
-import mongodbConfig from 'apps/auth/src/config/database/mongodb.config';
+import { mongoConfig } from 'libs/db/src';
+import { kafkaConfig } from 'libs/kafka';
+import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/ai/.env'),
-      load: [googleConfig, mongodbConfig],
+      envFilePath: path.resolve(
+        process.cwd(),
+        `apps/ai/.env.${process.env.NODE_ENV || 'development'}`,
+      ),
+      load: [googleConfig, mongoConfig, kafkaConfig],
     }),
+    SharedKafkaClientModule,
     MongodbModule,
     JwtModule.register({}),
     MongooseModule.forFeature([AIUsageLogSchema, AIEmbeddingSchema]),
   ],
   controllers: [AIController],
-  providers: [AIService, GoogleModerationProvider],
+  providers: [AIService, EmbeddingService, GoogleModerationProvider],
 })
 export class AppModule {}

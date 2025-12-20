@@ -6,7 +6,7 @@ import path from 'node:path';
 import { SocialModule } from './social/social.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 import { mongoConfig, MongodbModule, RedisModule } from 'libs/db/src';
-import { kafkaConfig } from 'libs/config';
+import { kafkaConfig } from 'libs/kafka';
 
 @Module({
   imports: [

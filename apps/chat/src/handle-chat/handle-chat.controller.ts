@@ -3,6 +3,7 @@ import { GrpcMethod } from '@nestjs/microservices';
 import { HandleChatService } from './handle-chat.service';
 import {
   CreateMessage,
+  GetDocumentsFromRoomDTO,
   GetMsgFromRoomDTO,
   HandleDeleteAllDto,
   HandleDeleteDto,
@@ -10,6 +11,7 @@ import {
   HandleReactDto,
   markReadUpToDto,
 } from '@app/dto';
+import { CallStatus } from 'libs/db/src';
 
 @Controller('handle-chat')
 export class HandleChatController {
@@ -65,6 +67,73 @@ export class HandleChatController {
   async HandleDelete(@Body() payload: HandleDeleteAllDto) {
     const result = await this.hdChat.handleDelete(payload);
     // console.log('🚀 ~ HandleChatController ~ HandleDelete ~ result:', result);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'RequestCall')
+  async RequestCall(
+    @Body()
+    payload: {
+      actionUserId: string; // Người bắt đầu cuộc gọi
+      membersIds: string[]; // ID các thành viên trong cuộc gọi
+      roomId: string; // ID phòng gọi
+      callType: 'video' | 'audio'; // Loại cuộc gọi
+      messageId: string; // ID tin nhắn cuộc gọi
+    },
+  ) {
+    console.log('🚀 ~ HandleChatController ~ RequestCall ~ payload:', payload);
+    const result = await this.hdChat.requestCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'AcceptCall')
+  async AcceptCall(
+    @Body()
+    payload: {
+      actionUserId: string;
+      membersIds: string[];
+      roomId: string;
+    },
+  ) {
+    console.log('🚀 ~ HandleChatController ~ AcceptCall ~ payload:', payload);
+    const result = await this.hdChat.acceptCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'EndCall')
+  async EndCall(
+    @Body()
+    payload: {
+      actionUserId: string; // Người gọi hoặc người nhận cuộc gọi
+      roomId: string; // ID phòng gọi
+      status: 'ended' | 'missed' | 'rejected' | 'cancelled'; // Trạng thái cuộc gọi
+    },
+  ) {
+    console.log('🚀 ~ HandleChatController ~ EndCall ~ payload:', payload);
+    const result = await this.hdChat.endCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'GetCallHistory')
+  async GetCallHistory(
+    @Body()
+    payload: {
+      userId: string; // ID người dùng
+      roomId: string; // ID phòng gọi
+      type: 'caller' | 'callee'; // Loại lịch sử cuộc gọi
+    },
+  ) {
+    const result = await this.hdChat.getCallHistoryByUserId(
+      payload.userId,
+      payload.roomId,
+      payload.type,
+    );
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'GetDocumentsFromRoom')
+  async GetDocumentsFromRoom(@Body() payload: GetDocumentsFromRoomDTO) {
+    const result = await this.hdChat.getDocumentsFromRoom(payload);
     return result;
   }
 }

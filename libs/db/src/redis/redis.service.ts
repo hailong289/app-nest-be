@@ -186,26 +186,40 @@ export class RedisService {
     }
   }
   async SisMembers({ key, values }: { key: string; values: string[] }) {
-    const pipeline = this.redis.pipeline();
+    try {
+      const pipeline = this.redis.pipeline();
 
-    for (const v of values) {
-      pipeline.sismember(key, v);
-    }
+      for (const v of values) {
+        pipeline.sismember(key, v);
+      }
 
-    const results = await pipeline.exec();
-    // results: Array<[Error | null, number]>
+      const results = await pipeline.exec();
 
-    if (!results) {
+      // Handle empty or null results
+      if (!results || results.length === 0) {
+        return values.map((uid) => ({
+          key: uid,
+          value: false,
+        }));
+      }
+
+      // Safe iteration: check if results is iterable and has proper structure
+      return values.map((uid, idx) => {
+        const result = results[idx];
+        const value = result && Array.isArray(result) ? result[1] === 1 : false;
+        return {
+          key: uid,
+          value,
+        };
+      });
+    } catch (err) {
+      console.error('Redis SisMembers error:', err);
+      // Return all as not members on error
       return values.map((uid) => ({
         key: uid,
         value: false,
       }));
     }
-
-    return values.map((uid, idx) => ({
-      key: uid,
-      value: results[idx][1] === 1,
-    }));
   }
   /**
    * Get the number of members in a Redis Set.

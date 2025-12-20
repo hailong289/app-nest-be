@@ -1,55 +1,47 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule, KafkaOptions, Transport } from '@nestjs/microservices';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { GatewayNotificationController } from './gateway-notification.controller';
 import { GatewayService } from '../gateway/gateway.service';
-import notificationConfig from '../config/notification.config';
+import { SharedKafkaClientModule } from 'libs/kafka';
+import { join } from 'path';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
-    ConfigModule.forFeature(notificationConfig),
-    ClientsModule.registerAsync([
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.NOTIFICATION, // Token để inject (bắt buộc)
+      clientId: 'notification-service', // Tên định danh (Optional - override mặc định)
+      groupId: 'notification-consumer', // Group ID (Optional - override mặc định)
+    }),
+    ClientsModule.register([
       {
-        name: SERVICES.NOTIFICATION,
-        inject: [ConfigService],
-        useFactory: (config: ConfigService) => {
-          const client_id = config.get('notification.client_id');
-          const host = config.get('notification.host');
-          const port = config.get('notification.port');
-          const group_id = config.get('notification.group_id');
-          const isSasl = config.get('notification.is_sasl');
-          const mechanism = config.get('notification.mechanism');
-          const username = config.get('notification.username');
-          const password = config.get('notification.password');
-          const options: KafkaOptions['options'] = {
-            client: {
-              clientId: client_id,
-              brokers: [`${host}:${port}`],
-            },
-            consumer: {
-              groupId: group_id,
-            },
-          };
-
-          if (isSasl) {
-            options.client = {
-              ...options.client,
-              ssl: false,
-              sasl: {
-                mechanism: mechanism,
-                username: username,
-                password: password,
-              },
-              brokers: options.client?.brokers || [`${host}:${port}`], // Ensure brokers is always defined
-            };
-          }
-
-          console.log('options kafka', options);
-          return {
-            transport: Transport.KAFKA,
-            options,
-          };
+        name: 'NOTIFICATION_GRPC_SERVICE',
+        transport: Transport.GRPC,
+        options: {
+          package: 'notification',
+          protoPath: join(
+            process.cwd(),
+            process.env.GATEWAY_NOTIFICATION_PROTO_PATH ||
+              'libs/grpc/notification.proto',
+          ),
+          url: (() => {
+            const host = process.env.GATEWAY_NOTIFICATION_HOST || 'localhost';
+            const port = process.env.GATEWAY_NOTIFICATION_PORT || '5005';
+            return `${host}:${port}`;
+          })(),
+          credentials:
+            process.env.NODE_ENV === 'production'
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
+          loader: {
+            keepCase: true,
+            longs: String,
+            enums: String,
+            defaults: true,
+            oneofs: true,
+            includeDirs: [join(process.cwd(), 'libs/grpc')],
+          },
         },
       },
     ]),

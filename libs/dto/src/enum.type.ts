@@ -21,3 +21,9 @@ export enum socketEvent {
 export enum notifyType {
   noify_new_message = 'notify:new:message',
 }
+
+export enum KafkaEvent {
+  aiMsg = 'ai.createChatMessageEmbedding',
+  processLink = 'filesystem.processLink',
+  shareDocForRoom = 'document.shareforRoom',
+}

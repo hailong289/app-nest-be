@@ -2,6 +2,7 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import {
+  callHistoryModel,
   flashcardModel,
   flashcardDeckModel,
   friendshipModel,
@@ -17,8 +18,11 @@ import {
   roomsStateModel,
   roomsUsersStateModel,
   userModel,
+  documentModel,
+  aIEmbeddingModel,
+  aIUsageLogModel,
+  attachmentModel,
 } from './model';
-import AttachmentModel from './model/Attachment.model';
 
 @Global()
 @Module({
@@ -48,7 +52,7 @@ import AttachmentModel from './model/Attachment.model';
       friendshipModel,
       keysModel,
       otpModel,
-      AttachmentModel,
+      attachmentModel,
       roomEventsModel,
       roomsStateModel,
       roomsUsersStateModel,
@@ -58,6 +62,10 @@ import AttachmentModel from './model/Attachment.model';
       quizModel,
       flashcardModel,
       flashcardDeckModel,
+      callHistoryModel,
+      documentModel,
+      aIEmbeddingModel,
+      aIUsageLogModel,
     ]),
   ],
   exports: [

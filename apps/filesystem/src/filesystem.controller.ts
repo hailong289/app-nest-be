@@ -1,16 +1,38 @@
 import { Controller } from '@nestjs/common';
-import { GrpcMethod, Payload } from '@nestjs/microservices';
+import { GrpcMethod, Payload, EventPattern } from '@nestjs/microservices';
 import { FilesystemService } from './filesystem.service';
 import { Response } from '@app/helpers/response';
 import {
   MultipleFilesUploadDto,
   SingleFileUploadDto,
   uploadSingleFileByUserDTo,
+  UploadMultipleFilesByUserDto,
+  GetAttachmentsDto,
+  KafkaEvent,
 } from '@app/dto';
 
 @Controller()
 export class FilesystemController {
   constructor(private readonly filesystemService: FilesystemService) {}
+
+  @EventPattern(KafkaEvent.processLink)
+  async handleProcessLink(
+    @Payload()
+    data: {
+      content: string;
+      userId: string;
+      roomId: string;
+      messageId: string;
+    },
+  ) {
+    console.log('create link');
+    await this.filesystemService.processLinks(
+      data.content,
+      data.userId,
+      data.roomId,
+      data.messageId,
+    );
+  }
 
   @GrpcMethod('FileSystemService', 'UploadSingleFile')
   async uploadSingleFile(@Payload() data: SingleFileUploadDto) {
@@ -108,6 +130,38 @@ export class FilesystemController {
         400,
         'ERROR_FILESYSTEM',
         errorMessage,
+      );
+    }
+  }
+
+  @GrpcMethod('FileSystemService', 'UploadMultipleFilesForUser')
+  async uploadMultipleFilesForUser(
+    @Payload() data: UploadMultipleFilesByUserDto,
+  ) {
+    try {
+      return await this.filesystemService.uploadMultipleFilesByUser(data);
+    } catch (error) {
+      console.error('❌ Upload multiple files by user error:', error);
+      return Response.error(
+        'Tải nhiều file thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
+  }
+
+  @GrpcMethod('FileSystemService', 'GetAttachments')
+  async getAttachments(@Payload() data: GetAttachmentsDto) {
+    try {
+      return await this.filesystemService.getAttachments(data);
+    } catch (error) {
+      console.error('❌ Get attachments error:', error);
+      return Response.error(
+        'Lấy danh sách file thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
       );
     }
   }
