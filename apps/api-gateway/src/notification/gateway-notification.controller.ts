@@ -1,9 +1,17 @@
-import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Inject,
+  OnModuleInit,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import { Request } from 'express';
-import { Observable } from 'rxjs';
+import type { Observable } from 'rxjs';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -21,14 +29,26 @@ interface NotificationServiceGrpc {
   }): Observable<any>;
 }
 
+const NOTIFICATION_GRPC_SERVICE = 'NOTIFICATION_GRPC_SERVICE';
+
 @Controller('notifications')
-export class GatewayNotificationController {
+export class GatewayNotificationController implements OnModuleInit {
+  private notificationGrpc: NotificationServiceGrpc;
+
   public constructor(
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    @Inject(NOTIFICATION_GRPC_SERVICE)
+    private readonly notificationGrpcClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
-    private readonly notificationGrpc: NotificationServiceGrpc,
   ) {}
+
+  onModuleInit() {
+    this.notificationGrpc =
+      this.notificationGrpcClient.getService<NotificationServiceGrpc>(
+        'NotificationService',
+      );
+  }
 
   @Post('send-otp')
   async sendOtp(
