@@ -67,5 +67,5 @@ jobs:
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
             --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
-            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} \ 
-            --set-env-vars APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }} \
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} \
+            --set-env-vars APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }}
