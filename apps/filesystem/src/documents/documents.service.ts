@@ -298,7 +298,71 @@ export class DocumentsService {
           yjsSnapshot: 0, // Optimization: Remove heavy binary data
         },
       },
+      // Convert ObjectIds and Dates to Strings for gRPC compatibility
+      {
+        $addFields: {
+          _id: { $toString: '$_id' },
+          ownerId: { $toString: '$ownerId' },
+          createdAt: { $toString: '$createdAt' },
+          updatedAt: { $toString: '$updatedAt' },
+          roomIds: {
+            $map: {
+              input: { $ifNull: ['$roomIds', []] },
+              as: 'id',
+              in: { $toString: '$$id' },
+            },
+          },
+          attachmentIds: {
+            $map: {
+              input: { $ifNull: ['$attachmentIds', []] },
+              as: 'id',
+              in: { $toString: '$$id' },
+            },
+          },
+          'owner._id': { $toString: '$owner._id' },
+          sharedWith: {
+            $map: {
+              input: '$sharedWith',
+              as: 'sw',
+              in: {
+                userId: { $toString: '$$sw.userId' },
+                role: '$$sw.role',
+                sharedAt: { $toString: '$$sw.sharedAt' },
+                user: {
+                  _id: { $toString: '$$sw.user._id' },
+                  usr_id: '$$sw.user.usr_id',
+                  usr_slug: '$$sw.user.usr_slug',
+                  usr_fullname: '$$sw.user.usr_fullname',
+                  usr_avatar: '$$sw.user.usr_avatar',
+                  usr_email: '$$sw.user.usr_email',
+                },
+              },
+            },
+          },
+        },
+      },
     ];
+  }
+
+  /**
+   * Helper: Get formatted document by ID (Standard Output)
+   */
+  private async getFormattedDocumentById(docId: string) {
+    const docs = await this.docsModel.aggregate(
+      this.getPopulateDocsPipeline({
+        _id: this.utils.convertToObjectIdMongoose(docId),
+      }),
+    );
+    const doc = docs[0] as Document & { _id: any };
+
+    if (doc) {
+      // Fix: Re-fetch yjsSnapshot directly to ensure binary data is correct
+      const rawDoc = await this.docsModel.findById(doc._id, { yjsSnapshot: 1 });
+      if (rawDoc?.yjsSnapshot) {
+        doc.yjsSnapshot = rawDoc.yjsSnapshot;
+      }
+    }
+    return doc;
   }
 
   /**
@@ -343,7 +407,11 @@ export class DocumentsService {
       throw new BadGatewayException('Tạo thất bãi vui lòng thử lại');
     }
 
-    return Response.success(newDoc, 'Tạo thành công');
+    const formattedDoc = await this.getFormattedDocumentById(
+      newDoc._id.toString(),
+    );
+
+    return Response.success(formattedDoc, 'Tạo thành công');
   }
 
   /**
@@ -355,25 +423,10 @@ export class DocumentsService {
    * - Trả về document đầy đủ
    */
   async getDoc(docId: string, userId: string) {
-    const docs = await this.docsModel.aggregate(
-      this.getPopulateDocsPipeline({
-        _id: this.utils.convertToObjectIdMongoose(docId),
-      }),
-    );
-    console.log(
-      'DEBUG: getDoc result:',
-      JSON.stringify(docs[0] || {}, null, 2),
-    );
-    const doc = docs[0] as Document & { _id: any };
+    const doc = await this.getFormattedDocumentById(docId);
 
     if (!doc) {
       throw new NotFoundException('Không tìm thấy tài liệu');
-    }
-
-    // Fix: Re-fetch yjsSnapshot directly to ensure binary data is correct
-    const rawDoc = await this.docsModel.findById(doc._id, { yjsSnapshot: 1 });
-    if (rawDoc?.yjsSnapshot) {
-      doc.yjsSnapshot = rawDoc.yjsSnapshot;
     }
 
     // Kiểm tra quyền truy cập
@@ -466,7 +519,7 @@ export class DocumentsService {
       );
     }
 
-    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+    await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
         $set: {
@@ -480,7 +533,8 @@ export class DocumentsService {
       { new: true },
     );
 
-    return Response.success(updatedDoc, 'Cập nhật tài liệu thành công');
+    const formattedDoc = await this.getFormattedDocumentById(docId);
+    return Response.success(formattedDoc, 'Cập nhật tài liệu thành công');
   }
 
   /**
@@ -619,7 +673,7 @@ export class DocumentsService {
     }
 
     // Thêm user vào sharedWith
-    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+    await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
         $push: {
@@ -636,7 +690,8 @@ export class DocumentsService {
       { new: true },
     );
 
-    return Response.success(updatedDoc, 'Chia sẻ tài liệu thành công');
+    const formattedDoc = await this.getFormattedDocumentById(docId);
+    return Response.success(formattedDoc, 'Chia sẻ tài liệu thành công');
   }
 
   async shareDocumentForRoom(userId: string, room_id: string, docId: string) {
@@ -660,7 +715,7 @@ export class DocumentsService {
     const room = await this.findRoom(room_id, userId);
 
     // Add roomId vào doc
-    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+    await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
         $addToSet: { roomIds: room._id },
@@ -669,8 +724,9 @@ export class DocumentsService {
       { new: true },
     );
 
+    const formattedDoc = await this.getFormattedDocumentById(docId);
     return Response.success(
-      updatedDoc,
+      formattedDoc,
       'Chia sẻ tài liệu vào phòng thành công',
     );
   }
@@ -701,7 +757,7 @@ export class DocumentsService {
     const shareUserObjId = this.utils.convertToObjectIdMongoose(shareUserId);
 
     // Xóa user khỏi sharedWith
-    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+    await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
         $pull: {
@@ -716,7 +772,11 @@ export class DocumentsService {
       { new: true },
     );
 
-    return Response.success(updatedDoc, 'Thu hồi chia sẻ tài liệu thành công');
+    const formattedDoc = await this.getFormattedDocumentById(docId);
+    return Response.success(
+      formattedDoc,
+      'Thu hồi chia sẻ tài liệu thành công',
+    );
   }
 
   /**
@@ -740,7 +800,7 @@ export class DocumentsService {
       throw new NotFoundException('Bạn không có quyền cập nhật tài liệu này');
     }
 
-    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+    await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
         $set: {
@@ -751,7 +811,8 @@ export class DocumentsService {
       { new: true },
     );
 
-    return Response.success(updatedDoc, 'Cập nhật tiêu đề thành công');
+    const formattedDoc = await this.getFormattedDocumentById(docId);
+    return Response.success(formattedDoc, 'Cập nhật tiêu đề thành công');
   }
 
   /**
@@ -783,7 +844,7 @@ export class DocumentsService {
       );
     }
 
-    const updatedDoc = await this.docsModel.findByIdAndUpdate(
+    await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
         $set: {
@@ -794,7 +855,8 @@ export class DocumentsService {
       { new: true },
     );
 
-    return Response.success(updatedDoc, 'Cập nhật quyền truy cập thành công');
+    const formattedDoc = await this.getFormattedDocumentById(docId);
+    return Response.success(formattedDoc, 'Cập nhật quyền truy cập thành công');
   }
 
   /**
@@ -830,6 +892,9 @@ export class DocumentsService {
       sharedWith: [], // Reset sharing
     });
 
-    return Response.success(newDoc, 'Tạo bản sao thành công');
+    const formattedDoc = await this.getFormattedDocumentById(
+      newDoc._id.toString(),
+    );
+    return Response.success(formattedDoc, 'Tạo bản sao thành công');
   }
 }

@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import type { AuthenticatedRequest } from 'libs/types';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import type { MulterFile } from '@app/dto';
@@ -23,6 +24,7 @@ import {
   UploadSingleFileForUserDto,
   GetAttachmentsDto,
 } from '@app/dto';
+import type { AuthenticatedRequest } from '@app/types';
 
 interface UploadedFileType {
   originalname: string;
@@ -118,7 +120,7 @@ export class GatewayFilesystemController implements OnModuleInit {
       roomId: string;
       messageId?: string;
     },
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!req.user?._id) {
       throw new NotFoundException('User not authenticated');

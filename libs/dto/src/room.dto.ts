@@ -182,17 +182,27 @@ export class ChangeRoleMemberDto {
 }
 
 export class PinnedRoomDto {
-  userId: string;
+  @IsOptional()
+  @IsString()
+  userId?: string;
 
+  @IsString()
+  @IsNotEmpty()
   roomId: string;
 
+  @IsOptional()
   pinned: boolean;
 }
 
 export class MutedRoomDto {
-  userId: string;
+  @IsOptional()
+  @IsString()
+  userId?: string;
 
+  @IsString()
+  @IsNotEmpty()
   roomId: string;
 
+  @IsOptional()
   muted: boolean;
 }

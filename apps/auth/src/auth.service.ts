@@ -535,7 +535,7 @@ export class AuthService {
   }
 
   async searchUser(searchDto: SearchUserDto) {
-    const { keyword, page = 1, limit = 10 } = searchDto;
+    const { keyword, page = 1, limit = 100 } = searchDto;
     const skip = (page - 1) * limit;
     const regex = new RegExp(keyword, 'i');
 
@@ -550,8 +550,11 @@ export class AuthService {
       .skip(skip)
       .limit(limit)
       .select('-usr_password -usr_salt -__v')
+      .lean()
       .exec();
 
-    return Response.success(users, 'Tìm kiếm thành công');
+    const mappedUsers = users.map((user) => Utils.unprefix(user, 'usr_'));
+
+    return Response.success(mappedUsers, 'Tìm kiếm thành công');
   }
 }

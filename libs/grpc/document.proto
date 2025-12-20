@@ -28,9 +28,10 @@ message UserInfo {
 }
 
 message SharedWithItem {
-  string   userId = 1;
-  string   role   = 2;
-  UserInfo user   = 3;
+  string   userId   = 1;
+  string   role     = 2;
+  UserInfo user     = 3;
+  string   sharedAt = 4;
 }
 
 message DocumentMetadata {
@@ -56,7 +57,7 @@ message CreateDocRequest {
   string                  plainText     = 5;
   repeated string         attachmentIds = 6;
   repeated SharedWithItem sharedWith    = 7;
-  repeated string         roomIds       = 8;
+  string                  roomId        = 8;
 }
 
 message GetDocRequest {

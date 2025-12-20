@@ -31,6 +31,5 @@ export default registerAs('redis', () => {
         return `redis://${authSegment}${host}:${port}`;
       })(),
   };
-  console.log('config redis', config);
   return config;
 });
