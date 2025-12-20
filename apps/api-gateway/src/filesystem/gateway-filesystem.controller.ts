@@ -24,7 +24,6 @@ import {
   UploadSingleFileForUserDto,
   GetAttachmentsDto,
 } from '@app/dto';
-import type { AuthenticatedRequest } from '@app/types';
 
 interface UploadedFileType {
   originalname: string;
