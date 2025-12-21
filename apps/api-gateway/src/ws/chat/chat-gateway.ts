@@ -57,6 +57,7 @@ export interface ChatGrpcService {
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/chat',
+  transports: ['websocket', 'polling'],
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() io: Server;
