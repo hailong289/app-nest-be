@@ -16,7 +16,7 @@ import {
   mongoConfig,
 } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
-import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
+import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 
 @Module({
   imports: [
@@ -63,7 +63,7 @@ import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
         return mailConfig;
       },
     }),
-    SharedKafkaClientModule,
+    KafkaAdminModule,
     RedisModule,
     MongodbModule,
   ],

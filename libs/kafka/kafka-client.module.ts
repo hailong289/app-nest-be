@@ -2,12 +2,8 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SharedKafkaClientOptions, SharedKafkaConfig } from './kafka.interface';
-import { KafkaAdminService } from './kafka-admin.service';
 
-@Module({
-  providers: [KafkaAdminService],
-  exports: [KafkaAdminService],
-})
+@Module({})
 export class SharedKafkaClientModule {
   static registerAsync(options: SharedKafkaClientOptions): DynamicModule {
     return {
@@ -48,8 +44,7 @@ export class SharedKafkaClientModule {
           },
         ]),
       ],
-      providers: [KafkaAdminService],
-      exports: [ClientsModule, KafkaAdminService], // Export ra để service con có thể Inject được ClientProxy
+      exports: [ClientsModule], // Export ra để service con có thể Inject được ClientProxy
     };
   }
 }
