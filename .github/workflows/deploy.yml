@@ -75,3 +75,69 @@ jobs:
     if: ${{ needs.detect-changes.outputs.service-api-gateway == 'true' }}
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit
+
+  notify-services:
+    name: Send Deployment Notifications
+    runs-on: ubuntu-latest
+    needs: [detect-changes, deploy-auth-service, deploy-noti-service, deploy-filesystem-service, deploy-chat-service, deploy-gateway-service]
+    if: always()
+    steps:
+      - name: Send Discord notifications
+        run: |
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGES=()
+          
+          # Auth Service
+          if [ "${{ needs.detect-changes.outputs.service-auth }}" == "true" ]; then
+            if [ "${{ needs.deploy-auth-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Auth Service deployment thành công!")
+            elif [ "${{ needs.deploy-auth-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Auth Service deployment thất bại!")
+            fi
+          fi
+          
+          # Notification Service
+          if [ "${{ needs.detect-changes.outputs.service-noti }}" == "true" ]; then
+            if [ "${{ needs.deploy-noti-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Notification Service deployment thành công!")
+            elif [ "${{ needs.deploy-noti-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Notification Service deployment thất bại!")
+            fi
+          fi
+          
+          # Filesystem Service
+          if [ "${{ needs.detect-changes.outputs.service-filesystem }}" == "true" ]; then
+            if [ "${{ needs.deploy-filesystem-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Filesystem Service deployment thành công!")
+            elif [ "${{ needs.deploy-filesystem-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Filesystem Service deployment thất bại!")
+            fi
+          fi
+          
+          # Chat Service
+          if [ "${{ needs.detect-changes.outputs.service-chat }}" == "true" ]; then
+            if [ "${{ needs.deploy-chat-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Chat Service deployment thành công!")
+            elif [ "${{ needs.deploy-chat-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Chat Service deployment thất bại!")
+            fi
+          fi
+          
+          # API Gateway Service
+          if [ "${{ needs.detect-changes.outputs.service-api-gateway }}" == "true" ]; then
+            if [ "${{ needs.deploy-gateway-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ API Gateway Service deployment thành công!")
+            elif [ "${{ needs.deploy-gateway-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ API Gateway Service deployment thất bại!")
+            fi
+          fi
+          
+          # Gộp tất cả messages và gửi
+          if [ ${#MESSAGES[@]} -gt 0 ]; then
+            MESSAGE=$(IFS=$'\n'; echo "${MESSAGES[*]}")
+            MESSAGE="${MESSAGE}"$'\n'"Kiểm tra tại: ${WORKFLOW_URL}"
+            
+            curl --location '${{ secrets.DISCORD_WEBHOOK_URL }}' \
+              --header 'Content-Type: application/json' \
+              --data "{\"content\": \"$MESSAGE\", \"embeds\": null, \"attachments\": []}"
+          fi
