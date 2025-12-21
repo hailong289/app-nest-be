@@ -132,6 +132,15 @@ jobs:
               MESSAGES+=("❌ Chat Service deployment thất bại!")
             fi
           fi
+
+          # AI Service
+          if [ "${{ needs.detect-changes.outputs.service-ai }}" == "true" ]; then
+            if [ "${{ needs.deploy-ai-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ AI Service deployment thành công!")
+            elif [ "${{ needs.deploy-ai-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ AI Service deployment thất bại!")
+            fi
+          fi
           
           # API Gateway Service
           if [ "${{ needs.detect-changes.outputs.service-api-gateway }}" == "true" ]; then

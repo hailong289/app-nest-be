@@ -15,6 +15,7 @@ on:
           - notification
           - filesystem
           - chat
+          - ai
 
 jobs:
   deploy-auth-service:
@@ -35,6 +36,11 @@ jobs:
   deploy-chat-service:
     if: ${{ github.event.inputs.service == 'chat' || github.event.inputs.service == 'all' }}
     uses: ./.github/workflows/deploy-chat.yml
+    secrets: inherit
+  
+  deploy-ai-service:
+    if: ${{ github.event.inputs.service == 'ai' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-ai.yml
     secrets: inherit
 
   deploy-gateway-service:
@@ -86,6 +92,15 @@ jobs:
               MESSAGES+=("✅ Chat Service deployment thành công!")
             elif [ "${{ needs.deploy-chat-service.result }}" == "failure" ]; then
               MESSAGES+=("❌ Chat Service deployment thất bại!")
+            fi
+          fi
+
+          # AI Service
+          if [ "${{ github.event.inputs.service }}" == "ai" ] || [ "${{ github.event.inputs.service }}" == "all" ]; then
+            if [ "${{ needs.deploy-ai-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ AI Service deployment thành công!")
+            elif [ "${{ needs.deploy-ai-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ AI Service deployment thất bại!")
             fi
           fi
           
