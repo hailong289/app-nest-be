@@ -103,7 +103,10 @@ jobs:
             MESSAGE=$(IFS=$'\n'; echo "${MESSAGES[*]}")
             MESSAGE="${MESSAGE}"$'\n'"Kiểm tra tại: ${WORKFLOW_URL}"
             
+            # Tạo JSON payload an toàn bằng Python
+            JSON_PAYLOAD=$(python3 -c "import json, sys; print(json.dumps({'content': sys.stdin.read()}))" <<< "$MESSAGE")
+            
             curl --location '${{ secrets.DISCORD_WEBHOOK_URL }}' \
               --header 'Content-Type: application/json' \
-              --data "{\"content\": \"$MESSAGE\", \"embeds\": null, \"attachments\": []}"
+              --data "$JSON_PAYLOAD"
           fi 
