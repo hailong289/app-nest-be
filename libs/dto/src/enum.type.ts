@@ -25,6 +25,7 @@ export enum notifyType {
 export enum KafkaEvent {
   aiMsg = 'ai.createChatMessageEmbedding',
   aiDoc = 'ai.createDocumentEmbedding',
+  aiProcessFile = 'ai.processFileEmbedding',
   processLink = 'filesystem.processLink',
   shareDocForRoom = 'document.shareforRoom',
 }

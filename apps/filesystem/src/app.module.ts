@@ -7,6 +7,8 @@ import path from 'path';
 import { mongoConfig, MongodbModule } from 'libs/db/src';
 import { DocumentsModule } from './documents/documents.module';
 import { kafkaConfig } from 'libs/kafka';
+import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
+import { SERVICES } from '@app/constants';
 
 @Module({
   imports: [
@@ -20,6 +22,11 @@ import { kafkaConfig } from 'libs/kafka';
     }),
     MongodbModule,
     DocumentsModule,
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.AI,
+      clientId: 'filesystem-ai-client',
+      groupId: 'filesystem-ai-group',
+    }),
   ],
   controllers: [FilesystemController],
   providers: [FilesystemService],

@@ -27,12 +27,16 @@ export class AIService {
     return result;
   }
 
-  async suggestReplies(messages: string[]): Promise<string[]> {
-    // Suggest replies based on context
-    console.log('🚀 ~ AIService ~ constructor ~  this.cfg:', this.cfg);
+  async suggestReplies(messages: string[]): Promise<{
+    suggestions: string[];
+    emojis: string[];
+    gif_keywords: string[];
+  }> {
     try {
-      if (!messages || messages.length === 0) return [];
+      if (!messages || messages.length === 0)
+        return { suggestions: [], emojis: [], gif_keywords: [] };
 
+      // 1. Dùng tên model chuẩn + Config JSON mode
       const model = this.gemini.getGenerativeModel({
         model: 'gemini-2.5-flash', // ✅ Tên chuẩn
         generationConfig: {
@@ -40,40 +44,67 @@ export class AIService {
         },
       });
 
+      // 2. Prompt định hướng rõ ràng hơn
       const prompt = `
-        Dựa trên đoạn hội thoại sau đây, hãy gợi ý 3 câu trả lời ngắn gọn, tự nhiên và phù hợp ngữ cảnh (bằng tiếng Việt).
-        Chỉ trả về danh sách 3 câu trả lời, ngăn cách bởi dấu gạch đứng "|". Không thêm bất kỳ dẫn giải nào.
+        Bạn là một trợ lý AI thông minh, chuyên gợi ý tin nhắn nhanh cho người dùng Gen Z.
+        Dựa trên đoạn hội thoại dưới đây, hãy đưa ra:
+        1. 3 phương án trả lời ngắn gọn (dưới 10 từ), tự nhiên, đời thường.
+        2. 5 emoji phù hợp với ngữ cảnh.
+        3. 3 từ khóa tiếng Anh để tìm kiếm GIF phù hợp với cảm xúc của hội thoại.
+        
+        Yêu cầu output JSON format:
+        {
+          "suggestions": ["string", "string", "string"],
+          "emojis": ["string", "string", "string", "string", "string"],
+          "gif_keywords": ["string", "string", "string"]
+        }
+        
+        Tone giọng: Thân thiện, nhanh gọn, có thể dùng từ lóng nhẹ nhàng nếu hợp ngữ cảnh.
 
         Hội thoại:
         ${messages.map((m) => `- ${m}`).join('\n')}
-
-        Gợi ý:
       `;
 
       const result = await model.generateContent(prompt);
       const responseText = result.response.text();
-      console.log(
-        '🚀 ~ AIService ~ suggestReplies ~ responseText:',
-        responseText,
-      );
 
-      // Tách chuỗi và lọc rác
-      const suggestions = responseText
-        .split('|')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0 && s.length < 50) // Lọc câu quá dài
-        .slice(0, 3);
+      console.log('🚀 Raw Response:', responseText);
 
-      return suggestions;
+      // 3. Parse JSON an toàn
+      let parsedData: {
+        suggestions: string[];
+        emojis: string[];
+        gif_keywords: string[];
+      } = { suggestions: [], emojis: [], gif_keywords: [] };
+      try {
+        parsedData = JSON.parse(responseText) as {
+          suggestions: string[];
+          emojis: string[];
+          gif_keywords: string[];
+        };
+      } catch (e) {
+        console.warn('Lỗi parse JSON', e);
+      }
+
+      // 4. Validate cuối cùng
+      return {
+        suggestions: Array.isArray(parsedData.suggestions)
+          ? parsedData.suggestions.slice(0, 3)
+          : [],
+        emojis: Array.isArray(parsedData.emojis)
+          ? parsedData.emojis.slice(0, 5)
+          : [],
+        gif_keywords: Array.isArray(parsedData.gif_keywords)
+          ? parsedData.gif_keywords.slice(0, 3)
+          : [],
+      };
     } catch (error: any) {
       if (error?.status === 429) {
-        this.logger.warn(
-          'Gemini API rate limit exceeded. Returning empty suggestions.',
-        );
-        return [];
+        this.logger.warn('Gemini API rate limit exceeded.');
+        return { suggestions: [], emojis: [], gif_keywords: [] };
       }
       this.logger.error('Failed to suggest replies', error);
-      return [];
+      return { suggestions: [], emojis: [], gif_keywords: [] };
     }
   }
 }

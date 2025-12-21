@@ -9,7 +9,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     {
       $lookup: {
         from: 'Rooms',
-        localField: 'msg_roomId', // ObjectId -> Room._id
+        localField: 'msg_roomId',
         foreignField: '_id',
         as: 'roomDoc',
       },
@@ -45,13 +45,45 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     },
     { $set: { sender: { $first: '$sender' } } },
 
-    /** 2) Attachments (array ObjectId -> Attachments._id) */
+    /** * 2) Attachments (array ObjectId -> Attachments._id)
+     * 🔥 UPDATE: Map trực tiếp Summary vào trong từng Attachment
+     */
     {
       $lookup: {
         from: 'Attachments',
         localField: 'attachment_ids',
         foreignField: '_id',
+        // Pipeline con để xử lý từng Attachment tìm được
         pipeline: [
+          // 2.1) Lookup AI Embedding cho TỪNG attachment
+          {
+            $lookup: {
+              from: 'aiembeddings', // Tên collection (thường Mongoose lưu thường)
+              let: { attId: '$_id' }, // Biến attId là ID của Attachment hiện tại
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        { $eq: ['$contextId', '$$attId'] }, // Map theo ID của Attachment
+                        { $eq: ['$contextType', 'file'] }, // Bắt buộc type là file
+                      ],
+                    },
+                  },
+                },
+                { $project: { text: 1, _id: 0 } }, // Chỉ lấy text
+                { $limit: 1 }, // Lấy cái đầu tiên tìm thấy
+              ],
+              as: 'ai_summary_doc',
+            },
+          },
+          // 2.2) Flatten field summary
+          {
+            $addFields: {
+              summary: { $ifNull: [{ $first: '$ai_summary_doc.text' }, null] },
+            },
+          },
+          // 2.3) Project output của Attachment object
           {
             $project: {
               _id: 1,
@@ -65,6 +97,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
               height: 1,
               duration: 1,
               status: 1,
+              summary: 1, // <--- Field mới nằm ở đây
             },
           },
         ],
@@ -75,16 +108,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     {
       $addFields: {
         attachments: { $ifNull: ['$attachments', []] },
-        // 🔍 DEBUG: Log attachment info
-        _debug_has_attachment_ids: {
-          $gt: [{ $size: { $ifNull: ['$attachment_ids', []] } }, 0],
-        },
-        _debug_attachment_ids_count: {
-          $size: { $ifNull: ['$attachment_ids', []] },
-        },
-        _debug_attachments_found_count: {
-          $size: { $ifNull: ['$attachments', []] },
-        },
       },
     },
 
@@ -243,10 +266,9 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     {
       $lookup: {
         from: 'MessageReads',
-        let: { mid: '$_id', sender: '$msg_sender' }, // ✅ Truyền msg_sender vào
+        let: { mid: '$_id', sender: '$msg_sender' },
         pipeline: [
           { $match: { $expr: { $eq: ['$msg_id', '$$mid'] } } },
-          // ✅ Loại bỏ người gửi khỏi danh sách read
           { $match: { $expr: { $ne: ['$user_id', '$$sender'] } } },
           {
             $lookup: {
@@ -285,44 +307,32 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 6.2) Call history
-     *  Lưu ý:
-     *  - Proto `MessageCore` khai báo field: `CallHistory call_history = 20;`
-     *  - Nest gRPC sẽ map giữa JSON camelCase (`callHistory`) và snake_case (`call_history`)
-     *  - Vì vậy chúng ta cần:
-     *      + Lookup call histories theo `message_id`
-     *      + Lấy bản ghi mới nhất (nếu có nhiều)
-     *      + Project field dưới dạng `callHistory` (camelCase) trong kết quả cuối cùng
-     *        để gRPC có thể map sang field proto `call_history`
-     */
+    /** 6.2) Call history */
     {
       $lookup: {
         from: 'CallHistories',
         localField: '_id',
         foreignField: 'message_id',
-        pipeline: [
-          { $sort: { createdAt: -1 } }, // bản ghi mới nhất trước
-          { $limit: 1 },
-        ],
+        pipeline: [{ $sort: { createdAt: -1 } }, { $limit: 1 }],
         as: 'callHistoryDoc',
       },
     },
-    // chuẩn hoá: luôn là 1 object hoặc null
     {
       $addFields: {
         callHistoryDoc: { $first: '$callHistoryDoc' },
       },
     },
 
-    /** 7) Project (roomId theo rule bạn yêu cầu) */
+    // ⚠️ Đã xoá step 6.3 cũ vì giờ summary nằm trong attachments rồi
+
+    /** 7) Project */
     {
       $project: {
-        // roomId hiển thị
         roomId: {
           $cond: [
             { $eq: ['$roomDoc.room_type', 'private'] },
-            '$otherMember.id', // id hiển thị của member còn lại
-            '$roomDoc.room_id', // business id chuỗi
+            '$otherMember.id',
+            '$roomDoc.room_id',
           ],
         },
 
@@ -343,6 +353,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
           avatar: '$sender.usr_avatar',
           id: '$sender.usr_id',
         },
+        // 🔥 attachments bây giờ đã có field 'summary' bên trong từng item
         attachments: '$attachments',
         reactions: '$reactions',
         reply: {
@@ -357,9 +368,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
               },
-              // isMine: whether the reply was sent by the current requesting user
               isMine: { $eq: ['$reply_doc.msg_sender', uid] },
-              // whether the mapped reply message was deleted
               isDelete: {
                 $cond: [
                   { $ifNull: ['$reply_doc', false] },
@@ -367,7 +376,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
                   false,
                 ],
               },
-              // whether the mapped reply message was hidden by current user
               hiddenByMe: {
                 $cond: [
                   { $ifNull: ['$reply_doc', false] },
@@ -387,11 +395,13 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         hiddenAt: '$hiddenAt',
         documentId: '$document_id',
 
-        // 🔥 read list + count
+        // read list
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
-        // gRPC sẽ map `callHistory` (JSON) -> `call_history` (proto)
         call_history: '$callHistoryDoc',
+
+        // Summary cấp độ message để null, vì giờ dùng summary của attachment
+        summary: { $literal: null },
       },
     },
 

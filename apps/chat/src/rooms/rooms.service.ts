@@ -595,7 +595,13 @@ export class RoomsService {
 
       {
         $addFields: {
-          pinned_count: { $size: { $ifNull: ['$room_ghim', []] } },
+          pinned_count: {
+            $cond: {
+              if: { $isArray: '$room_ghim' },
+              then: { $size: '$room_ghim' },
+              else: 0,
+            },
+          },
         },
       },
       /** Friendship state cho private room (block) */

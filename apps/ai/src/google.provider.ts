@@ -14,7 +14,7 @@ export class GoogleModerationProvider {
       cfg.get<string>('google.apiKey') || '',
     );
     this.model = client.getGenerativeModel({
-      model: cfg.get<string>('google.model') ?? 'gemini-1.5-flash',
+      model: cfg.get<string>('google.model') ?? 'gemini-2.5-flash',
     });
   }
 

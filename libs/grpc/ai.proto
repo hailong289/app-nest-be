@@ -50,6 +50,8 @@ message SuggestRepliesRequest {
 
 message SuggestRepliesResponse {
   repeated string suggestions = 1;
+  repeated string emojis = 2;
+  repeated string gif_keywords = 3;
 }
 
 

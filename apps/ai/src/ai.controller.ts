@@ -5,7 +5,11 @@ import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
 
 interface IAIService {
-  suggestReplies(messages: string[]): Promise<string[]>;
+  suggestReplies(messages: string[]): Promise<{
+    suggestions: string[];
+    emojis: string[];
+    gif_keywords: string[];
+  }>;
   checkMessage(text: string, userId: string): Promise<any>;
 }
 
@@ -51,11 +55,15 @@ export class AIController {
   async suggestReplies(data: {
     contextMessages: string[];
     userId: string;
-  }): Promise<{ suggestions: string[] }> {
-    const suggestions = await (
-      this.service as unknown as IAIService
-    ).suggestReplies(data.contextMessages);
-    return { suggestions };
+  }): Promise<{
+    suggestions: string[];
+    emojis: string[];
+    gif_keywords: string[];
+  }> {
+    const result = await (this.service as unknown as IAIService).suggestReplies(
+      data.contextMessages,
+    );
+    return result;
   }
 
   @MessagePattern(KafkaEvent.aiMsg)
@@ -77,10 +85,32 @@ export class AIController {
     docId: string;
     userId: string;
   }) {
-    return await this.embeddingService.createDocumentEmbedding(
-      data.text,
+    return await this.embeddingService.createEmbedding({
+      text: data.text,
+      contextId: data.docId,
+      contextType: 'doc',
+      service: 'document',
+      userId: data.userId,
+      replaceOld: true,
+    });
+  }
+
+  @MessagePattern(KafkaEvent.aiProcessFile)
+  async processFileEmbedding(data: {
+    fileUrl: string;
+    fileType: string;
+    docId: string;
+    userId: string;
+    mimeType: string;
+    messageId: string;
+  }) {
+    return await this.embeddingService.processFileEmbedding(
+      data.fileUrl,
+      data.fileType,
       data.docId,
       data.userId,
+      data.mimeType,
+      data.messageId,
     );
   }
 }

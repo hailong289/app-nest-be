@@ -274,11 +274,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
 
-      // Lấy danh sách userId của members khác (để gửi notification)
-      // const otherMemberUserIds = members
-      //   .filter((m) => m.user_id !== user._id)
-      //   .map((m) => m.user_id as string);
-
       // Batch gọi getRoom và GetOneMsg cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
