@@ -14,38 +14,37 @@ jobs:
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: app-chat-2b616
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
-      - run: |
+
+      - name: Build and Push Container
+        run: |
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest"
           docker build -t $IMAGE -f apps/auth/Dockerfile .
           docker push $IMAGE
-      - run: |
-          gcloud run deploy auth-service \
-            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest \
-            --region asia-southeast1 \
-            --platform managed \
-            --allow-unauthenticated \
-            --min-instances=0 \
-            --max-instances=3 \
-            --cpu=1 \
-            --memory=512Mi \
-            --port=8080 \
-            --timeout=60s \
-            --use-http2 \
-            --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
-            --set-env-vars HOST=${{ secrets.HOST }} \
-            --set-env-vars PROTO_PATH=${{ secrets.PROTO_PATH }} \
-            --set-env-vars DB_CONNECTION=${{ secrets.DB_CONNECTION }} \
-            --set-env-vars DB_HOST=${{ secrets.DB_HOST }} \
-            --set-env-vars DB_NAME=${{ secrets.DB_NAME }} \
-            --set-env-vars DB_USER=${{ secrets.DB_USER }} \
-            --set-env-vars DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
-            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }}
-            --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }}
-            --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
-            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            --set-env-vars JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }} \
-            --set-env-vars JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: auth-service
+          image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest
+          region: asia-southeast1
+          flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=512Mi --port=8080 --timeout=60s --use-http2'
+          env_vars: |-
+            NODE_ENV=${{ secrets.NODE_ENV }}
+            HOST=${{ secrets.HOST }}
+            PROTO_PATH=${{ secrets.PROTO_PATH }}
+            DB_CONNECTION=${{ secrets.DB_CONNECTION }}
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            REDIS_HOST=${{ secrets.REDIS_HOST }}
+            REDIS_PORT=${{ secrets.REDIS_PORT }}
+            REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}
+            JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
