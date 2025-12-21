@@ -228,6 +228,20 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
   }
 
   /**
+   * Xóa toàn bộ cache embeddings (Dùng cho dev/debug)
+   */
+  async clearAllEmbeddings() {
+    try {
+      const result = await this.embedModel.deleteMany({});
+      this.logger.warn(`⚠️ Cleared all ${result.deletedCount} embeddings!`);
+      return { deleted: result.deletedCount };
+    } catch (error) {
+      this.logger.error('Failed to clear embeddings', error);
+      throw error;
+    }
+  }
+
+  /**
    * Tìm tin nhắn cũ có ý nghĩa tương đồng
    * @param query Câu hỏi/từ khóa của người dùng
    * @param roomId ID của phòng chat

@@ -8,6 +8,7 @@ import { mongoConfig, MongodbModule } from 'libs/db/src';
 import { DocumentsModule } from './documents/documents.module';
 import { kafkaConfig } from 'libs/kafka';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
+import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { SERVICES } from '@app/constants';
 
 @Module({
@@ -22,6 +23,7 @@ import { SERVICES } from '@app/constants';
     }),
     MongodbModule,
     DocumentsModule,
+    KafkaAdminModule,
     SharedKafkaClientModule.registerAsync({
       name: SERVICES.AI,
       clientId: 'filesystem-ai-client',
