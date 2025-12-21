@@ -43,5 +43,9 @@ jobs:
             --set-env-vars DB_NAME=${{ secrets.DB_NAME }} \
             --set-env-vars DB_USER=${{ secrets.DB_USER }} \
             --set-env-vars DB_PASSWORD=${{ secrets.DB_PASSWORD }} \
+            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }}
+            --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }}
+            --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
             --set-env-vars JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }} \
             --set-env-vars JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
