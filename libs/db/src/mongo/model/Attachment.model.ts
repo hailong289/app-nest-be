@@ -7,7 +7,8 @@ export type AttachmentKind =
   | 'file'
   | 'doc'
   | 'json'
-  | 'audio';
+  | 'audio'
+  | 'link';
 export enum AttachmentKindEnum {
   image = 'image',
   video = 'video',
@@ -15,6 +16,7 @@ export enum AttachmentKindEnum {
   doc = 'doc',
   json = 'json',
   audio = 'audio',
+  link = 'link',
 }
 export type AttachmentStatus = 'uploaded' | 'processing' | 'failed';
 export enum AttachmentStatusEnum {
@@ -43,16 +45,19 @@ export class Attachment {
   })
   kind: AttachmentKind;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, default: null })
   url: string;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 
   @Prop({ type: String })
   name?: string;
 
-  @Prop({ type: Number, required: true })
+  @Prop({ type: Number, default: 0 })
   size: number;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, default: null })
   mimeType: string;
 
   @Prop({ type: String })

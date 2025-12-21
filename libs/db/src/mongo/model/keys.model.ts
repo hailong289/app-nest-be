@@ -18,8 +18,8 @@ export class Key {
   })
   tkn_clientId: string;
 
-  @Prop({ type: String, default: null })
-  tkn_fcmToken: string | null;
+  @Prop({ type: [String], default: [] })
+  tkn_fcmToken: string[];
 
   @Prop({ type: [String], default: [] })
   tkn_jit: string[];

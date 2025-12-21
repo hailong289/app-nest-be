@@ -28,4 +28,40 @@ export const topic = [
     numPartitions: 1,
     replicationFactor: -1,
   },
+  {
+    topic: 'ai.createChatMessageEmbedding',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  {
+    topic: 'filesystem.processLink',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  {
+    topic: 'document.shareforRoom',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  // Notification topics
+  {
+    topic: 'send_otp',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  {
+    topic: 'forgot_password',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  {
+    topic: 'push_notification',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
+  {
+    topic: 'push_notification_users',
+    numPartitions: 1,
+    replicationFactor: -1,
+  },
 ];

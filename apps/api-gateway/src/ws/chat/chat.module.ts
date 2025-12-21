@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { ChatGateway } from './chat-gateway';
 import { GatewayNotificationModule } from '../../notification/gateway-notification.module';
 import { GatewayModule } from '../../gateway/gateway.module';
 import { join } from 'node:path';
-import { ClientsModule, KafkaOptions, Transport } from '@nestjs/microservices';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import notificationConfig from '../../config/notification.config';
 import * as grpc from '@grpc/grpc-js';
+import { SharedKafkaClientModule } from 'libs/kafka';
 @Module({
   imports: [
     ConfigModule, // WsJwtGuard cần ConfigService
@@ -27,12 +28,7 @@ import * as grpc from '@grpc/grpc-js';
             process.env.GATEWAY_CHAT_PROTO_PATH || 'libs/grpc/chat.proto',
           ),
           url: (() => {
-            const hostEnv = (process.env.GATEWAY_CHAT_HOST || '').trim();
-            const isDockerHost = hostEnv?.includes('chat');
-            const host =
-              isDockerHost && process.env.NODE_ENV !== 'production'
-                ? 'localhost'
-                : hostEnv || 'localhost';
+            const host = (process.env.GATEWAY_CHAT_HOST || 'localhost').trim();
             const port = process.env.GATEWAY_CHAT_PORT || '5003';
             return `${host}:${port}`;
           })(),
@@ -54,50 +50,11 @@ import * as grpc from '@grpc/grpc-js';
         },
       },
     ]),
-    ClientsModule.registerAsync([
-      {
-        name: SERVICES.NOTIFICATION,
-        inject: [ConfigService],
-        useFactory: (config: ConfigService) => {
-          const client_id = config.get('notification.client_id');
-          const host = config.get('notification.host');
-          const port = config.get('notification.port');
-          const group_id = config.get('notification.group_id');
-          const isSasl = config.get('notification.is_sasl');
-          const mechanism = config.get('notification.mechanism');
-          const username = config.get('notification.username');
-          const password = config.get('notification.password');
-          const options: KafkaOptions['options'] = {
-            client: {
-              clientId: client_id,
-              brokers: [`${host}:${port}`],
-            },
-            consumer: {
-              groupId: group_id,
-            },
-          };
-
-          if (isSasl) {
-            options.client = {
-              ...options.client,
-              ssl: false,
-              sasl: {
-                mechanism: mechanism,
-                username: username,
-                password: password,
-              },
-              brokers: options.client?.brokers || [`${host}:${port}`],
-            };
-          }
-
-          console.log('options kafka', options);
-          return {
-            transport: Transport.KAFKA,
-            options,
-          };
-        },
-      },
-    ]),
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.NOTIFICATION, // Token để inject (bắt buộc)
+      clientId: 'notification-service', // Tên định danh (Optional - override mặc định)
+      groupId: 'notification-consumer', // Group ID (Optional - override mặc định)
+    }),
   ],
   providers: [ChatGateway],
   exports: [ChatGateway],

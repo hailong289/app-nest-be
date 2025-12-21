@@ -1,28 +1,26 @@
 import { NestFactory } from '@nestjs/core';
-import {
-  KafkaOptions,
-  MicroserviceOptions,
-  Transport,
-} from '@nestjs/microservices';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'path';
-import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
+
 import { AppModule } from './app.module';
+import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
 import Utils from '@app/helpers/utils';
 import { SERVICES } from '@app/constants/services';
 
 async function bootstrap() {
-  console.log(
-    `Environment: HOST=${process.env.HOST}, PORT=${process.env.PORT}`,
-  );
+  const HOST = process.env.HOST || '0.0.0.0';
+  const PORT = Number(process.env.PORT) || 5004;
+  const PROTO_PATH = process.env.PROTO_URL || 'libs/grpc/ai.proto';
 
-  // Tạo app
   const app = await NestFactory.create(AppModule);
+  app.useGlobalFilters(new HttpExceptionsFilter());
 
-  // 1. Kết nối GRPC
-  await app.connectMicroservice<MicroserviceOptions>({
+  app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
       package: 'ai',
+      protoPath: join(process.cwd(), PROTO_PATH),
+      url: `${HOST}:${PORT}`,
       protoPath: join(
         process.cwd(),
         process.env.PROTO_URL || 'libs/grpc/ai.proto',
@@ -33,25 +31,12 @@ async function bootstrap() {
     },
   });
 
-  // 2. Kết nối thêm Kafka
-  await Utils.createKafkaMicroserviceFromApplication(app, SERVICES.AI);
+  Utils.createKafkaMicroserviceFromApplication(app, SERVICES.AI);
 
-  app.useGlobalFilters(new HttpExceptionsFilter());
-  try {
-    await app.startAllMicroservices();
-    console.log('✅ Kafka & gRPC Consumers connected');
-  } catch (error) {
-    // Nếu Kafka chết, chỉ log lỗi chứ không crash app
-    console.error(
-      '⚠️ Kafka connection failed! Background jobs will not work.',
-      error,
-    );
-    console.warn('⚠️ But gRPC server will still start...');
-  }
-  await app.listen(process.env.PORT || 5004);
-  console.log(
-    `AI microservice is listening on port ${process.env.PORT || 5004}`,
-  );
+  await app.startAllMicroservices();
+  await app.init();
+
+  console.log(`🔥 AI service gRPC listening on ${HOST}:${PORT}`);
 }
 
-bootstrap();
+void bootstrap();

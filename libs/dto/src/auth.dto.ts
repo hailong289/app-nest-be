@@ -1,11 +1,4 @@
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  ValidateNested,
-} from 'class-validator';
-import { FileUploadData } from './filesystem.dto';
-import { Type } from 'class-transformer';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 // Auth DTOs
 export class LoginDto {
@@ -90,6 +83,25 @@ export class VerifyOtpDto {
   userId: string; // Thêm userId tùy chọn
 }
 
+export class LogoutDto {
+  @IsNotEmpty()
+  refreshToken: string;
+
+  @IsNotEmpty()
+  userId: string;
+}
+
+export class SearchUserDto {
+  @IsOptional()
+  keyword: string;
+
+  @IsOptional()
+  page: number;
+
+  @IsOptional()
+  limit: number;
+}
+
 // Type cho User data sau khi loại bỏ sensitive fields
 export interface UserTokenPayload {
   _id: string;
@@ -108,13 +120,8 @@ export interface UserTokenPayload {
 
 export class UpdateAvatarDto {
   @IsNotEmpty({ message: 'Ảnh đại diện không được để trống' })
-  @ValidateNested()
-  @Type(() => FileUploadData)
-  file: FileUploadData;
-
-  @IsOptional()
   @IsString()
-  folder: string;
+  avatarUrl: string;
 }
 
 export class UpdateProfileDto {

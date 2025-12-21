@@ -1,4 +1,4 @@
-import { MsgType } from 'libs/db/src';
+import { CallType, MsgType } from 'libs/db/src';
 
 // Message DTOs
 export class MessageDto {
@@ -40,6 +40,7 @@ export class CreateMessage {
   content: string | null;
   attachments?: string[]; // ✅ Optional array of strings
   replyTo: string | null;
+  documentId?: string;
   // pinned?: boolean;
 }
 
@@ -77,4 +78,32 @@ export class HandleDeleteAllDto {
   userId: string;
   msgId: string;
   placeholder: string;
+}
+
+export class GetDocumentsFromRoomDTO {
+  roomId: string;
+  userId: string;
+  limit: number;
+  page: number;
+  type?: string;
+}
+
+export class RequestCallDto {
+  actionUserId: string;
+  membersIds: string[];
+  roomId: string;
+  callType: CallType;
+  messageId: string;
+}
+
+export class AcceptCallDto {
+  actionUserId: string;
+  membersIds: string[];
+  roomId: string;
+}
+
+export class EndCallDto {
+  actionUserId: string;
+  roomId: string;
+  status: 'ended' | 'missed' | 'rejected' | 'cancelled';
 }

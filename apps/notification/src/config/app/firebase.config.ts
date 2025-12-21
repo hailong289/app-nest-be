@@ -2,9 +2,14 @@ import Utils from '@app/helpers/utils';
 import { registerAs } from '@nestjs/config';
 
 export default registerAs('firebase', () => {
-  const privateKey = Utils.parsePrivateKey(
-    process.env.FIREBASE_PRIVATE_KEY || '',
-  );
+  let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
+  if (!privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+    const decoded = Buffer.from(privateKey, 'base64').toString('utf-8');
+    if (decoded.includes('-----BEGIN PRIVATE KEY-----')) {
+      privateKey = decoded;
+    }
+  }
+  privateKey = privateKey.replace(/\\n/g, '\n');
   return {
     type: process.env.FIREBASE_TYPE || 'service_account',
     projectId: process.env.FIREBASE_PROJECT_ID,

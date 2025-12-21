@@ -7,11 +7,11 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Inject, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { RedisService } from 'libs/db/src';
+import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
@@ -32,6 +32,7 @@ interface JwtPayload {
   usr_dateOfBirth?: string; // "2003-03-04T00:00:00.000Z"
   createdAt?: string; // "2025-10-27T12:00:30.536Z"
   updatedAt?: string; // "2025-10-27T12:00:30.536Z"
+  jti: string;
   [key: string]: any;
 }
 
@@ -48,6 +49,10 @@ export interface ChatGrpcService {
   HandlePinned(data: any): any;
   HandleDeleteForUser(data: any): any;
   HandleDelete(data: any): any;
+  RequestCall(data: any): any;
+  AcceptCall(data: any): any;
+  EndCall(data: any): any;
+  SendCandidate(data: any): any;
 }
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
@@ -114,6 +119,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify<JwtPayload>(token, {
         secret: jwtSecret,
       });
+
+      // Check JTI in Redis
+      if (payload.jti && payload._id) {
+        const redisResult: string | number | boolean | null =
+          await this.redis.getData(
+            this.key.REFRESH_TOKEN(payload._id, payload.jti),
+          );
+        const isValid =
+          typeof redisResult === 'string' ||
+          typeof redisResult === 'number' ||
+          typeof redisResult === 'boolean'
+            ? Boolean(redisResult)
+            : !!redisResult;
+
+        if (!isValid) {
+          this.logger.warn(
+            `[CONNECT] Token revoked or expired for user ${payload._id}`,
+          );
+          client.emit('exception', {
+            status: 'error',
+            message: 'Phiên đăng nhập đã hết hạn hoặc bị thu hồi',
+          });
+          client.disconnect();
+          return;
+        }
+      }
+
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
@@ -753,40 +785,303 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
     }
   }
+
+  @SubscribeMessage('call:request')
+  async handleCallRequest(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      membersIds?: string[];
+      roomId: string;
+      callType: 'video' | 'audio';
+      messageId?: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      // tạo tin nhắn cuộc gọi
+      const handleSendMsg = await this.onMessage(
+        {
+          userId: user._id,
+          roomId: data.roomId,
+          type: 'call',
+          content: '',
+          attachments: [],
+          replyTo: '',
+        },
+        client,
+      );
+
+      if (!handleSendMsg.ok) {
+        throw new BadRequestException(handleSendMsg.error);
+      }
+
+      if (!handleSendMsg.data || !handleSendMsg.data.metadata) {
+        throw new BadRequestException('Tạo tin nhắn cuộc gọi thất bại');
+      }
+
+      const { msgId } = handleSendMsg.data.metadata;
+
+      const dataMsg = {
+        ...handleSendMsg.data.metadata,
+        call_history: null as any,
+      };
+      data.messageId = msgId;
+      // bắt đầu tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.RequestCall.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayCallResponse;
+
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Bắt đầu cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room, callType } = result.metadata;
+
+      dataMsg.call_history = history;
+      // emit call:request
+      this.io.to(data.roomId).except(client.id).emit('call:request', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: user.usr_id,
+        callType: callType,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error starting call:', error);
+      client.emit('error', {
+        message: 'Bắt đầu cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:accepted')
+  async handleAccept(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      membersIds?: string[];
+      roomId: string;
+      offer: string;
+      targetUserId: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayCallResponse;
+
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Trả lời cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room } = result.metadata;
+      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+      this.io.to(targetSocketId).emit('call:accepted', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+        offer: data.offer,
+        history: history,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error answering call:', error);
+      client.emit('error', {
+        message: 'Trả lời cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:answer')
+  async handleAnswer(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      targetUserId: string;
+      roomId: string;
+      answer: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+      // this.io.to(data.roomId).except(client.id).emit('call:answer', data);
+      this.io.to(targetSocketId).emit('call:answer', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error answering call:', error);
+      client.emit('error', {
+        message: 'Trả lời cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:end')
+  async handleEnd(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      status: CallStatus;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      const result = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.EndCall.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayCallResponse;
+
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Kết thúc cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room } = result.metadata;
+
+      this.io.to(data.roomId).emit('call:end', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+        status: data.status,
+        history: history,
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error ending call:', error);
+      client.emit('error', {
+        message: 'Kết thúc cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ==== candidate
+  @SubscribeMessage('call:candidate')
+  async handleCandidate(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      candidate: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:candidate', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error sending candidate:', error);
+      client.emit('error', {
+        message: 'Gửi candidate thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async getUser(@ConnectedSocket() client: SocketWithUser) {
+    const user = client.user;
+    if (!user) {
+      throw new Error('Unauthorized');
+    }
+    return user;
+  }
+
   @SubscribeMessage(socketEvent.USERSATUS)
   async CheckUserOnline(
     @MessageBody()
     data: {
-      ids: string[];
+      ids?: unknown;
     },
   ) {
-    const result = (await this.redis.SisMembers({
-      key: this.key.USERS_ONLINE,
-      values: data.ids,
-    })) as Array<{
-      key: string;
-      value: boolean;
-    }>;
-    if (result) {
-      const socketResult = result.map((i: { key: string; value: boolean }) => ({
-        id: i.key,
-        isOnline: i.value,
-      }));
-      console.log(
-        '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
-        socketResult,
-      );
-      for (const i of socketResult) {
-        this.io.to('system').emit('status:online', {
-          id: i.id,
-          isOnline: i.isOnline,
-          onlineAt: new Date(),
-        });
-      }
+    // 1️⃣ Normalize input (bắt client gửi bậy)
+    const ids: string[] = Array.isArray(data?.ids)
+      ? data.ids.filter((id): id is string => typeof id === 'string')
+      : [];
+
+    if (ids.length === 0) {
+      console.warn('⚠️ CheckUserOnline: ids is empty or invalid', data);
+      return;
     }
 
-    // this.io.emit('status_online', result);
+    // 2️⃣ Gọi Redis an toàn
+    let result: { key: string; value: boolean }[] = [];
+    try {
+      result = await this.redis.SisMembers({
+        key: this.key.USERS_ONLINE,
+        values: ids,
+      });
+    } catch (err) {
+      console.error('❌ Redis SisMembers failed:', err);
+      return;
+    }
+
+    if (!Array.isArray(result) || result.length === 0) return;
+
+    // 3️⃣ Map dữ liệu socket
+    const socketResult = result.map((i) => ({
+      id: i.key,
+      isOnline: Boolean(i.value),
+      onlineAt: new Date(),
+    }));
+
+    console.log(
+      '🚀 ~ ChatGateway ~ CheckUserOnline ~ socketResult:',
+      socketResult,
+    );
+
+    // 4️⃣ Emit 1 phát (KHÔNG spam)
+    this.io.to('system').emit('status:online:bulk', {
+      users: socketResult,
+    });
   }
+
   @SubscribeMessage(socketEvent.USERTYPING)
   onTypingIndicator(
     @MessageBody()
@@ -819,6 +1114,7 @@ interface ChatGatewayResponse<T = any> {
     msgId: string;
     members: Array<Record<string, any>>;
     roomId: string;
+    call_history?: CallHistory;
     // Có thể bổ sung các trường khác nếu cần
   };
 }
@@ -833,6 +1129,18 @@ interface ChatGatewayDeleteResponse<T = any> {
     members: Array<Record<string, any>>;
     roomId: string;
     // Có thể bổ sung các trường khác nếu cần
+  };
+}
+
+interface ChatGatewayCallResponse<T = any> {
+  data: T;
+  message: string;
+  statusCode: number;
+  reasonStatusCode: string;
+  metadata: {
+    history: CallHistory;
+    room: Room;
+    callType: string;
   };
 }
 

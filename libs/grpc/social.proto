@@ -1,7 +1,5 @@
 syntax = "proto3";
 
-import "google/protobuf/any.proto";
-
 package social;
 
 service SocialService {
@@ -75,7 +73,6 @@ message FriendRequest {
 message AcceptFriendRequestRequest {
   string usr_id = 1;
   string senderId = 2;
-  
 }
 
 message AcceptFriendRequestResponse {
@@ -86,7 +83,7 @@ message AcceptFriendRequestResponse {
 }
 
 message RejectFriendRequestRequest {
-   string usr_id = 1;
+  string usr_id = 1;
   string senderId = 2;
 }
 
@@ -251,7 +248,7 @@ message BlockFriendResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
-  google.protobuf.Any metadata = 4;
+  Any metadata = 4;
 }
 
 
@@ -264,7 +261,7 @@ message OpenBlockedFriendResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;
-  google.protobuf.Any metadata = 4;
+  Any metadata = 4;
 }
 
 
@@ -308,4 +305,9 @@ message GetFriendByUserIdResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   Friend metadata = 4;
+}
+
+message Any {
+  string type_url = 1;
+  bytes value = 2;
 }

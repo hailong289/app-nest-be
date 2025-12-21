@@ -36,9 +36,9 @@ export class EmbeddingService {
    */
   private async checkRelevanceWithAI(text: string): Promise<boolean> {
     try {
-      // Dùng model Flash: Nhanh như điện, rẻ như cho
+      // Dùng model Pro (stable API)
       const model = this.gemini.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2-5-flash',
       });
 
       const prompt = `
@@ -206,6 +206,13 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       const vector = await this.generateVector(text);
       const hash = this.hashText(text);
 
+      // Kiểm tra hash trùng trước khi insert
+      const existingHash = await this.embedModel.exists({ hash });
+      if (existingHash) {
+        this.logger.debug(`Skipped duplicate hash for message ${messageId}`);
+        return;
+      }
+
       await this.embedModel.create({
         service: 'chat',
         provider: 'google',
@@ -247,10 +254,16 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
   /**
    * Tìm tin nhắn cũ có ý nghĩa tương đồng
    * @param query Câu hỏi/từ khóa của người dùng
-   * @param limit Số lượng kết quả
    * @param roomId ID của phòng chat
+   * @param limit Số lượng kết quả
    */
-  async searchSimilarMessages(query: string, limit = 5, roomId: string) {
+  /**
+   * Tìm tin nhắn cũ có ý nghĩa tương đồng
+   * @param query Câu hỏi/từ khóa của người dùng
+   * @param roomId ID của phòng chat
+   * @param limit Số lượng kết quả
+   */
+  async searchSimilarMessages(query: string, roomId: string, limit = 5) {
     // 1. Embed câu query của người dùng để lấy vector so sánh
     const queryVector = await this.generateVector(query);
 
@@ -264,24 +277,104 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           limit: limit,
         },
       },
+      {
+        $match: {
+          contextType: 'room',
+          contextId: roomId,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          text: 1,
+          contextId: 1,
+          messageId: 1, // Quan trọng: Để FE biết tin nhắn nào
+          createdAt: 1,
+          score: { $meta: 'vectorSearchScore' },
+        },
+      },
     ];
 
-    const matchStage: Record<string, string> = {
-      contextType: 'room',
-      contextId: roomId,
-    };
+    return this.embedModel.aggregate(pipeline);
+  }
 
-    pipeline.push({ $match: matchStage });
+  /**
+   * Tạo vector và lưu vào DB cho Document
+   * @param text Nội dung plain text của document
+   * @param docId ID của document
+   * @param userId ID người tạo/sửa
+   */
+  async createDocumentEmbedding(text: string, docId: string, userId: string) {
+    if (!text || text.trim().length < 10) {
+      this.logger.debug(`Skipped short document content: ${docId}`);
+      return;
+    }
 
-    pipeline.push({
-      $project: {
-        _id: 0,
-        text: 1,
-        contextId: 1, // Để frontend biết là tin nhắn nào
-        createdAt: 1,
-        score: { $meta: 'vectorSearchScore' }, // Điểm tương đồng (0 -> 1)
+    try {
+      // Xóa embedding cũ của doc này (nếu có) để update mới
+      await this.embedModel.deleteMany({
+        contextId: docId,
+        contextType: 'doc',
+      });
+
+      // Tạo vector
+      const vector = await this.generateVector(text);
+      const hash = this.hashText(text);
+
+      await this.embedModel.create({
+        service: 'document',
+        provider: 'google',
+        model: 'text-embedding-004',
+        contextType: 'doc',
+        contextId: docId,
+        userId: userId,
+        text: text, // Lưu text gốc (hoặc tóm tắt nếu cần)
+        hash: hash,
+        vector: vector,
+      });
+
+      this.logger.log(`✅ Embedded document ${docId}`);
+    } catch (error) {
+      this.logger.error(`Failed to index document ${docId}`, error);
+    }
+  }
+
+  /**
+   * Tìm kiếm document theo ngữ nghĩa
+   * @param query Câu hỏi/từ khóa
+   * @param userId ID user (để check quyền - TODO)
+   * @param limit Số lượng kết quả
+   */
+  async searchSimilarDocuments(query: string, userId: string, limit = 5) {
+    const queryVector = await this.generateVector(query);
+
+    const pipeline: any[] = [
+      {
+        $vectorSearch: {
+          index: 'vector_index',
+          path: 'vector',
+          queryVector: queryVector,
+          numCandidates: limit * 10,
+          limit: limit,
+        },
       },
-    });
+      {
+        $match: {
+          contextType: 'doc',
+          // TODO: Thêm logic check quyền (ví dụ: userId == ownerId hoặc doc public)
+          // Hiện tại tạm thời search all docs
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          text: 1,
+          contextId: 1,
+          score: { $meta: 'vectorSearchScore' },
+        },
+      },
+    ];
+
     return this.embedModel.aggregate(pipeline);
   }
 }

@@ -4,9 +4,8 @@ package ai;
 
 service AIService {
   rpc Moderation(ModerationRequest) returns (ModerationResponse);
-  rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
-  rpc SummaryDocument(SummaryDocumentRequest) returns (SummaryDocumentResponse);
-  rpc Translation(TranslationRequest) returns (TranslationResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+  rpc SuggestReplies(SuggestRepliesRequest) returns (SuggestRepliesResponse);
 }
 
 message ModerationRequest {
@@ -26,68 +25,31 @@ message ModerationMetadata {
   // any
 }
 
-
-message SearchMessagesRequest {
-  string text = 1;
-  string roomId = 2;
+message SearchRequest {
+  string query = 1;
+  string userId = 2;
   int32 limit = 3;
+  string roomId = 4;
 }
 
-message SearchMessagesResponse {
-  string message = 1;
-  int32 statusCode = 2;
-  string reasonStatusCode = 3;
-  SearchMessagesMetadata metadata = 4;
+message SearchResponse {
+  repeated SearchResult results = 1;
 }
 
-message SearchMessagesMetadata {
-  repeated Message messages = 1;
-}
-
-message Message {
-  string _id = 1;
-  string content = 2;
-  string createdAt = 3;
-  string updatedAt = 4;
-}
-
-message SummaryDocumentRequest {
-  FileRequest file = 1;
-}
-
-message SummaryDocumentResponse {
-  string message = 1;
-  int32 statusCode = 2;
-  string reasonStatusCode = 3;
-  SummaryDocumentMetadata metadata = 4;
-}
-
-message SummaryDocumentMetadata {
-  string summary = 1;
-  string title = 2;
-  repeated string keyPoints = 3;
-  string language = 4;
-}
-
-message FileRequest {
-  string originalname = 1;
-  bytes buffer = 2;
-  string mimetype = 3;
-  string fieldname=4;
-  string encoding=5;
-  int64 size=6;
-}
-
-message TranslationRequest {
+message SearchResult {
   string text = 1;
-  string from = 2; // vi, en, ...
-  string to = 3; // vi, en, ...
+  string contextId = 2;
+  double score = 3;
+  string messageId = 4;
+}
+
+message SuggestRepliesRequest {
+  repeated string contextMessages = 1; // List of last N messages
+  string userId = 2;
+}
+
+message SuggestRepliesResponse {
+  repeated string suggestions = 1;
 }
 
 
-message TranslationResponse {
-  string message = 1;
-  int32 statusCode = 2;
-  string reasonStatusCode = 3;
-  string metadata = 4;
-}

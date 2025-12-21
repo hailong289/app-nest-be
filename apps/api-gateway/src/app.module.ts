@@ -10,8 +10,11 @@ import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module'
 import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { ChatWebSocketModule } from './ws/chat/chat.module';
+import { DocWebSocketModule } from './ws/doc/doc.module';
 import redisConfig from 'libs/db/src/config/redis.config';
+import { kafkaConfig } from 'libs/kafka';
 import { GatewayAiModule } from './ai/gateway-ai.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -19,8 +22,8 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
       envFilePath: path.resolve(
         process.cwd(),
         `apps/api-gateway/.env.${process.env.NODE_ENV || 'development'}`,
-      ), // thay đổi file để load môi trường ví dụ .env.production
-      load: [redisConfig],
+      ),
+      load: [redisConfig, kafkaConfig],
     }),
     WsSharedModule,
     JwtModule.register({}),
@@ -30,7 +33,8 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
     GatewayFileSystemModule,
     GatewayChatModule,
     GatewayAiModule,
-    ChatWebSocketModule, // WebSocket Chat Gateway
+    ChatWebSocketModule,
+    DocWebSocketModule,
   ],
 })
 export class AppModule {
@@ -46,7 +50,11 @@ export class AppModule {
         { path: 'auth/update-profile', method: RequestMethod.POST },
         { path: 'chat/*path', method: RequestMethod.ALL },
         { path: 'social/*path', method: RequestMethod.ALL },
+        { path: 'documents', method: RequestMethod.ALL },
+        { path: 'documents/*path', method: RequestMethod.ALL },
         { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
+        { path: 'ai/search', method: RequestMethod.POST },
+        { path: 'ai/suggest-replies', method: RequestMethod.POST },
       );
   }
 }

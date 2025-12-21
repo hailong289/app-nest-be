@@ -1,8 +1,17 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-
+export enum DocVisibilityEnum {
+  private = 'private',
+  room = 'room',
+  public = 'public',
+}
+export enum sharedWithRoleEnum {
+  viewer = 'viewer',
+  editer = 'editer',
+}
 export type DocVisibility = 'private' | 'room' | 'public';
 export type DocumentDocuments = HydratedDocument<Document>;
+export type sharedWithRoleType = 'viewer' | 'editor';
 /**
  * Document = tài liệu + wiki + ghi chú dài + nội dung collaborative (Yjs)
  */
@@ -28,8 +37,8 @@ export class Document {
    * Tài liệu có thể gắn với một Room/Channel/Lớp
    * Nếu không gắn → tài liệu cá nhân kiểu Notion
    */
-  @Prop({ type: Types.ObjectId, ref: 'Rooms', default: null })
-  roomId?: Types.ObjectId | null;
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'Room' }], default: [] })
+  roomIds?: Types.ObjectId[];
 
   /**
    * Visibility:
@@ -66,19 +75,6 @@ export class Document {
    *  ATTACHMENTS
    * ============================= */
 
-  /**
-   * Danh sách file đính kèm (Attachment model)
-   * Không bắt buộc, vì file vẫn nằm trong Yjs JSON
-   * Nhưng field này giúp:
-   *  - cleanup S3 khi xoá doc
-   *  - hiện danh sách file ở sidebar
-   */
-  @Prop({
-    type: [{ type: Types.ObjectId, ref: 'Attachment' }],
-    default: [],
-  })
-  attachmentIds: Types.ObjectId[];
-
   /* =============================
    *  SHARING (optional)
    * ============================= */
@@ -88,6 +84,10 @@ export class Document {
    * role:
    *  - viewer: chỉ xem
    *  - editor: được sửa
+   */
+
+  /**
+   * public []
    */
   @Prop({
     type: [
@@ -100,7 +100,7 @@ export class Document {
   })
   sharedWith?: {
     userId: Types.ObjectId;
-    role: 'viewer' | 'editor';
+    role: sharedWithRoleType;
   }[];
 }
 

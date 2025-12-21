@@ -9,7 +9,8 @@ export type MsgType =
   | 'system'
   | 'video'
   | 'audio'
-  | 'gif';
+  | 'gif'
+  | 'document';
 
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {
@@ -36,6 +37,9 @@ export class Message {
     default: [],
   })
   attachment_ids: Types.ObjectId[]; // id từ Attachments collection
+
+  @Prop({ type: Types.ObjectId, ref: 'Document', default: null })
+  document_id: Types.ObjectId | null; // Link to Document collection
 
   @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
   reply_to: Types.ObjectId | null;
