@@ -13,6 +13,7 @@ import { ChatWebSocketModule } from './ws/chat/chat.module';
 import { DocWebSocketModule } from './ws/doc/doc.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 import { kafkaConfig } from 'libs/kafka';
+import { GatewayAiModule } from './ai/gateway-ai.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { kafkaConfig } from 'libs/kafka';
     GatewayNotificationModule,
     GatewayFileSystemModule,
     GatewayChatModule,
+    GatewayAiModule,
     ChatWebSocketModule,
     DocWebSocketModule,
   ],
@@ -51,6 +53,8 @@ export class AppModule {
         { path: 'documents', method: RequestMethod.ALL },
         { path: 'documents/*path', method: RequestMethod.ALL },
         { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
+        { path: 'ai/search', method: RequestMethod.POST },
+        { path: 'ai/suggest-replies', method: RequestMethod.POST },
       );
   }
 }
