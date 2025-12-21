@@ -20,6 +20,7 @@ jobs:
       service-noti: ${{ steps.filter.outputs.service-noti }}
       service-filesystem: ${{ steps.filter.outputs.service-filesystem }}
       service-chat: ${{ steps.filter.outputs.service-chat }}
+      service-ai: ${{ steps.filter.outputs.service-ai }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -40,6 +41,8 @@ jobs:
               - 'apps/filesystem/**'
             service-chat:
               - 'apps/chat/**'
+            service-ai:
+              - 'apps/ai/**'
 
   deploy-auth-service:
     needs:
@@ -67,6 +70,13 @@ jobs:
       - detect-changes
     if: ${{ needs.detect-changes.outputs.service-chat == 'true' }}
     uses: ./.github/workflows/deploy-chat.yml
+    secrets: inherit
+
+  deploy-ai-service:
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-ai == 'true' }}
+    uses: ./.github/workflows/deploy-ai.yml
     secrets: inherit
 
   deploy-gateway-service:
