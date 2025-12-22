@@ -13,7 +13,7 @@ export class AIUsageLog {
   provider: string; // 'google' | 'openai' | 'anthropic' | 'local'
 
   @Prop({ required: true })
-  model: string; // 'gemini-1.5-flash' | 'omni-moderation-latest' | 'text-bison-002'
+  model: string; // 'gemini-2.5-flash' | 'omni-moderation-latest' | 'text-bison-002'
 
   @Prop({ required: true })
   userId: string; // ai gọi từ user nào (hoặc system)

@@ -99,7 +99,7 @@ export class GatewayDocumentController implements OnModuleInit {
   @Get('/:docId')
   async getDocument(
     @Param('docId') docId: string,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!req.user?._id) {
       throw new NotFoundException('User not authenticated');
@@ -126,7 +126,7 @@ export class GatewayDocumentController implements OnModuleInit {
       plainText?: string;
       yjsSnapshot?: Buffer;
     },
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!req.user?._id) {
       throw new NotFoundException('User not authenticated');
@@ -150,7 +150,7 @@ export class GatewayDocumentController implements OnModuleInit {
   @Delete('/:docId')
   async deleteDocument(
     @Param('docId') docId: string,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!req.user?._id) {
       throw new NotFoundException('User not authenticated');

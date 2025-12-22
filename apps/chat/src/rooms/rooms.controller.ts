@@ -10,6 +10,8 @@ import {
   GetRoomDto,
   GetRoomType,
   LeavingRoomDto,
+  MutedRoomDto,
+  PinnedRoomDto,
   RemoveMemberRoomDto,
 } from '@app/dto/room.dto';
 
@@ -66,5 +68,15 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'ChangeRole')
   async ChangeRole(@Body() payload: ChangeRoleMemberDto) {
     return this.roomsService.changeRoleMember(payload);
+  }
+
+  @GrpcMethod('ChatService', 'PinnendRoom')
+  async PinnendRoom(@Body() payload: PinnedRoomDto) {
+    return this.roomsService.PinnendRoom(payload);
+  }
+
+  @GrpcMethod('ChatService', 'MutedRoom')
+  async MutedRoom(@Body() payload: MutedRoomDto) {
+    return this.roomsService.MutedRoom(payload);
   }
 }

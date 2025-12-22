@@ -1,8 +1,14 @@
-import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { Controller, Inject } from '@nestjs/common';
+import {
+  ClientKafka,
+  GrpcMethod,
+  MessagePattern,
+  Payload,
+} from '@nestjs/microservices';
 import { NotificationService } from './notification.service';
 import { Response } from '@app/helpers/response';
 import { FirebaseService } from './firebase.service';
+import { SERVICES } from '@app/constants';
 
 @Controller()
 export class NotificationController {
@@ -49,5 +55,19 @@ export class NotificationController {
   ) {
     await this.firebaseService.pushNotificationForUsers(data);
     return Response.success(null, 'Push notification sent successfully');
+  }
+
+  @GrpcMethod('NotificationService', 'PushNotificationTest')
+  async pushNotificationTest(
+    @Payload()
+    data: {
+      title: string;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, any>;
+    },
+  ) {
+    await this.firebaseService.pushNotification(data);
+    return Response.success(null, 'Gửi thông báo test thành công');
   }
 }

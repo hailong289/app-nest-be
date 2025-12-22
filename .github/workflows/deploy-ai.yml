@@ -1,14 +1,14 @@
-name: Deploy Auth Service
+name: Deploy AI Service
 
 on:
   workflow_call:
 
 jobs:
   deploy:
-    name: Deploy Auth to Cloud Run
+    name: Deploy AI to Cloud Run
     runs-on: ubuntu-latest
     environment: 
-      name: AUTH_SERVICE
+      name: AI_SERVICE
     steps:
       - uses: actions/checkout@v3
       - uses: google-github-actions/auth@v2
@@ -22,29 +22,33 @@ jobs:
 
       - name: Build and Push Container
         run: |
-          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest"
-          docker build -t $IMAGE -f apps/auth/Dockerfile .
+          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest"
+          docker build -t $IMAGE -f apps/ai/Dockerfile .
           docker push $IMAGE
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: auth-service
-          image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest
+          service: ai-service
+          image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest
           region: asia-southeast1
           flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=512Mi --port=8080 --timeout=60s --use-http2'
           env_vars: |-
             NODE_ENV=${{ secrets.NODE_ENV }}
             HOST=${{ secrets.HOST }}
-            PROTO_PATH=${{ secrets.PROTO_PATH }}
+            PROTO_URL=${{ secrets.PROTO_URL }}
+            GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+            GOOGLE_MODEL=${{ secrets.GOOGLE_MODEL }}
             DB_CONNECTION=${{ secrets.DB_CONNECTION }}
             DB_HOST=${{ secrets.DB_HOST }}
             DB_NAME=${{ secrets.DB_NAME }}
             DB_USER=${{ secrets.DB_USER }}
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            REDIS_HOST=${{ secrets.REDIS_HOST }}
-            REDIS_PORT=${{ secrets.REDIS_PORT }}
-            REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}
-            JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+            KAFKA_HOST=${{ secrets.KAFKA_HOST }}
+            KAFKA_PORT=${{ secrets.KAFKA_PORT }}
+            KAFKA_CLIENT_ID=${{ secrets.KAFKA_CLIENT_ID }}
+            KAFKA_GROUP_ID=${{ secrets.KAFKA_GROUP_ID }}
+            KAFKA_SASL=${{ secrets.KAFKA_SASL }}
+            KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }}
+            KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }}
+            KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }}

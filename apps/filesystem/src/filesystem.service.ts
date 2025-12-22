@@ -6,7 +6,7 @@ import {
   PutObjectCommandInput,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
@@ -30,6 +30,9 @@ import sharp from 'sharp';
 import probe from 'probe-image-size';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
+import { ClientKafka } from '@nestjs/microservices';
+import { SERVICES } from '@app/constants';
+import { KafkaEvent } from '@app/dto/enum.type';
 
 @Injectable()
 export class FilesystemService {
@@ -45,6 +48,7 @@ export class FilesystemService {
     private readonly attachmentModel: Model<Attachment>,
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
     @InjectModel('Message') private readonly messageModel: Model<any>,
+    @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
   ) {
     this.s3 = new S3Client({
       region: this.configService.get<string>('s3.region') ?? 'us-east-1',
@@ -141,6 +145,22 @@ export class FilesystemService {
       await this.attachmentModel.findByIdAndUpdate(attachment._id, {
         status: 'uploaded',
       });
+
+      // Emit event for AI processing
+      if (['image', 'video', 'file', 'audio'].includes(kind) && messageId) {
+        await this.utils.dispatchEventKafka(
+          this.aiClient,
+          KafkaEvent.aiProcessFile,
+          {
+            fileUrl,
+            fileType: kind,
+            docId: attachment._id,
+            userId,
+            mimeType: file.mimetype,
+            messageId,
+          },
+        );
+      }
 
       return Response.success(
         {

@@ -1,4 +1,4 @@
-import { MsgType } from 'libs/db/src';
+import { CallType, MsgType } from 'libs/db/src';
 
 // Message DTOs
 export class MessageDto {
@@ -86,4 +86,24 @@ export class GetDocumentsFromRoomDTO {
   limit: number;
   page: number;
   type?: string;
+}
+
+export class RequestCallDto {
+  actionUserId: string;
+  membersIds: string[];
+  roomId: string;
+  callType: CallType;
+  messageId: string;
+}
+
+export class AcceptCallDto {
+  actionUserId: string;
+  membersIds: string[];
+  roomId: string;
+}
+
+export class EndCallDto {
+  actionUserId: string;
+  roomId: string;
+  status: 'ended' | 'missed' | 'rejected' | 'cancelled';
 }

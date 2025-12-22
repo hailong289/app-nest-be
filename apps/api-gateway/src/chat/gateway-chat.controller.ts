@@ -16,13 +16,17 @@ import {
   AddMemberRoomDto,
   ChangelinkAvatarRoomDto,
   ChangeNameRoomDto,
+  ChangeRoleMemberDto,
   CreateRoomDto,
   GetRoomDto,
   GetRoomType,
   LeavingRoomDto,
+  MutedRoomDto,
   OptionsType,
+  PinnedRoomDto,
   RemoveMemberRoomDto,
 } from '@app/dto/room.dto';
+import type { AuthenticatedRequest } from 'libs/types';
 import { ChatGateway } from '../ws/chat/chat-gateway';
 import { REDISKEY } from '@app/constants/RedisKey';
 import { socketEvent } from '@app/dto/enum.type';
@@ -65,6 +69,9 @@ export interface RoomGrpcService {
   changeAvatar(data: any): any;
   changeName(data: any): any;
   changeNickName(data: any): any;
+  changeRole(data: any): any;
+  pinnendRoom(data: any): any;
+  mutedRoom(data: any): any;
   getMsgFromRoom(data: any): any;
   getDocumentsFromRoom(data: any): any;
 }
@@ -88,7 +95,7 @@ export class GatewayChatController {
   async createRoom(
     @Body()
     body: CreateRoomDto,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     body.userId = req.user?._id;
 
@@ -145,7 +152,7 @@ export class GatewayChatController {
   async removeMember(
     @Body()
     body: RemoveMemberRoomDto,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     body.userId = req.user?._id;
     const result = await this.gatewayService.dispatchGrpcRequest(
@@ -166,7 +173,7 @@ export class GatewayChatController {
   async addMember(
     @Body()
     body: AddMemberRoomDto,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     body.userId = req.user?._id;
     const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -206,7 +213,7 @@ export class GatewayChatController {
   }
   @Get('rooms')
   async GetRooms(
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
     @Query()
     options: Partial<OptionsType> = {},
   ) {
@@ -228,10 +235,7 @@ export class GatewayChatController {
   }
 
   @Get('room/:id')
-  async GetRoom(
-    @Req() req: { user?: { _id?: string } },
-    @Param('id') id: string,
-  ) {
+  async GetRoom(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const body: GetRoomDto = {
       userId: req.user?._id,
       roomId: id,
@@ -246,7 +250,7 @@ export class GatewayChatController {
   async ChangeAvatar(
     @Body()
     body: ChangelinkAvatarRoomDto,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     body.userId = req.user?._id;
     const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -280,7 +284,7 @@ export class GatewayChatController {
   async ChangeName(
     @Body()
     body: ChangeNameRoomDto,
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     body.userId = req.user?._id;
     const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -319,7 +323,7 @@ export class GatewayChatController {
       memberId: string;
       userId?: string;
     },
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
   ) {
     body.userId = req.user?._id;
     const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -350,9 +354,87 @@ export class GatewayChatController {
     return result;
   }
 
+  @Patch('rooms/role')
+  async ChangeRole(
+    @Body()
+    body: ChangeRoleMemberDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    body.userId = req.user?._id;
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.changeRole.bind(this.RoomGrpcService),
+      body,
+    )) as ChatOutChangeGatewayResponse;
+
+    const roomsUpdate = await Promise.all(
+      result.metadata.members.map(async (r) => {
+        const data: GetRoomDto = {
+          userId: r.user_id,
+          roomId: result.metadata.roomId,
+        };
+        const roomData = (await this.gatewayService.dispatchGrpcRequest(
+          this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
+          data,
+        )) as ChatGatewayResponse;
+        return {
+          socketRoom: this.key.ROOM_CLIENT(r.id),
+          roomData: roomData.metadata,
+        };
+      }),
+    );
+
+    roomsUpdate.forEach(({ socketRoom, roomData }) => {
+      this.chatGateway.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+    });
+    return result;
+  }
+
+  @Patch('rooms/pinned')
+  async PinnendRoom(
+    @Body()
+    body: PinnedRoomDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    body.userId = req.user?._id;
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.pinnendRoom.bind(this.RoomGrpcService),
+      body,
+    )) as ChatGatewayResponse;
+
+    // Emit update to the user who pinned/unpinned (optional, but good for sync)
+    // Usually pinning is personal, so maybe just return result.
+    // But if we want to update the room list order for that user:
+    if (result?.metadata) {
+      this.chatGateway.io
+        .to(this.key.ROOM_CLIENT(body.userId))
+        .emit(socketEvent.ROOMUPSERT, result.metadata);
+    }
+    return result;
+  }
+
+  @Patch('rooms/muted')
+  async MutedRoom(
+    @Body()
+    body: MutedRoomDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    body.userId = req.user?._id;
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.mutedRoom.bind(this.RoomGrpcService),
+      body,
+    )) as ChatGatewayResponse;
+
+    if (result?.metadata) {
+      this.chatGateway.io
+        .to(this.key.ROOM_CLIENT(body.userId))
+        .emit(socketEvent.ROOMUPSERT, result.metadata);
+    }
+    return result;
+  }
+
   @Get('messages/:roomId')
   async GetMsgFromRoom(
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
     @Query()
     query: {
@@ -374,7 +456,7 @@ export class GatewayChatController {
 
   @Get('documents/:roomId')
   async GetDocumentsFromRoom(
-    @Req() req: { user?: { _id?: string } },
+    @Req() req: AuthenticatedRequest,
     @Param('roomId') roomId: string,
     @Query()
     query: {

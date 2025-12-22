@@ -1,8 +1,17 @@
-import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Inject,
+  OnModuleInit,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import { Request } from 'express';
+import type { Observable } from 'rxjs';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -11,13 +20,35 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
+interface NotificationServiceGrpc {
+  PushNotificationTest(data: {
+    title: string;
+    message: string;
+    fcmTokens: string[];
+    data?: Record<string, any>;
+  }): Observable<any>;
+}
+
+const NOTIFICATION_GRPC_SERVICE = 'NOTIFICATION_GRPC_SERVICE';
+
 @Controller('notifications')
-export class GatewayNotificationController {
+export class GatewayNotificationController implements OnModuleInit {
+  private notificationGrpc: NotificationServiceGrpc;
+
   public constructor(
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    @Inject(NOTIFICATION_GRPC_SERVICE)
+    private readonly notificationGrpcClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
   ) {}
+
+  onModuleInit() {
+    this.notificationGrpc =
+      this.notificationGrpcClient.getService<NotificationServiceGrpc>(
+        'NotificationService',
+      );
+  }
 
   @Post('send-otp')
   async sendOtp(
@@ -56,6 +87,22 @@ export class GatewayNotificationController {
     return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
       'push_notification',
+      body,
+    );
+  }
+
+  @Post('push-notification-test')
+  async pushNotificationTest(
+    @Body()
+    body: {
+      title: string;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, unknown>;
+    },
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.PushNotificationTest.bind(this.notificationGrpc),
       body,
     );
   }

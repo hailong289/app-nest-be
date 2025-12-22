@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package notification;
+
+import "google/protobuf/struct.proto";
+
+service NotificationService {
+  rpc PushNotificationTest(PushNotificationTestRequest) returns (PushNotificationTestResponse);
+}
+
+message PushNotificationTestRequest {
+  string title = 1;
+  string message = 2;
+  repeated string fcmTokens = 3;
+  google.protobuf.Struct data = 4;
+}
+
+message PushNotificationTestResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
+}

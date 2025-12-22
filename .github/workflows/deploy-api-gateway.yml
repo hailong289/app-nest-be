@@ -50,6 +50,12 @@ jobs:
             --set-env-vars GATEWAY_CHAT_HOST=${{ secrets.GATEWAY_CHAT_HOST }} \
             --set-env-vars GATEWAY_CHAT_PORT=${{ secrets.GATEWAY_CHAT_PORT }} \
             --set-env-vars GATEWAY_CHAT_PROTO_PATH=${{ secrets.GATEWAY_CHAT_PROTO_PATH }} \
+            --set-env-vars GATEWAY_NOTIFICATION_HOST=${{ secrets.GATEWAY_NOTIFICATION_HOST }} \
+            --set-env-vars GATEWAY_NOTIFICATION_PORT=${{ secrets.GATEWAY_NOTIFICATION_PORT }} \
+            --set-env-vars GATEWAY_NOTIFICATION_PROTO_PATH=${{ secrets.GATEWAY_NOTIFICATION_PROTO_PATH }} \
+            --set-env-vars GATEWAY_AI_HOST=${{ secrets.GATEWAY_AI_HOST }} \
+            --set-env-vars GATEWAY_AI_PORT=${{ secrets.GATEWAY_AI_PORT }} \
+            --set-env-vars GATEWAY_AI_PROTO_PATH=${{ secrets.GATEWAY_AI_PROTO_PATH }} \
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
             --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \

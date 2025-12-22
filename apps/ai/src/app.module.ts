@@ -17,7 +17,7 @@ import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
 import { mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
-import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
+import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 
 @Module({
   imports: [
@@ -29,7 +29,7 @@ import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
       ),
       load: [googleConfig, mongoConfig, kafkaConfig],
     }),
-    SharedKafkaClientModule,
+    KafkaAdminModule,
     MongodbModule,
     JwtModule.register({}),
     MongooseModule.forFeature([AIUsageLogSchema, AIEmbeddingSchema]),

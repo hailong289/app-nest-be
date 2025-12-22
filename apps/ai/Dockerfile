@@ -25,7 +25,7 @@ RUN npm install --omit=dev
 # Copy dist của service ai từ builder
 COPY --from=builder /app/dist ./dist
 
-# Copy libs từ builder stage
+# Copy libs nếu runtime cần (proto, schema, asset…)
 COPY libs ./libs
 
 CMD ["node", "dist/apps/ai/main.js"]
