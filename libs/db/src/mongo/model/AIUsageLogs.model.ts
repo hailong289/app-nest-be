@@ -18,17 +18,6 @@ export class AIUsageLog {
   @Prop({ required: true })
   userId: string; // ai gọi từ user nào (hoặc system)
 
-  @Prop() sessionId?: string; // nếu nằm trong 1 session học tập / chat
-
-  @Prop() contextType?: string; // 'message' | 'document' | 'audio' | 'image'
-  @Prop() contextId?: string; // ID thực thể (messageId, fileId, ...)
-
-  @Prop({ type: Object })
-  input: any; // dữ liệu đầu vào (có thể hash/ẩn nếu nhạy cảm)
-
-  @Prop({ type: Object })
-  output?: any; // kết quả trả về
-
   @Prop({ type: Object })
   metadata?: any; // custom field cho từng loại service
 
@@ -41,8 +30,6 @@ export class AIUsageLog {
   // ==== Trạng thái ====
   @Prop({ default: 'success' })
   status: 'success' | 'error';
-
-  @Prop() error?: string;
 }
 
 export const AIUsageLogSchema = SchemaFactory.createForClass(AIUsageLog);

@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package quizz;
+
+
+service QuizzService {
+    rpc CreateQuizz(CreateQuizzRequest) returns (CreateQuizzResponse);
+    rpc GetQuizz(GetQuizzRequest) returns (GetQuizzResponse);
+    rpc ListQuizzes(ListQuizzesRequest) returns (ListQuizzesResponse);
+    rpc UpdateQuizz(UpdateQuizzRequest) returns (UpdateQuizzResponse);
+    rpc DeleteQuizz(DeleteQuizzRequest) returns (DeleteQuizzResponse);
+}
+
+message CreateQuizzRequest {
+    string quiz_title = 1;
+    string quiz_description = 2;
+    repeated Question questions = 3;
+}
+
+message CreateQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    QuizMetadata metadata = 4;
+}
+
+message GetQuizzRequest {
+    string quiz_id = 1;
+    string userId = 2;
+}
+
+message GetQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    QuizMetadata metadata = 4;
+}
+
+message ListQuizzesRequest {
+    string userId = 1;
+    int32 page = 2;
+    int32 limit = 3;
+}
+
+message ListQuizzesResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated QuizMetadata metadata = 4;
+}
+
+message UpdateQuizzRequest {
+    string quiz_id = 1;
+    string userId = 2;
+    string quiz_title = 3;
+    string quiz_description = 4;
+    repeated Question questions = 5;
+}
+
+message UpdateQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    QuizMetadata metadata = 4;
+}
+
+message DeleteQuizzRequest {
+    string quiz_id = 1;
+    string userId = 2;
+}
+
+message DeleteQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    string metadata = 4;
+}
+
+
+message Question {
+    string question_text = 1;
+    string question_type = 2;
+    repeated Answer answers = 3;
+}
+
+message Answer {
+    string answer_text = 1;
+    bool is_correct = 2;
+}
+
+message QuizMetadata {
+    string quiz_id = 1;
+    string quiz_title = 2;
+    string quiz_description = 3;
+    repeated Question questions = 4;
+    string createdAt = 5;
+    string updatedAt = 6;
+}
+
