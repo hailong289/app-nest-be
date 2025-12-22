@@ -4,8 +4,6 @@ import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
 import { Logger } from '@nestjs/common';
-import Utils from '@app/helpers/utils';
-import { SERVICES } from '@app/constants';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -31,8 +29,6 @@ async function bootstrap() {
       },
     },
   });
-
-  Utils.createKafkaMicroserviceFromApplication(app, SERVICES.CHAT);
 
   await app.startAllMicroservices();
   await app.init();

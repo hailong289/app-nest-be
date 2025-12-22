@@ -226,8 +226,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() { roomId }: { roomId: string },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user; // payload từ JWT
-    if (!user) return { ok: false, message: 'Unauthorized' }; // Join room
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
+      return { ok: false, message: 'Unauthorized' };
+    }
 
     await client.join(roomId);
     this.logger.log(`${user.usr_fullname} joined room ${roomId}`); // Broadcast đến mọi người trong room
@@ -254,8 +258,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -357,8 +363,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -439,8 +447,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -535,8 +545,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -607,8 +619,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -699,8 +713,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -818,9 +834,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId } = handleSendMsg.data.metadata;
 
-      const dataMsg = {
+      const dataMsg: ChatGatewayResponse['metadata'] = {
         ...handleSendMsg.data.metadata,
-        call_history: null as any,
+        call_history: undefined,
       };
       data.messageId = msgId;
       // bắt đầu tạo lịch sử cuộc gọi
@@ -1020,7 +1036,51 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  async getUser(@ConnectedSocket() client: SocketWithUser) {
+  private async getUser(@ConnectedSocket() client: SocketWithUser) {
+    if (!client.user) {
+      try {
+        let token: string | undefined =
+          (client.handshake.auth?.token as string) ||
+          (client.handshake.query?.token as string) ||
+          (client.handshake.headers?.authorization as string);
+
+        if (token) {
+          if (token.startsWith('Bearer ')) {
+            token = token.replace('Bearer ', '');
+          }
+          const jwtSecret = this.configService.get<string>(
+            'GATEWAY_JWT_ACCESS_SECRET',
+          );
+          if (jwtSecret) {
+            const payload = this.jwtService.verify<JwtPayload>(token, {
+              secret: jwtSecret,
+            });
+            if (payload.jti && payload._id) {
+              const redisResult: unknown = await this.redis.getData(
+                this.key.REFRESH_TOKEN(payload._id, payload.jti),
+              );
+              const isValid =
+                typeof redisResult === 'string' ||
+                typeof redisResult === 'number' ||
+                typeof redisResult === 'boolean'
+                  ? Boolean(redisResult)
+                  : !!redisResult;
+
+              if (isValid) {
+                client.user = payload;
+                client.userId = payload._id;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[getUser] Re-auth failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
     const user = client.user;
     if (!user) {
       throw new Error('Unauthorized');
@@ -1078,7 +1138,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage(socketEvent.USERTYPING)
-  onTypingIndicator(
+  async onTypingIndicator(
     @MessageBody()
     data: {
       roomId: string;
@@ -1086,10 +1146,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
+    let userPayload: JwtPayload;
+    try {
+      userPayload = await this.getUser(client);
+    } catch {
+      return;
+    }
+
     const user = {
-      id: client.user?.usr_id,
-      name: client.user?.usr_fullname,
-      avatar: client.user?.usr_avatar,
+      id: userPayload.usr_id,
+      name: userPayload.usr_fullname,
+      avatar: userPayload.usr_avatar,
     };
 
     this.io.to(data.roomId).emit(socketEvent.STATUSTYPING, {
