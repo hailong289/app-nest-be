@@ -3,23 +3,33 @@ https://docs.nestjs.com/controllers#controllers
 */
 
 import { SERVICES } from '@app/constants';
-import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
-import { ModerationDto } from '@app/dto/ai.dto';
+import {
+  ModerationDto,
+  SearchMessagesDto,
+  SummaryDocumentDto,
+  TranslationDto,
+  QuizzDto,
+} from '@app/dto/ai.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { MulterFile } from '@app/dto';
+import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import { Observable } from 'rxjs';
-import { Request } from 'express';
-
-interface AuthenticatedRequest extends Request {
-  user: {
-    usr_id: string;
-    [key: string]: any;
-  };
-}
-
 interface AiGrpcService {
   // Define AI service methods here
-  moderation(data: ModerationDto): Observable<any>;
+  moderation(data: ModerationDto): any;
   search(data: {
     query: string;
     userId: string;
@@ -30,6 +40,10 @@ interface AiGrpcService {
     contextMessages: string[];
     userId: string;
   }): Observable<any>;
+  searchMessages(data: SearchMessagesDto): any;
+  summaryDocument(data: SummaryDocumentDto): any;
+  translation(data: TranslationDto): any;
+  quizz(data: QuizzDto): any;
 }
 
 @Controller('ai')
@@ -46,9 +60,11 @@ export class GatewayAiController {
 
   @Post('moderation')
   async moderation(@Body() body: ModerationDto) {
+    // Tăng timeout lên 2 phút (120000ms) cho moderation
     return this.gatewayService.dispatchGrpcRequest(
-      (data) => this.aiService.moderation(data),
+      this.aiService.moderation,
       body,
+      120000, // 2 minutes timeout
     );
   }
 
@@ -58,27 +74,62 @@ export class GatewayAiController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.gatewayService.dispatchGrpcRequest(
-      (data) => this.aiService.suggestReplies(data),
+      this.aiService.suggestReplies,
       {
         contextMessages: body.contextMessages,
         userId: req.user.usr_id,
       },
+      100000, // 1 minute timeout
     );
   }
 
-  @Post('search')
-  async search(
-    @Body() body: { query: string; limit?: number; roomId?: string },
-    @Req() req: AuthenticatedRequest,
+  @Get('search-messages')
+  async searchMessages(@Query() query: SearchMessagesDto) {
+    return this.gatewayService.dispatchGrpcRequest(
+      this.aiService.searchMessages,
+      query,
+    );
+  }
+
+  @Post('summary-document')
+  @UseInterceptors(FileInterceptor('file'))
+  async summaryDocument(@UploadedFile() file: MulterFile) {
+    console.log('SummaryDocument request:', file);
+    // Tăng timeout lên 2 phút (120000ms) cho xử lý document lớn
+    return this.gatewayService.dispatchGrpcRequest(
+      this.aiService.summaryDocument,
+      { file },
+      120000, // 2 minutes timeout
+    );
+  }
+
+  @Post('translation')
+  async translation(@Body() body: TranslationDto) {
+    return this.gatewayService.dispatchGrpcRequest(
+      this.aiService.translation,
+      body,
+      100000, // 1 minute timeout
+    );
+  }
+
+  @Post('quizz')
+  @UseInterceptors(FileInterceptor('file'))
+  async quizz(
+    @UploadedFile() file: MulterFile,
+    @Body()
+    body: {
+      text: string;
+      type: 'text' | 'document';
+    },
   ) {
     return this.gatewayService.dispatchGrpcRequest(
-      (data) => this.aiService.search(data),
+      this.aiService.quizz,
       {
-        query: body.query,
-        userId: req.user.usr_id,
-        limit: body.limit || 5,
-        roomId: body.roomId,
+        file: file,
+        text: body?.text || '',
+        type: body.type,
       },
+      100000, // 1 minute timeout
     );
   }
 }

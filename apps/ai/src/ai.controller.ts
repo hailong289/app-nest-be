@@ -3,6 +3,8 @@ import { AIService } from './ai.service';
 import { GrpcMethod, MessagePattern } from '@nestjs/microservices';
 import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
+import { SearchMessagesDto } from '@app/dto/ai.dto';
+import type { MulterFile } from '@app/dto';
 
 interface IAIService {
   suggestReplies(messages: string[]): Promise<{
@@ -12,7 +14,6 @@ interface IAIService {
   }>;
   checkMessage(text: string, userId: string): Promise<any>;
 }
-
 @Controller()
 export class AIController {
   constructor(
@@ -23,6 +24,28 @@ export class AIController {
   @GrpcMethod('AIService', 'Moderation')
   async moderation(data: { text: string; userId: string }) {
     return await this.service.checkMessage(data.text, data.userId);
+  }
+
+  @MessagePattern(KafkaEvent.aiMsg)
+  async createChatMessageEmbedding(data: {
+    text: string;
+    roomId: string;
+    messageId: string;
+  }) {
+    return await this.embeddingService.createChatMessageEmbedding(
+      data.text,
+      data.roomId,
+      data.messageId,
+    );
+  }
+
+  @GrpcMethod('AIService', 'SearchMessages')
+  async searchMessages(data: SearchMessagesDto) {
+    return await this.embeddingService.searchSimilarMessages(
+      data.text,
+      data.roomId,
+      data.limit,
+    );
   }
 
   @GrpcMethod('AIService', 'Search')
@@ -66,51 +89,26 @@ export class AIController {
     return result;
   }
 
-  @MessagePattern(KafkaEvent.aiMsg)
-  async createChatMessageEmbedding(data: {
-    text: string;
-    roomId: string;
-    messageId: string;
-  }) {
-    return await this.embeddingService.createChatMessageEmbedding(
-      data.text,
-      data.roomId,
-      data.messageId,
-    );
+  @GrpcMethod('AIService', 'SummaryDocument')
+  async summaryDocument(data: { file: MulterFile }) {
+    return await this.service.summaryDocument(data.file);
   }
 
-  @MessagePattern(KafkaEvent.aiDoc)
-  async createDocumentEmbedding(data: {
-    text: string;
-    docId: string;
-    userId: string;
-  }) {
-    return await this.embeddingService.createEmbedding({
-      text: data.text,
-      contextId: data.docId,
-      contextType: 'doc',
-      service: 'document',
-      userId: data.userId,
-      replaceOld: true,
-    });
+  @GrpcMethod('AIService', 'Translation')
+  async translation(data: { text: string; from: string; to: string }) {
+    return await this.service.translation(data.text, data.from, data.to);
   }
 
-  @MessagePattern(KafkaEvent.aiProcessFile)
-  async processFileEmbedding(data: {
-    fileUrl: string;
-    fileType: string;
-    docId: string;
-    userId: string;
-    mimeType: string;
-    messageId: string;
+  @GrpcMethod('AIService', 'Quizz')
+  async quizz(data: {
+    file: MulterFile;
+    text: string;
+    type: 'text' | 'document';
   }) {
-    return await this.embeddingService.processFileEmbedding(
-      data.fileUrl,
-      data.fileType,
-      data.docId,
-      data.userId,
-      data.mimeType,
-      data.messageId,
+    return await this.service.generateQuizz(
+      data.file,
+      data?.text || '',
+      data.type,
     );
   }
 }

@@ -11,10 +11,10 @@ export class GoogleModerationProvider {
 
   constructor(private cfg: ConfigService) {
     const client = new GoogleGenerativeAI(
-      cfg.get<string>('google.apiKey') || '',
+      this.cfg.get<string>('google.apiKey') || '',
     );
     this.model = client.getGenerativeModel({
-      model: cfg.get<string>('google.model') ?? 'gemini-2.5-flash',
+      model: this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite',
     });
   }
 
@@ -41,6 +41,76 @@ export class GoogleModerationProvider {
     } catch (err) {
       this.logger.error('Lỗi moderation:', err.message);
       return Response.error('Lỗi xử lý', 400, 'Bad input');
+    }
+  }
+
+  async suggestReplies(messages: string[]) {
+    try {
+      if (!messages || messages.length === 0)
+        return { suggestions: [], emojis: [], gif_keywords: [] };
+
+      // 2. Prompt định hướng rõ ràng hơn
+      const prompt = `
+        Bạn là một trợ lý AI thông minh, chuyên gợi ý tin nhắn nhanh cho người dùng Gen Z.
+        Dựa trên đoạn hội thoại dưới đây, hãy đưa ra:
+        1. 3 phương án trả lời ngắn gọn (dưới 10 từ), tự nhiên, đời thường.
+        2. 5 emoji phù hợp với ngữ cảnh.
+        3. 3 từ khóa tiếng Anh để tìm kiếm GIF phù hợp với cảm xúc của hội thoại.
+        
+        Yêu cầu output JSON format:
+        {
+          "suggestions": ["string", "string", "string"],
+          "emojis": ["string", "string", "string", "string", "string"],
+          "gif_keywords": ["string", "string", "string"]
+        }
+        
+        Tone giọng: Thân thiện, nhanh gọn, có thể dùng từ lóng nhẹ nhàng nếu hợp ngữ cảnh.
+
+        Hội thoại:
+        ${messages.map((m) => `- ${m}`).join('\n')}
+      `;
+
+      const result = await this.model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.4,
+        },
+      });
+      const responseText = result.response.text();
+      // 3. Parse JSON an toàn
+      let parsedData: {
+        suggestions: string[];
+        emojis: string[];
+        gif_keywords: string[];
+      } = { suggestions: [], emojis: [], gif_keywords: [] };
+      try {
+        parsedData = JSON.parse(responseText) as {
+          suggestions: string[];
+          emojis: string[];
+          gif_keywords: string[];
+        };
+      } catch (e) {
+        console.warn('Lỗi parse JSON', e);
+      }
+      return {
+        suggestions: Array.isArray(parsedData.suggestions)
+          ? parsedData.suggestions.slice(0, 3)
+          : [],
+        emojis: Array.isArray(parsedData.emojis)
+          ? parsedData.emojis.slice(0, 5)
+          : [],
+        gif_keywords: Array.isArray(parsedData.gif_keywords)
+          ? parsedData.gif_keywords.slice(0, 3)
+          : [],
+      };
+    } catch (error: any) {
+      if (error?.status === 429) {
+        this.logger.warn('Gemini API rate limit exceeded.');
+        return { suggestions: [], emojis: [], gif_keywords: [] };
+      }
+      this.logger.error('Failed to suggest replies', error);
+      return { suggestions: [], emojis: [], gif_keywords: [] };
     }
   }
 
@@ -168,5 +238,97 @@ export class GoogleModerationProvider {
         'Bad input or Model Error',
       );
     }
+  }
+
+  async generateQuizz(
+    file: MulterFile,
+    text: string,
+    type: 'text' | 'document',
+  ) {
+    const prompt = `
+    Role: Bạn là một chuyên gia soạn đề thi. 
+    Nhiệm vụ: Phân tích nội dung được cung cấp, sau đó tạo ra một bộ câu hỏi trắc nghiệm và trả về kết quả dưới định dạng JSON chuẩn (Raw JSON), không kèm theo bất kỳ văn bản dẫn dắt nào khác (như "Dưới đây là JSON...").
+    Loại nội dung: ${type}
+    **1. Nhiệm vụ cụ thể:**
+- Đọc kỹ nội dung đầu vào.
+- Trích xuất các ý chính, khái niệm quan trọng để đặt câu hỏi.
+- Tự động tạo quiz_title và quiz_description phù hợp với nội dung tổng quan.
+- Tạo danh sách câu hỏi quiz_questions với logic đúng/sai dựa trên nội dung.
+
+**2. Quy tắc dữ liệu:**
+- question_type: Mặc định là "single_choice" (trừ khi nội dung yêu cầu chọn nhiều).
+- points: Mặc định là 10 điểm cho mỗi câu.
+- explanation: Giải thích ngắn gọn tại sao đáp án đó đúng dựa trên văn bản gốc.
+- order: Đánh số thứ tự tăng dần bắt đầu từ 1.
+- Ngôn ngữ: Tiếng Việt (trừ khi nội dung đầu vào hoàn toàn là tiếng Anh thì giữ nguyên tiếng Anh).
+
+**3. Cấu trúc JSON bắt buộc:**
+Kết quả trả về phải tuân thủ chính xác Schema sau:
+
+{
+  "quiz_title": "String - Tiêu đề bài trắc nghiệm",
+  "quiz_description": "String - Mô tả ngắn về nội dung bài kiểm tra",
+  "quiz_questions": [
+    {
+      "question_text": "String - Nội dung câu hỏi",
+      "question_type": "single_choice",
+      "points": 10,
+      "order": 1,
+      "explanation": "String - Giải thích đáp án",
+      "answers": [
+        { "answer_text": "String - Đáp án A", "is_correct": boolean },
+        { "answer_text": "String - Đáp án B", "is_correct": boolean },
+        { "answer_text": "String - Đáp án C", "is_correct": boolean },
+        { "answer_text": "String - Đáp án D", "is_correct": boolean }
+      ]
+    }
+  ]
+}
+
+**4. Dữ liệu đầu vào:**
+${type === 'text' ? text : `Tải file lên: ${file.originalname}`}
+    `;
+
+    try {
+      const result = await this.model.generateContent({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              type === 'document'
+                ? {
+                    inlineData: {
+                      mimeType: file.mimetype,
+                      data: Buffer.from(file.buffer).toString('base64'),
+                    },
+                  }
+                : { text: text },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.4,
+        },
+      });
+
+      const jsonString = result.response.text();
+      const parsedResult = JSON.parse(jsonString);
+
+      return Response.success(
+        parsedResult,
+        'Tạo câu hỏi trắc nghiệm thành công',
+        200,
+        'OK',
+      );
+    } catch (err) {
+      this.logger.error('Lỗi generate quizz:', err.message);
+    }
+    return Response.error(
+      'Không thể tạo câu hỏi trắc nghiệm lúc này',
+      400,
+      'Bad input',
+    );
   }
 }

@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
 import { FileUploadData } from './filesystem.dto';
 import { Type } from 'class-transformer';
 
@@ -33,4 +39,19 @@ export class TranslationDto {
   from: string;
   @IsNotEmpty({ message: 'Ngôn ngữ đích không để trống' })
   to: string;
+}
+
+export class QuizzDto {
+  @ValidateIf((object, value) => object.type === 'document')
+  @ValidateNested()
+  @Type(() => FileUploadData)
+  file: FileUploadData;
+
+  @ValidateIf((object, value) => object.type === 'text')
+  @IsNotEmpty({ message: 'Nội dung không để bỏ trống' })
+  text: string;
+
+  @IsNotEmpty({ message: 'Loại nội dung không để trống' })
+  @IsIn(['text', 'document'])
+  type: 'text' | 'document';
 }
