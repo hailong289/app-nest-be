@@ -355,7 +355,7 @@ export class DocumentsController {
       });
     }
   }
-  @EventPattern(KafkaEvent.shareDocForRoom)
+  @EventPattern(KafkaEvent.SHARE_DOC_FOR_ROOM)
   async handleShareForRoom(
     @Payload()
     data: {

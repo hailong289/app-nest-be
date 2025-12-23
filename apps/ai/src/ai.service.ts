@@ -21,8 +21,6 @@ export class AIService {
   }
 
   async checkMessage(text: string, userId: string, contextId?: string) {
-    console.log('🚀 ~ AIService ~ checkMessage ~ contextId:', contextId);
-    console.log('🚀 ~ AIService ~ checkMessage ~ userId:', userId);
     const result = await this.googleProvider.moderate(text);
     return result;
   }
@@ -99,10 +97,6 @@ export class AIService {
           : [],
       };
     } catch (error: any) {
-      if (error?.status === 429) {
-        this.logger.warn('Gemini API rate limit exceeded.');
-        return { suggestions: [], emojis: [], gif_keywords: [] };
-      }
       this.logger.error('Failed to suggest replies', error);
       return { suggestions: [], emojis: [], gif_keywords: [] };
     }

@@ -39,6 +39,7 @@ export class AIController {
         data.roomId,
         data.limit || 5,
       );
+
       return { results };
     }
 
@@ -48,6 +49,7 @@ export class AIController {
       data.userId,
       data.limit || 5,
     );
+
     return { results };
   }
 
@@ -66,7 +68,7 @@ export class AIController {
     return result;
   }
 
-  @MessagePattern(KafkaEvent.aiMsg)
+  @MessagePattern(KafkaEvent.AI_CHAT_MSG_EMBEDDING)
   async createChatMessageEmbedding(data: {
     text: string;
     roomId: string;
@@ -79,7 +81,7 @@ export class AIController {
     );
   }
 
-  @MessagePattern(KafkaEvent.aiDoc)
+  @MessagePattern(KafkaEvent.AI_DOC_EMBEDDING)
   async createDocumentEmbedding(data: {
     text: string;
     docId: string;
@@ -95,7 +97,7 @@ export class AIController {
     });
   }
 
-  @MessagePattern(KafkaEvent.aiProcessFile)
+  @MessagePattern(KafkaEvent.AI_PROCESS_FILE_EMBEDDING)
   async processFileEmbedding(data: {
     fileUrl: string;
     fileType: string;

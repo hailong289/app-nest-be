@@ -71,7 +71,7 @@ export class GatewayAiController {
     @Body() body: { query: string; limit?: number; roomId?: string },
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.gatewayService.dispatchGrpcRequest(
+    const result = await this.gatewayService.dispatchGrpcRequest(
       (data) => this.aiService.search(data),
       {
         query: body.query,
@@ -80,5 +80,7 @@ export class GatewayAiController {
         roomId: body.roomId,
       },
     );
+    console.log('🚀 ~ GatewayAiController ~ search ~ result:', result);
+    return result;
   }
 }
