@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Kafka, logLevel } from 'kafkajs';
-import { topic } from './kafka.topic';
+import { topics } from './kafka.topic';
 import { SharedKafkaConfig } from './kafka.interface';
 
 @Injectable()
@@ -33,7 +33,7 @@ export class KafkaAdminService implements OnModuleInit {
       await admin.connect();
 
       const existingTopics = await admin.listTopics();
-      const topicsToCreate = topic.filter(
+      const topicsToCreate = topics.filter(
         (t) => !existingTopics.includes(t.topic),
       );
 

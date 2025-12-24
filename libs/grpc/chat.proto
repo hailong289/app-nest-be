@@ -165,6 +165,7 @@ message metadataGetRoomsType{
   bool isBlocked=16;
   bool blockByMine=17;
   repeated roomEventsType roomEvents=18;
+  string _id =19;
 }
 message roomEventsType {
   string timestamp=1;

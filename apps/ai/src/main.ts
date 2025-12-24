@@ -27,6 +27,9 @@ async function bootstrap() {
       url: `${HOST}:${PORT}`,
       maxReceiveMessageLength: 500 * 1024 * 1024, // 500MB
       maxSendMessageLength: 500 * 1024 * 1024, // 500MB
+      loader: {
+        keepCase: true, // 👈 BẮT BUỘC PHẢI CÓ Ở ĐÂY NỮA!
+      },
     },
   });
 

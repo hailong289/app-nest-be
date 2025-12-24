@@ -132,7 +132,11 @@ export class HandleChatService {
       }
     }
 
-    const data = {
+    const messageId = id
+      ? this.utils.convertToObjectIdMongoose(id)
+      : new Types.ObjectId();
+
+    const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
       msg_content: content || '',
@@ -144,11 +148,20 @@ export class HandleChatService {
       document_id: documentId
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
-      ...(id ? { _id: this.utils.convertToObjectIdMongoose(id) } : {}),
     };
 
-    // create new message (without transaction for standalone MongoDB)
-    const createNewMsg = await this.messageModel.create(data);
+    // Upsert message: if an _id is provided and exists, update it; otherwise insert new
+    const createNewMsg = await this.messageModel.findOneAndUpdate(
+      { _id: messageId },
+      { $set: updatePayload },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+        runValidators: true,
+      },
+    );
+
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
@@ -186,7 +199,7 @@ export class HandleChatService {
     }
 
     // Update message read and room state in parallel
-    await Promise.all([
+    await Promise.allSettled([
       this.messageReadModel.findOneAndUpdate(
         {
           room_id: finInfo._id,
@@ -225,18 +238,22 @@ export class HandleChatService {
       ),
       ...(type === 'text'
         ? [
-            this.utils.dispatchEventKafka(this.aiClient, KafkaEvent.aiMsg, {
-              text: content,
-              roomId: finInfo._id,
-              messageId: createNewMsg._id,
-            }),
+            this.utils.dispatchEventKafka(
+              this.aiClient,
+              KafkaEvent.AI_CHAT_MSG_EMBEDDING,
+              {
+                text: content,
+                roomId: finInfo._id,
+                messageId: createNewMsg._id,
+              },
+            ),
           ]
         : []),
       ...(content && /(https?:\/\/[^\s]+)/g.test(content)
         ? [
             this.utils.dispatchEventKafka(
               this.fileClient,
-              KafkaEvent.processLink,
+              KafkaEvent.PROCESS_LINK,
               {
                 content,
                 userId,
@@ -250,7 +267,7 @@ export class HandleChatService {
         ? [
             this.utils.dispatchEventKafka(
               this.fileClient,
-              KafkaEvent.shareDocForRoom,
+              KafkaEvent.SHARE_DOC_FOR_ROOM,
               {
                 roomId,
                 userId,

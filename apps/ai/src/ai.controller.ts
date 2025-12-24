@@ -26,7 +26,7 @@ export class AIController {
     return await this.service.checkMessage(data.text, data.userId);
   }
 
-  @MessagePattern(KafkaEvent.aiMsg)
+  @MessagePattern(KafkaEvent.AI_CHAT_MSG_EMBEDDING)
   async createChatMessageEmbedding(data: {
     text: string;
     roomId: string;
@@ -37,6 +37,41 @@ export class AIController {
       data.roomId,
       data.messageId,
     );
+  }
+
+  @MessagePattern(KafkaEvent.AI_DOC_EMBEDDING)
+  async createDocumentEmbedding(data: {
+    text: string;
+    docId: string;
+    userId: string;
+  }) {
+    return await this.embeddingService.createEmbedding({
+      text: data.text,
+      contextId: data.docId,
+      contextType: 'doc',
+      service: 'document',
+      userId: data.userId,
+      replaceOld: true,
+    });
+  }
+
+  @MessagePattern(KafkaEvent.AI_PROCESS_FILE_EMBEDDING)
+  async processFileEmbedding(data: {
+    fileUrl: string;
+    fileType: string;
+    docId: string;
+    userId: string;
+    mimeType: string;
+    messageId: string;
+  }) {
+    return await this.embeddingService.createEmbedding({
+      text: data.fileUrl,
+      contextId: data.docId,
+      contextType: 'file',
+      service: 'document',
+      userId: data.userId,
+      replaceOld: true,
+    });
   }
 
   @GrpcMethod('AIService', 'SearchMessages')
@@ -62,6 +97,7 @@ export class AIController {
         data.roomId,
         data.limit || 5,
       );
+
       return { results };
     }
 
@@ -71,6 +107,7 @@ export class AIController {
       data.userId,
       data.limit || 5,
     );
+
     return { results };
   }
 

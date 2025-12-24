@@ -682,7 +682,7 @@ export class RoomsService {
       /** 12) Project output gọn cho UI */
       {
         $project: {
-          _id: 0,
+          _id: 1,
 
           id: {
             $cond: [
@@ -1506,11 +1506,6 @@ export class RoomsService {
     const { userId, roomId } = payload;
     if (!userId) {
       throw new NotFoundException('Không tìm thấy người dùng');
-    }
-    const checkEixsting = await this.checkExistedMemberRoom(userId, roomId);
-
-    if (!checkEixsting) {
-      throw new NotFoundException('bạn dã thoát nhóm');
     }
     return Response.success(
       await this.getRoomInfo({ userId, roomId }),

@@ -32,7 +32,6 @@ export class AuthService {
   ) {}
 
   async login(loginDto: LoginDto) {
-    console.log('Login attempt:', loginDto);
     const user = await this.userModel
       .findOne({
         $or: [
@@ -41,8 +40,6 @@ export class AuthService {
         ],
       })
       .exec();
-
-    console.log('for username:', loginDto);
 
     if (!user) {
       return Response.error('Tài khoản không tồn tại', 400);

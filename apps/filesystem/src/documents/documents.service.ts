@@ -540,7 +540,7 @@ export class DocumentsService {
 
     // Trigger AI Embedding if plainText is updated
     if (updateData.plainText) {
-      this.aiClient.emit(KafkaEvent.aiDoc, {
+      this.aiClient.emit(KafkaEvent.AI_DOC_EMBEDDING, {
         text: updateData.plainText,
         docId: docId,
         userId: userId,

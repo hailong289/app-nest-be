@@ -25,6 +25,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
               configService.get<string>('GATEWAY_AI_PROTO_PATH') ||
                 'libs/grpc/ai.proto',
             ),
+            loader: {
+              keepCase: true, // 👈 "Chìa khóa" đây nè Trí!
+            },
             url: `${configService.get<string>('GATEWAY_AI_HOST') || 'localhost'}:${configService.get<string>('GATEWAY_AI_PORT') || '5004'}`,
           },
         }),
