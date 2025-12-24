@@ -103,7 +103,6 @@ export const CallHistorySchema = SchemaFactory.createForClass(CallHistory);
 CallHistorySchema.index({ room_id: 1, started_at: -1 });
 CallHistorySchema.index({ 'members.id': 1, started_at: -1 });
 CallHistorySchema.index({ 'members.status': 1, started_at: -1 });
-CallHistorySchema.index({ call_id: 1 }, { unique: true });
 
 /** Hooks */
 // Auto-calculate duration when call ends
