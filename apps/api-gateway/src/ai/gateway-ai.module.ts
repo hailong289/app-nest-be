@@ -10,6 +10,7 @@ import { GatewayAiController } from './gateway-ai.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GatewayQuizzController } from './quizz/gateway-quizz.controller';
+import { GatewayFlashcardController } from './flashcard/gateway-flashcard.controller';
 
 @Module({
   imports: [
@@ -20,10 +21,11 @@ import { GatewayQuizzController } from './quizz/gateway-quizz.controller';
         useFactory: async (configService: ConfigService) => ({
           transport: Transport.GRPC,
           options: {
-            package: ['ai', 'quizz'],
+            package: ['ai', 'quizz', 'flashcard'],
             protoPath: [
               join(process.cwd(), 'libs/grpc/ai.proto'),
               join(process.cwd(), 'libs/grpc/quizz.proto'),
+              join(process.cwd(), 'libs/grpc/flashcard.proto'),
             ],
             loader: {
               keepCase: true, // 👈 "Chìa khóa" đây nè Trí!
@@ -36,7 +38,11 @@ import { GatewayQuizzController } from './quizz/gateway-quizz.controller';
       },
     ]),
   ],
-  controllers: [GatewayAiController, GatewayQuizzController],
+  controllers: [
+    GatewayAiController,
+    GatewayQuizzController,
+    GatewayFlashcardController,
+  ],
   providers: [GatewayService],
   exports: [ClientsModule],
 })

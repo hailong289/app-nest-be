@@ -22,6 +22,10 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { AiLogUseService } from './ai-log-use.service';
 import { QuizzController } from './quizz/quizz.controller';
 import { QuizzService } from './quizz/quizz.service';
+import { FlashcardController } from './flashcard/flashcard.controller';
+import { FlashcardService } from './flashcard/flashcard.service';
+import FlashcardSchema from 'libs/db/src/mongo/model/flashcard.model';
+import { flashcardDeckModel } from 'libs/db/src/mongo/model/flashcard.model';
 
 @Module({
   imports: [
@@ -40,15 +44,18 @@ import { QuizzService } from './quizz/quizz.service';
       AIUsageLogSchema,
       AIEmbeddingSchema,
       QuizSchema,
+      FlashcardSchema,
+      flashcardDeckModel,
     ]),
   ],
-  controllers: [AIController, QuizzController],
+  controllers: [AIController, QuizzController, FlashcardController],
   providers: [
     AIService,
     EmbeddingService,
     GoogleModerationProvider,
     AiLogUseService,
     QuizzService,
+    FlashcardService,
   ],
 })
 export class AppModule {}

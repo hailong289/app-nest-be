@@ -1,0 +1,207 @@
+syntax = "proto3";
+
+package flashcard;
+
+service FlashcardService {
+    rpc CreateFlashcard(CreateFlashcardRequest) returns (CreateFlashcardResponse);
+    rpc GetFlashcard(GetFlashcardRequest) returns (GetFlashcardResponse);
+    rpc ListFlashcards(ListFlashcardsRequest) returns (ListFlashcardsResponse);
+    rpc UpdateFlashcard(UpdateFlashcardRequest) returns (UpdateFlashcardResponse);
+    rpc DeleteFlashcard(DeleteFlashcardRequest) returns (DeleteFlashcardResponse);
+    
+    rpc CreateFlashcardDeck(CreateFlashcardDeckRequest) returns (CreateFlashcardDeckResponse);
+    rpc GetFlashcardDeck(GetFlashcardDeckRequest) returns (GetFlashcardDeckResponse);
+    rpc ListFlashcardDecks(ListFlashcardDecksRequest) returns (ListFlashcardDecksResponse);
+    rpc UpdateFlashcardDeck(UpdateFlashcardDeckRequest) returns (UpdateFlashcardDeckResponse);
+    rpc DeleteFlashcardDeck(DeleteFlashcardDeckRequest) returns (DeleteFlashcardDeckResponse);
+}
+
+// Flashcard messages
+message CreateFlashcardRequest {
+    string card_userId = 1;
+    string card_deckId = 2;
+    string card_front = 3;
+    string card_back = 4;
+    string card_hint = 5;
+    repeated string card_tags = 6;
+    string card_image = 7;
+    string card_audio = 8;
+    int32 card_difficulty = 9;
+    bool card_isPublic = 10;
+}
+
+message CreateFlashcardResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardMetadata metadata = 4;
+}
+
+message GetFlashcardRequest {
+    string card_id = 1;
+}
+
+message GetFlashcardResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardMetadata metadata = 4;
+}
+
+message ListFlashcardsRequest {
+    string userId = 1;
+    string deckId = 2;
+    int32 page = 3;
+    int32 limit = 4;
+}
+
+message ListFlashcardsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated FlashcardMetadata metadata = 4;
+}
+
+message UpdateFlashcardRequest {
+    string card_id = 1;
+    string card_deckId = 2;
+    string card_front = 3;
+    string card_back = 4;
+    string card_hint = 5;
+    repeated string card_tags = 6;
+    string card_image = 7;
+    string card_audio = 8;
+    int32 card_difficulty = 9;
+    bool card_isPublic = 10;
+    bool card_isArchived = 11;
+}
+
+message UpdateFlashcardResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardMetadata metadata = 4;
+}
+
+message DeleteFlashcardRequest {
+    string card_id = 1;
+}
+
+message DeleteFlashcardResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    string metadata = 4;
+}
+
+message FlashcardMetadata {
+    string card_id = 1;
+    string card_userId = 2;
+    string card_deckId = 3;
+    string card_front = 4;
+    string card_back = 5;
+    string card_hint = 6;
+    repeated string card_tags = 7;
+    string card_image = 8;
+    string card_audio = 9;
+    int32 card_difficulty = 10;
+    bool card_isPublic = 11;
+    bool card_isArchived = 12;
+    int32 card_totalViews = 13;
+    int32 card_totalReviews = 14;
+    string createdAt = 15;
+    string updatedAt = 16;
+}
+
+// Flashcard Deck messages
+message CreateFlashcardDeckRequest {
+    string deck_userId = 1;
+    string deck_name = 2;
+    string deck_description = 3;
+    string deck_image = 4;
+    repeated string deck_tags = 5;
+    bool deck_isPublic = 6;
+    string deck_level = 7; // beginner, intermediate, advanced, expert
+    string deck_language = 8;
+}
+
+message CreateFlashcardDeckResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardDeckMetadata metadata = 4;
+}
+
+message GetFlashcardDeckRequest {
+    string deck_id = 1;
+}
+
+message GetFlashcardDeckResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardDeckMetadata metadata = 4;
+}
+
+message ListFlashcardDecksRequest {
+    string userId = 1;
+    int32 page = 2;
+    int32 limit = 3;
+}
+
+message ListFlashcardDecksResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated FlashcardDeckMetadata metadata = 4;
+}
+
+message UpdateFlashcardDeckRequest {
+    string deck_id = 1;
+    string deck_name = 2;
+    string deck_description = 3;
+    string deck_image = 4;
+    repeated string deck_tags = 5;
+    bool deck_isPublic = 6;
+    bool deck_isArchived = 7;
+    string deck_level = 8; // beginner, intermediate, advanced, expert
+    string deck_language = 9;
+    repeated string deck_cardIds = 10;
+}
+
+message UpdateFlashcardDeckResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardDeckMetadata metadata = 4;
+}
+
+message DeleteFlashcardDeckRequest {
+    string deck_id = 1;
+}
+
+message DeleteFlashcardDeckResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    string metadata = 4;
+}
+
+message FlashcardDeckMetadata {
+    string deck_id = 1;
+    string deck_userId = 2;
+    string deck_name = 3;
+    string deck_description = 4;
+    string deck_image = 5;
+    repeated string deck_tags = 6;
+    repeated string deck_cardIds = 7;
+    int32 deck_totalCards = 8;
+    int32 deck_totalLearners = 9;
+    bool deck_isPublic = 10;
+    bool deck_isArchived = 11;
+    string deck_level = 12; // beginner, intermediate, advanced, expert
+    string deck_language = 13;
+    string createdAt = 14;
+    string updatedAt = 15;
+}
+

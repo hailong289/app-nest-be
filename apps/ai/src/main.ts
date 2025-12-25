@@ -22,16 +22,18 @@ async function bootstrap() {
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
-      package: ['ai', 'quizz'],
+      package: ['ai', 'quizz', 'flashcard'],
       protoPath: [
         join(process.cwd(), 'libs/grpc/ai.proto'),
         join(process.cwd(), 'libs/grpc/quizz.proto'),
+        join(process.cwd(), 'libs/grpc/flashcard.proto'),
       ],
       url: `${HOST}:${PORT}`,
       maxReceiveMessageLength: 500 * 1024 * 1024, // 500MB
       maxSendMessageLength: 500 * 1024 * 1024, // 500MB
       loader: {
         keepCase: true, // 👈 BẮT BUỘC PHẢI CÓ Ở ĐÂY NỮA!
+        includeDirs: [join(process.cwd(), 'libs/grpc')],
       },
     },
   });
