@@ -89,23 +89,40 @@ export const generateQuizzPrompt = (
 Kết quả trả về phải tuân thủ chính xác Schema sau:
 
 {
-"quiz_title": "String - Tiêu đề bài trắc nghiệm",
-"quiz_description": "String - Mô tả ngắn về nội dung bài kiểm tra",
-"quiz_questions": [
-  {
-    "question_text": "String - Nội dung câu hỏi",
-    "question_type": "single_choice",
-    "points": 10,
-    "order": 1,
-    "explanation": "String - Giải thích đáp án",
-    "answers": [
-      { "answer_text": "String - Đáp án A", "is_correct": boolean },
-      { "answer_text": "String - Đáp án B", "is_correct": boolean },
-      { "answer_text": "String - Đáp án C", "is_correct": boolean },
-      { "answer_text": "String - Đáp án D", "is_correct": boolean }
-    ]
-  }
-]
+  "quiz_title": "String - Tiêu đề bài trắc nghiệm",
+  "quiz_description": "String - Mô tả ngắn về nội dung",
+  "quiz_status": "draft",
+  "quiz_questions": [
+    {
+      "question_text": "String - Nội dung câu hỏi",
+      "question_type": "single_choice",
+      "points": 10,
+      "order": 1,
+      "explanation": "String - Giải thích ngắn gọn tại sao đáp án đúng",
+      "answers": [
+        {
+          "answer_text": "String - Nội dung đáp án A",
+          "is_correct": boolean,
+          "points": number
+        },
+        {
+          "answer_text": "String - Nội dung đáp án B",
+          "is_correct": boolean,
+          "points": number
+        },
+        {
+          "answer_text": "String - Nội dung đáp án C",
+          "is_correct": boolean,
+          "points": number
+        },
+        {
+          "answer_text": "String - Nội dung đáp án D",
+          "is_correct": boolean,
+          "points": number
+        }
+      ]
+    }
+  ]
 }
 
 **4. Dữ liệu đầu vào:**
