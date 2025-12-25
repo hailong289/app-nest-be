@@ -14,7 +14,17 @@ service QuizzService {
 message CreateQuizzRequest {
     string quiz_title = 1;
     string quiz_description = 2;
-    repeated Question questions = 3;
+    string quiz_roomId = 3;
+    string quiz_createdBy = 4;
+    string quiz_status = 5; // draft, active, completed, cancelled
+    int32 quiz_timeLimit = 6;
+    string quiz_startTime = 7; // ISO date string
+    string quiz_endTime = 8; // ISO date string
+    bool quiz_showResults = 9;
+    bool quiz_allowRetake = 10;
+    int32 quiz_maxAttempts = 11;
+    string quiz_image = 12;
+    repeated Question quiz_questions = 13;
 }
 
 message CreateQuizzResponse {
@@ -54,7 +64,15 @@ message UpdateQuizzRequest {
     string userId = 2;
     string quiz_title = 3;
     string quiz_description = 4;
-    repeated Question questions = 5;
+    string quiz_status = 5; // draft, active, completed, cancelled
+    int32 quiz_timeLimit = 6;
+    string quiz_startTime = 7; // ISO date string
+    string quiz_endTime = 8; // ISO date string
+    bool quiz_showResults = 9;
+    bool quiz_allowRetake = 10;
+    int32 quiz_maxAttempts = 11;
+    string quiz_image = 12;
+    repeated Question quiz_questions = 13;
 }
 
 message UpdateQuizzResponse {
@@ -79,21 +97,36 @@ message DeleteQuizzResponse {
 
 message Question {
     string question_text = 1;
-    string question_type = 2;
+    string question_type = 2; // single_choice, multiple_choice, true_false, text
     repeated Answer answers = 3;
+    int32 points = 4;
+    int32 order = 5;
+    string explanation = 6;
+    string image_url = 7;
 }
 
 message Answer {
     string answer_text = 1;
     bool is_correct = 2;
+    int32 points = 3;
 }
 
 message QuizMetadata {
     string quiz_id = 1;
     string quiz_title = 2;
     string quiz_description = 3;
-    repeated Question questions = 4;
-    string createdAt = 5;
-    string updatedAt = 6;
+    string quiz_roomId = 4;
+    string quiz_createdBy = 5;
+    string quiz_status = 6; // draft, active, completed, cancelled
+    int32 quiz_timeLimit = 7;
+    string quiz_startTime = 8; // ISO date string
+    string quiz_endTime = 9; // ISO date string
+    bool quiz_showResults = 10;
+    bool quiz_allowRetake = 11;
+    int32 quiz_maxAttempts = 12;
+    string quiz_image = 13;
+    repeated Question quiz_questions = 14;
+    string createdAt = 15;
+    string updatedAt = 16;
 }
 

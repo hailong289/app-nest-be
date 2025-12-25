@@ -2,10 +2,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
-export type AIUsageLogDocument = HydratedDocument<AIUsageLog>;
+export type AIUsageLogsDocument = HydratedDocument<AIUsageLogs>;
 
 @Schema({ timestamps: true })
-export class AIUsageLog {
+export class AIUsageLogs {
   @Prop({ required: true })
   service: string; // 'moderation' | 'summarization' | 'translation' | 'stt' | 'ocr' | 'recommendation' ...
 
@@ -32,12 +32,12 @@ export class AIUsageLog {
   status: 'success' | 'error';
 }
 
-export const AIUsageLogSchema = SchemaFactory.createForClass(AIUsageLog);
+export const AIUsageLogsSchema = SchemaFactory.createForClass(AIUsageLogs);
 
-AIUsageLogSchema.index({ service: 1, createdAt: -1 });
-AIUsageLogSchema.index({ userId: 1, createdAt: -1 });
+AIUsageLogsSchema.index({ service: 1, createdAt: -1 });
+AIUsageLogsSchema.index({ userId: 1, createdAt: -1 });
 
 export default {
   name: 'AIUsageLogs',
-  schema: AIUsageLogSchema,
+  schema: AIUsageLogsSchema,
 };

@@ -22,8 +22,11 @@ async function bootstrap() {
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
-      package: 'ai',
-      protoPath: join(process.cwd(), PROTO_PATH),
+      package: ['ai', 'quizz'],
+      protoPath: [
+        join(process.cwd(), 'libs/grpc/ai.proto'),
+        join(process.cwd(), 'libs/grpc/quizz.proto'),
+      ],
       url: `${HOST}:${PORT}`,
       maxReceiveMessageLength: 500 * 1024 * 1024, // 500MB
       maxSendMessageLength: 500 * 1024 * 1024, // 500MB
@@ -35,7 +38,12 @@ async function bootstrap() {
 
   Utils.createKafkaMicroserviceFromApplication(app, SERVICES.AI);
 
-  await app.startAllMicroservices();
+  try {
+    await app.startAllMicroservices();
+  } catch (error) {
+    console.error('Error starting microservices:', error.message);
+    console.log('Some microservices may not be available, but continuing...');
+  }
   await app.init();
 
   console.log(`🔥 AI service gRPC listening on ${HOST}:${PORT}`);

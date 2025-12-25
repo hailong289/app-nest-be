@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { AIUsageLog } from 'libs/db/src/mongo/model/AIUsageLogs.model';
+import { AIUsageLogs } from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import { Model } from 'mongoose';
 
 @Injectable()
 export class AiLogUseService {
   constructor(
-    @InjectModel(AIUsageLog.name)
-    private readonly aiUsageLogModel: Model<AIUsageLog>,
+    @InjectModel(AIUsageLogs.name)
+    private readonly aiUsageLogModel: Model<AIUsageLogs>,
   ) {}
 
   async createLogUsage(
@@ -42,7 +42,7 @@ export class AiLogUseService {
     }
   }
 
-  async getAiLog(aiLog: AIUsageLog) {
+  async getAiLog(aiLog: AIUsageLogs) {
     return this.aiUsageLogModel.find(aiLog).sort({ createdAt: -1 }).limit(10);
   }
 }

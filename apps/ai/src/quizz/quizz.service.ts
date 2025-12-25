@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Quiz } from 'libs/db/src/mongo/model/quiz.model';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CreateQuizzDto, UpdateQuizzDto } from './dto/quizz.dto';
+import { Response } from 'libs/helpers/response';
 
 @Injectable()
 export class QuizzService {
@@ -11,13 +12,26 @@ export class QuizzService {
   ) {}
 
   async createQuizz(data: CreateQuizzDto) {
-    const quiz = await this.quizModel.create(data);
-    return quiz;
+    try {
+      // Convert string IDs to ObjectId
+      const quizData = {
+        ...data,
+        quiz_roomId: new Types.ObjectId(data.quiz_roomId),
+        quiz_createdBy: new Types.ObjectId(data.quiz_createdBy),
+      };
+      const quiz = await this.quizModel.create(quizData);
+      return Response.success(quiz);
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
   }
 
   async getQuizzById(quiz_id: string) {
-    const quiz = await this.quizModel.findById(quiz_id);
-    return quiz;
+    const quiz = await this.quizModel.findOne({ quiz_id });
+    if (!quiz) {
+      return Response.error('Quiz not found', 404, 'NOT_FOUND');
+    }
+    return Response.success(quiz);
   }
 
   async listQuizzes(page: number, limit: number, userId: string) {
@@ -30,14 +44,24 @@ export class QuizzService {
   }
 
   async updateQuizzById(quiz_id: string, data: UpdateQuizzDto) {
-    const quiz = await this.quizModel.findByIdAndUpdate(quiz_id, data, {
-      new: true,
-    });
-    return quiz;
+    try {
+      const quiz = await this.quizModel.findOneAndUpdate({ quiz_id }, data, {
+        new: true,
+      });
+      if (!quiz) {
+        return Response.error('Quiz not found', 404, 'NOT_FOUND');
+      }
+      return Response.success(quiz);
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
   }
 
   async deleteQuizzById(quiz_id: string) {
-    const quiz = await this.quizModel.findByIdAndDelete(quiz_id);
-    return quiz;
+    const quiz = await this.quizModel.findOneAndDelete({ quiz_id });
+    if (!quiz) {
+      return Response.error('Quiz not found', 404, 'NOT_FOUND');
+    }
+    return Response.success(quiz);
   }
 }

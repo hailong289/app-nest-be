@@ -1,11 +1,16 @@
 syntax = "proto3";
 
 package ai;
+import "quizz.proto";
 
 service AIService {
   rpc Moderation(ModerationRequest) returns (ModerationResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
   rpc SuggestReplies(SuggestRepliesRequest) returns (SuggestRepliesResponse);
+  rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
+  rpc SummaryDocument(SummaryDocumentRequest) returns (SummaryDocumentResponse);
+  rpc Translation(TranslationRequest) returns (TranslationResponse);
+  rpc Quizz(QuizzRequest) returns (QuizzResponse);
 }
 
 message ModerationRequest {
@@ -54,4 +59,76 @@ message SuggestRepliesResponse {
   repeated string gif_keywords = 3;
 }
 
+message SearchMessagesRequest {
+  string text = 1;
+  string roomId = 2;
+  int32 limit = 3;
+}
+
+message SearchMessagesResponse {
+  repeated SearchResult results = 1;
+}
+
+message SummaryDocumentRequest {
+  bytes file = 1;
+  string filename = 2;
+  string mimetype = 3;
+}
+
+message SummaryDocumentResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+message TranslationRequest {
+  string text = 1;
+  string from = 2;
+  string to = 3;
+}
+
+message TranslationResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+message QuizzRequest {
+  bytes file = 1;
+  string filename = 2;
+  string mimetype = 3;
+  string text = 4;
+  string type = 5;
+}
+
+message QuizzResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  QuizzMetadata metadata = 4;
+}
+
+message QuizzMetadata {
+  string quiz_title = 1;
+  string quiz_description = 2;
+  string quiz_status = 3; // draft, active, completed, cancelled
+  repeated QuizzQuestion quiz_questions = 4;
+}
+
+message QuizzQuestion {
+  string question_text = 1;
+  string question_type = 2; // single_choice, multiple_choice, true_false, text
+  int32 points = 3;
+  int32 order = 4;
+  string explanation = 5;
+  repeated QuizzAnswer answers = 6;
+}
+
+message QuizzAnswer {
+  string answer_text = 1;
+  bool is_correct = 2;
+  int32 points = 3;
+}
 

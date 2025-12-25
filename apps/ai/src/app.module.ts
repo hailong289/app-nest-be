@@ -15,9 +15,13 @@ import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
+import QuizSchema from 'libs/db/src/mongo/model/quiz.model';
 import { mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
+import { AiLogUseService } from './ai-log-use.service';
+import { QuizzController } from './quizz/quizz.controller';
+import { QuizzService } from './quizz/quizz.service';
 
 @Module({
   imports: [
@@ -32,9 +36,19 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
     KafkaAdminModule,
     MongodbModule,
     JwtModule.register({}),
-    MongooseModule.forFeature([AIUsageLogSchema, AIEmbeddingSchema]),
+    MongooseModule.forFeature([
+      AIUsageLogSchema,
+      AIEmbeddingSchema,
+      QuizSchema,
+    ]),
   ],
-  controllers: [AIController],
-  providers: [AIService, EmbeddingService, GoogleModerationProvider],
+  controllers: [AIController, QuizzController],
+  providers: [
+    AIService,
+    EmbeddingService,
+    GoogleModerationProvider,
+    AiLogUseService,
+    QuizzService,
+  ],
 })
 export class AppModule {}

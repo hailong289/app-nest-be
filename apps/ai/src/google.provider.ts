@@ -276,6 +276,7 @@ export class GoogleModerationProvider {
 
       const parsedResult = result;
 
+      console.log('generateQuizz', parsedResult);
       return Response.success(
         parsedResult,
         'Tạo câu hỏi trắc nghiệm thành công',
