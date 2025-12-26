@@ -3,6 +3,7 @@ import { Response } from '@app/helpers/response';
 import Utils from '@app/helpers/utils';
 import {
   BadGatewayException,
+  Inject,
   Injectable,
   NotAcceptableException,
   NotFoundException,
@@ -18,6 +19,9 @@ import {
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import * as Y from 'yjs';
+import { ClientKafka } from '@nestjs/microservices';
+import { SERVICES } from '@app/constants';
+import { KafkaEvent } from '@app/dto/enum.type';
 
 @Injectable()
 export class DocumentsService {
@@ -29,6 +33,7 @@ export class DocumentsService {
     private readonly docsModel: Model<Document>,
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
   ) {}
 
   /**
@@ -532,6 +537,15 @@ export class DocumentsService {
       },
       { new: true },
     );
+
+    // Trigger AI Embedding if plainText is updated
+    if (updateData.plainText) {
+      this.aiClient.emit(KafkaEvent.AI_DOC_EMBEDDING, {
+        text: updateData.plainText,
+        docId: docId,
+        userId: userId,
+      });
+    }
 
     const formattedDoc = await this.getFormattedDocumentById(docId);
     return Response.success(formattedDoc, 'Cập nhật tài liệu thành công');

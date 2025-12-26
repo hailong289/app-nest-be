@@ -10,6 +10,8 @@ import {
   Room,
   RoomSchema,
 } from 'libs/db/src';
+import { SharedKafkaClientModule } from 'libs/kafka';
+import { SERVICES } from '@app/constants';
 
 @Module({
   imports: [
@@ -18,6 +20,11 @@ import {
       { name: Attachment.name, schema: AttachmentSchema },
       { name: Room.name, schema: RoomSchema },
     ]),
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.AI,
+      clientId: 'filesystem-service-ai-client',
+      groupId: 'filesystem-service-ai-group',
+    }),
   ],
   controllers: [DocumentsController],
   providers: [DocumentsService],

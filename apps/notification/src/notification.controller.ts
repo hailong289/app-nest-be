@@ -1,14 +1,9 @@
-import { Controller, Inject } from '@nestjs/common';
-import {
-  ClientKafka,
-  GrpcMethod,
-  MessagePattern,
-  Payload,
-} from '@nestjs/microservices';
+import { Controller } from '@nestjs/common';
+import { GrpcMethod, MessagePattern, Payload } from '@nestjs/microservices';
 import { NotificationService } from './notification.service';
 import { Response } from '@app/helpers/response';
 import { FirebaseService } from './firebase.service';
-import { SERVICES } from '@app/constants';
+import { KafkaEvent } from '@app/dto';
 
 @Controller()
 export class NotificationController {
@@ -23,13 +18,13 @@ export class NotificationController {
     return Response.success(null, 'OTP sent successfully');
   }
 
-  @MessagePattern('forgot_password')
+  @MessagePattern(KafkaEvent.FORGOT_PASSWORD)
   async forgotPassword(@Payload() data: { email: string; token: string }) {
     await this.notificationService.sendForgotPasswordEmail(data);
     return Response.success(null, 'Forgot password email sent successfully');
   }
 
-  @MessagePattern('push_notification')
+  @MessagePattern(KafkaEvent.PUSH_NOTIFICATION)
   async pushNotification(
     @Payload()
     data: {
@@ -43,7 +38,7 @@ export class NotificationController {
     return Response.success(null, 'Push notification sent successfully');
   }
 
-  @MessagePattern('push_notification_users')
+  @MessagePattern(KafkaEvent.PUSH_NOTIFICATION_USERS)
   async pushNotificationForUser(
     @Payload()
     data: {

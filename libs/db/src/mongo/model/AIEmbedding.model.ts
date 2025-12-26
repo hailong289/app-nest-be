@@ -1,6 +1,6 @@
 // apps/common/schemas/ai-embedding.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 export type AIEmbeddingDocument = HydratedDocument<AIEmbedding>;
 export type AIEmbeddingContextType = 'room' | 'doc';
@@ -31,11 +31,11 @@ export class AIEmbedding {
   @Prop({ index: true })
   contextType?: AIEmbeddingContextType; // 'room' | ...
 
-  @Prop({ index: true })
-  contextId?: string;
+  @Prop({ type: Types.ObjectId, default: null })
+  contextId?: Types.ObjectId;
 
-  @Prop({ index: true })
-  messageId?: string; // ID của tin nhắn chat (Nếu có)
+  @Prop({ type: Types.ObjectId, default: null })
+  messageId?: Types.ObjectId; // message_id hoặc document_id
 }
 
 export const AIEmbeddingSchema = SchemaFactory.createForClass(AIEmbedding);

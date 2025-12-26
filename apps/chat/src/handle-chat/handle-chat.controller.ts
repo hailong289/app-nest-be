@@ -11,7 +11,6 @@ import {
   HandleReactDto,
   markReadUpToDto,
 } from '@app/dto';
-import { CallStatus } from 'libs/db/src';
 
 @Controller('handle-chat')
 export class HandleChatController {
@@ -22,7 +21,6 @@ export class HandleChatController {
   @GrpcMethod('ChatService', 'CreateNewMsg')
   async NewMsg(@Body() payload: CreateMessage) {
     const result = await this.hdChat.createMessage(payload);
-    // console.log('🚀 ~ HandleChatController ~ NewMsg ~ result:', result);
     return result;
   }
 
@@ -30,7 +28,6 @@ export class HandleChatController {
   async GetOneMsg(@Body() payload: { userId: string; msgId: string }) {
     this.logger.log('[gRPC] GetOneMsg called with payload:', payload);
     const result = await this.hdChat.getOneMsg(payload.userId, payload.msgId);
-    // console.log('🚀 ~ HandleChatController ~ GetOneMsg ~ result:', result);
     return result;
   }
   @GrpcMethod('ChatService', 'MarkReadUpTo')
@@ -41,7 +38,6 @@ export class HandleChatController {
   @GrpcMethod('ChatService', 'GetMsgFromRoom')
   async GetMsgFromRoom(@Body() payload: GetMsgFromRoomDTO) {
     const result = await this.hdChat.getMsgFromRoom(payload);
-    // console.log('🚀 ~ HandleChatController ~ GetMsgFromRoom ~ result:', result);
     return result;
   }
   @GrpcMethod('ChatService', 'HandleReact')
@@ -57,16 +53,11 @@ export class HandleChatController {
   @GrpcMethod('ChatService', 'HandleDeleteForUser')
   async HandleDeleteForUser(@Body() payload: HandleDeleteDto) {
     const result = await this.hdChat.handleDeleteForUser(payload);
-    // console.log(
-    //   '🚀 ~ HandleChatController ~ HandleDeleteForUser ~ result:',
-    //   result,
-    // );
     return result;
   }
   @GrpcMethod('ChatService', 'HandleDelete')
   async HandleDelete(@Body() payload: HandleDeleteAllDto) {
     const result = await this.hdChat.handleDelete(payload);
-    // console.log('🚀 ~ HandleChatController ~ HandleDelete ~ result:', result);
     return result;
   }
 
@@ -81,7 +72,6 @@ export class HandleChatController {
       messageId: string; // ID tin nhắn cuộc gọi
     },
   ) {
-    console.log('🚀 ~ HandleChatController ~ RequestCall ~ payload:', payload);
     const result = await this.hdChat.requestCall(payload);
     return result;
   }
@@ -95,7 +85,6 @@ export class HandleChatController {
       roomId: string;
     },
   ) {
-    console.log('🚀 ~ HandleChatController ~ AcceptCall ~ payload:', payload);
     const result = await this.hdChat.acceptCall(payload);
     return result;
   }
@@ -109,7 +98,6 @@ export class HandleChatController {
       status: 'ended' | 'missed' | 'rejected' | 'cancelled'; // Trạng thái cuộc gọi
     },
   ) {
-    console.log('🚀 ~ HandleChatController ~ EndCall ~ payload:', payload);
     const result = await this.hdChat.endCall(payload);
     return result;
   }

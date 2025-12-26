@@ -7,6 +7,9 @@ import {
   HandlePinDto,
   HandleReactDto,
   markReadUpToDto,
+  RequestCallDto,
+  AcceptCallDto,
+  EndCallDto,
 } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import {
@@ -33,7 +36,7 @@ import {
   Attachment,
   User,
 } from 'libs/db/src';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { buildMessageCorePipeline } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
@@ -129,19 +132,14 @@ export class HandleChatService {
       }
     }
 
-    const data: {
-      msg_roomId: typeof finInfo._id;
-      msg_sender: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
-      msg_content: typeof content;
-      reply_to: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
-      attachment_ids: any[];
-      msg_type: typeof type;
-      document_id?: any;
-      _id?: ReturnType<typeof this.utils.convertToObjectIdMongoose>;
-    } = {
+    const messageId = id
+      ? this.utils.convertToObjectIdMongoose(id)
+      : new Types.ObjectId();
+
+    const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
-      msg_content: content,
+      msg_content: content || '',
       reply_to: replyTo ? this.utils.convertToObjectIdMongoose(replyTo) : null,
       attachment_ids: Array.isArray(attachments)
         ? attachments.map((i) => this.utils.convertToObjectIdMongoose(i))
@@ -151,12 +149,19 @@ export class HandleChatService {
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
     };
-    if (id) {
-      data._id = this.utils.convertToObjectIdMongoose(id);
-    }
 
-    // create new message (without transaction for standalone MongoDB)
-    const createNewMsg = await this.messageModel.create(data);
+    // Upsert message: if an _id is provided and exists, update it; otherwise insert new
+    const createNewMsg = await this.messageModel.findOneAndUpdate(
+      { _id: messageId },
+      { $set: updatePayload },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+        runValidators: true,
+      },
+    );
+
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
@@ -194,7 +199,7 @@ export class HandleChatService {
     }
 
     // Update message read and room state in parallel
-    await Promise.all([
+    await Promise.allSettled([
       this.messageReadModel.findOneAndUpdate(
         {
           room_id: finInfo._id,
@@ -233,18 +238,22 @@ export class HandleChatService {
       ),
       ...(type === 'text'
         ? [
-            this.utils.dispatchEventKafka(this.aiClient, KafkaEvent.aiMsg, {
-              text: content,
-              roomId: finInfo._id,
-              messageId: createNewMsg._id,
-            }),
+            this.utils.dispatchEventKafka(
+              this.aiClient,
+              KafkaEvent.AI_CHAT_MSG_EMBEDDING,
+              {
+                text: content,
+                roomId: finInfo._id,
+                messageId: createNewMsg._id,
+              },
+            ),
           ]
         : []),
       ...(content && /(https?:\/\/[^\s]+)/g.test(content)
         ? [
             this.utils.dispatchEventKafka(
               this.fileClient,
-              KafkaEvent.processLink,
+              KafkaEvent.PROCESS_LINK,
               {
                 content,
                 userId,
@@ -258,7 +267,7 @@ export class HandleChatService {
         ? [
             this.utils.dispatchEventKafka(
               this.fileClient,
-              KafkaEvent.shareDocForRoom,
+              KafkaEvent.SHARE_DOC_FOR_ROOM,
               {
                 roomId,
                 userId,
@@ -500,7 +509,7 @@ export class HandleChatService {
 
     // Build comparison filter based on pagination type
     const compare: Record<string, any> = {};
-    if (type && msgId) {
+    if (type && msgId && Types.ObjectId.isValid(msgId)) {
       const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
       if (type === 'new') {
         // Load tin nhắn mới hơn msgId (để load real-time updates)
@@ -524,7 +533,6 @@ export class HandleChatService {
       { $limit: Number(limit) }, // Giới hạn số lượng
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
-    console.log('🚀 ~ HandleChatService ~ getMsgFromRoom ~ result:', result);
     return Response.success(result, 'Tin nhắn mới thành công');
   }
 
@@ -894,7 +902,7 @@ export class HandleChatService {
     roomId,
     callType,
     messageId,
-  }: any) {
+  }: RequestCallDto) {
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
       if (!actionUser) {
@@ -928,12 +936,13 @@ export class HandleChatService {
       }));
 
       const callHistory = await this.callHistoryModel.create({
-        actionUserId: actionUser._id,
         members: membersData,
         room_id: room._id,
         call_type: callType,
         started_at: new Date(),
-        message_id: this.utils.convertToObjectIdMongoose(messageId),
+        message_id: messageId
+          ? this.utils.convertToObjectIdMongoose(messageId)
+          : null,
       });
 
       if (!callHistory) {
@@ -955,7 +964,7 @@ export class HandleChatService {
   }
 
   // trả lời cuộc gọi
-  async acceptCall({ actionUserId, membersIds, roomId }: any) {
+  async acceptCall({ actionUserId, membersIds, roomId }: AcceptCallDto) {
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
 
@@ -1019,7 +1028,7 @@ export class HandleChatService {
   }
 
   // kết thúc cuộc gọi
-  async endCall({ actionUserId, roomId, status }: any) {
+  async endCall({ actionUserId, roomId, status }: EndCallDto) {
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
       if (!actionUser) {
