@@ -65,4 +65,19 @@ export class NotificationController {
     await this.firebaseService.pushNotification(data);
     return Response.success(null, 'Gửi thông báo test thành công');
   }
+
+  @GrpcMethod('NotificationService', 'GetNotifications')
+  async getNotifications(@Payload() data: { userId: string }) {
+    return await this.notificationService.getNotifications(data);
+  }
+
+  @GrpcMethod('NotificationService', 'MarkNotificationAsRead')
+  async markNotificationAsRead(@Payload() data: { notificationId: string }) {
+    return await this.notificationService.markNotificationAsRead(data);
+  }
+
+  @GrpcMethod('NotificationService', 'MarkAllNotificationsAsRead')
+  async markAllNotificationsAsRead(@Payload() data: { userId: string }) {
+    return await this.notificationService.markAllNotificationsAsRead(data);
+  }
 }

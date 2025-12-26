@@ -305,7 +305,7 @@ export class SocialService {
           senderId: user1._id,
           senderName: user1.usr_fullname,
           senderAvatar: user1.usr_avatar,
-          push_type: 'friend_request',
+          push_type: 'friend_rejected',
         },
       }).then((response) => {
         if (response.statusCode !== 200) {

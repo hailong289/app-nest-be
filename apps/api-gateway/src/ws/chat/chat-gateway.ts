@@ -319,6 +319,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                   type: notifyType.noify_new_message,
                   room: roomData.metadata,
                   msg: msgData,
+                  push_type: 'message',
                 },
               },
             );
@@ -504,6 +505,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
                   type: notifyType.noify_new_message,
                   room: roomData.metadata,
                   msg: msgData,
+                  push_type: 'message',
                 },
               },
             );

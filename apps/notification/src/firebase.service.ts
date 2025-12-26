@@ -2,9 +2,10 @@ import { REDISKEY } from '@app/constants/RedisKey';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
-import { RedisService, Key } from 'libs/db/src';
+import { RedisService, Key, Notification, NotificationType } from 'libs/db/src';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { NotificationService } from './notification.service';
 
 @Injectable()
 export class FirebaseService implements OnModuleInit {
@@ -15,6 +16,9 @@ export class FirebaseService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     @InjectModel(Key.name) private readonly keyModel: Model<Key>,
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<Notification>,
+    private readonly notificationService: NotificationService,
   ) {}
 
   onModuleInit() {
@@ -70,6 +74,28 @@ export class FirebaseService implements OnModuleInit {
     fcmTokens: string[];
     data?: Record<string, any>;
   }) {
+    /**
+     * tạo notification cho người dùng (DB chết mà lỗi không làm chết service)
+     */
+    try {
+      const userId = await this.keyModel.findOne(
+        { tkn_fcmToken: { $in: fcmTokens } },
+        { tkn_userId: 1 },
+      );
+      if (!userId) {
+        throw new Error('Không tìm thấy userId cho fcmTokens');
+      }
+      await this.notificationService.createNotification({
+        userId: userId.tkn_userId,
+        push_type: (data?.push_type as NotificationType) || 'other',
+        title,
+        message,
+        metadata: data as Record<string, any>,
+      });
+    } catch (error) {
+      console.error('Không tạo được notification:', error);
+    }
+
     const payload: admin.messaging.MulticastMessage = {
       tokens: fcmTokens,
       notification: {
@@ -130,6 +156,13 @@ export class FirebaseService implements OnModuleInit {
     const redisResults = await Promise.all(
       userIds.map(async (u) => {
         try {
+          await this.notificationService.createNotification({
+            userId: u,
+            push_type: (data?.push_type as NotificationType) || 'other',
+            title,
+            message,
+            metadata: data,
+          });
           return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
         } catch (e) {
           console.error(`Redis error for user ${u}:`, e);
