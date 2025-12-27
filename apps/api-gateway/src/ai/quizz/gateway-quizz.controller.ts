@@ -58,12 +58,13 @@ export class GatewayQuizzController {
 
   @Get('list')
   async listQuizzes(
+    @Query('roomId') roomId: string,
     @Query('page') page: number,
     @Query('limit') limit: number,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.quizzService.ListQuizzes.bind(this.quizzService),
-      { page, limit },
+      { roomId, page, limit },
     );
   }
 

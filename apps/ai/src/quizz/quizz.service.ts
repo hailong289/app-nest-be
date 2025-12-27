@@ -34,13 +34,13 @@ export class QuizzService {
     return Response.success(quiz);
   }
 
-  async listQuizzes(page: number, limit: number, userId: string) {
+  async listQuizzes(page: number, limit: number, roomId: string) {
     const quizzes = await this.quizModel
-      .find()
+      .find({ quiz_roomId: new Types.ObjectId(roomId) })
       .skip((page - 1) * limit)
       .limit(limit)
       .sort({ createdAt: -1 });
-    return quizzes;
+    return Response.success(quizzes);
   }
 
   async updateQuizzById(quiz_id: string, data: UpdateQuizzDto) {

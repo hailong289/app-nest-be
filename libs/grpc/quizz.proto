@@ -47,7 +47,7 @@ message GetQuizzResponse {
 }
 
 message ListQuizzesRequest {
-    string userId = 1;
+    string roomId = 1;
     int32 page = 2;
     int32 limit = 3;
 }
