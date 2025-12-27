@@ -918,12 +918,6 @@ export class HandleChatService {
           $in: membersIds.map((m) => m.toString()),
         },
       });
-      // Validate all members exist
-      if (members.length !== membersIds.length) {
-        throw new NotFoundException(
-          'Một số thành viên trong cuộc gọi không tồn tại',
-        );
-      }
 
       const room = await this.roomModel.findOne({ room_id: roomId });
       if (!room) {
@@ -972,18 +966,6 @@ export class HandleChatService {
   async acceptCall({ actionUserId, membersIds, roomId }: AcceptCallDto) {
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
-
-      const members = await this.userModel.find({
-        usr_id: {
-          $in: membersIds.map((m) => m.toString()),
-        },
-      });
-
-      if (members.length !== membersIds.length) {
-        throw new NotFoundException(
-          'Một số thành viên trong cuộc gọi không tồn tại',
-        );
-      }
 
       if (!actionUser) {
         throw new NotFoundException('Người dùng không tồn tại');

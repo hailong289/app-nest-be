@@ -812,18 +812,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-
-      // Ensure membersIds is provided and includes caller
-      if (!Array.isArray(data.membersIds) || data.membersIds.length === 0) {
-        throw new BadRequestException('Danh sách thành viên cuộc gọi trống');
-      }
-      const normalizedMembers = Array.from(
-        new Set(data.membersIds.map((m) => m.toString())),
-      );
-      if (!normalizedMembers.includes(user.usr_id)) {
-        normalizedMembers.push(user.usr_id);
-      }
-      data.membersIds = normalizedMembers;
       // tạo tin nhắn cuộc gọi
       const handleSendMsg = await this.onMessage(
         {
