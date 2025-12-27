@@ -156,13 +156,6 @@ export class FirebaseService implements OnModuleInit {
     const redisResults = await Promise.all(
       userIds.map(async (u) => {
         try {
-          await this.notificationService.createNotification({
-            userId: u,
-            push_type: (data?.push_type as NotificationType) || 'other',
-            title,
-            message,
-            metadata: data,
-          });
           return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
         } catch (e) {
           console.error(`Redis error for user ${u}:`, e);
