@@ -246,9 +246,12 @@ export class GoogleModerationProvider {
     file: MulterFile,
     text: string,
     type: 'text' | 'document',
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
+    question_max: number,
+    question_max_points: number,
   ) {
-    const prompt = generateQuizzPrompt(text, type);
-
+    const prompt = generateQuizzPrompt(text, type, question_type, question_max, question_max_points);
+    console.log('prompt', prompt);
     try {
       const result = await this.generateContent(
         {
@@ -275,8 +278,6 @@ export class GoogleModerationProvider {
       );
 
       const parsedResult = result;
-
-      console.log('generateQuizz', parsedResult);
       return Response.success(
         parsedResult,
         'Tạo câu hỏi trắc nghiệm thành công',

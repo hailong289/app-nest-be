@@ -23,11 +23,7 @@ async function bootstrap() {
     transport: Transport.GRPC,
     options: {
       package: ['ai', 'quizz', 'flashcard'],
-      protoPath: [
-        join(process.cwd(), 'libs/grpc/ai.proto'),
-        join(process.cwd(), 'libs/grpc/quizz.proto'),
-        join(process.cwd(), 'libs/grpc/flashcard.proto'),
-      ],
+      protoPath: [join(process.cwd(), 'libs/grpc/ai.proto')],
       url: `${HOST}:${PORT}`,
       maxReceiveMessageLength: 500 * 1024 * 1024, // 500MB
       maxSendMessageLength: 500 * 1024 * 1024, // 500MB

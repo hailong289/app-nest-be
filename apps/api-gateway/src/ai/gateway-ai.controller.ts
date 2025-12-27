@@ -120,14 +120,21 @@ export class GatewayAiController {
     body: {
       text: string;
       type: 'text' | 'document';
+      question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
+      question_max: number;
+      question_max_points: number;
     },
   ) {
+    console.log('Quizz request:', { file, body });
     return this.gatewayService.dispatchGrpcRequest(
       this.aiService.quizz,
       {
         file: file,
         text: body?.text || '',
         type: body.type,
+        question_type: body.question_type,
+        question_max: body.question_max,
+        question_max_points: body.question_max_points,
       },
       100000, // 1 minute timeout
     );

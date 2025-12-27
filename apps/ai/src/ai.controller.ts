@@ -141,11 +141,17 @@ export class AIController {
     file: MulterFile;
     text: string;
     type: 'text' | 'document';
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
+    question_max: number; // số lượng câu hỏi tối đa
+    question_max_points: number; // điểm số tối đa cho bài trắc nghiệm
   }) {
     return await this.service.generateQuizz(
       data.file,
       data?.text || '',
       data.type,
+      data.question_type,
+      data.question_max,
+      data.question_max_points,
     );
   }
 }

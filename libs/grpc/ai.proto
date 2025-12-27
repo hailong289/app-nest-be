@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package ai;
 import "quizz.proto";
+import "flashcard.proto";
 
 service AIService {
   rpc Moderation(ModerationRequest) returns (ModerationResponse);
@@ -11,6 +12,15 @@ service AIService {
   rpc SummaryDocument(SummaryDocumentRequest) returns (SummaryDocumentResponse);
   rpc Translation(TranslationRequest) returns (TranslationResponse);
   rpc Quizz(QuizzRequest) returns (QuizzResponse);
+}
+
+message FileRequest {
+    string originalname = 1;
+    bytes buffer = 2;
+    string mimetype = 3;
+    string fieldname=4;
+    string encoding=5;
+    int64 size=6;
 }
 
 message ModerationRequest {
@@ -96,11 +106,12 @@ message TranslationResponse {
 }
 
 message QuizzRequest {
-  bytes file = 1;
-  string filename = 2;
-  string mimetype = 3;
-  string text = 4;
-  string type = 5;
+  FileRequest file = 1;
+  string text = 2;
+  string type = 3; // text, document
+  string question_type = 4; // single_choice, multiple_choice, true_false, text
+  int32 question_max = 5;
+  int32 question_max_points = 6;
 }
 
 message QuizzResponse {

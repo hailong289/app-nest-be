@@ -61,8 +61,11 @@ export class AIService {
     file: MulterFile,
     text: string,
     type: 'text' | 'document',
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
+    question_max: number,
+    question_max_points: number,
   ) {
-    const result = await this.googleProvider.generateQuizz(file, text, type);
+    const result = await this.googleProvider.generateQuizz(file, text, type, question_type, question_max, question_max_points);
     return result;
   }
 }
