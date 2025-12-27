@@ -31,6 +31,42 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
+    /** 0.2) My room state (clear_before_ts) */
+    {
+      $lookup: {
+        from: 'RoomsUsersState',
+        let: { rid: '$msg_roomId', uid: uid },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$room_id', '$$rid'] },
+                  { $eq: ['$user_id', '$$uid'] },
+                ],
+              },
+            },
+          },
+          { $project: { clear_before_ts: 1 } },
+          { $limit: 1 },
+        ],
+        as: 'my_room_state',
+      },
+    },
+    { $set: { my_room_state: { $first: '$my_room_state' } } },
+
+    /** 0.3) Filter messages newer than clear_before_ts (if set) */
+    {
+      $match: {
+        $expr: {
+          $or: [
+            { $not: ['$my_room_state.clear_before_ts'] },
+            { $gt: ['$createdAt', '$my_room_state.clear_before_ts'] },
+          ],
+        },
+      },
+    },
+
     /** 1) Sender */
     {
       $lookup: {
@@ -415,6 +451,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         'replyHiddenByMeDoc',
         'reply_hiddenByMe',
         'read_list',
+        'my_room_state',
       ],
     },
   ];

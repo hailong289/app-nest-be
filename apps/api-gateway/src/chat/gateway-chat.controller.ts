@@ -18,6 +18,7 @@ import {
   ChangeNameRoomDto,
   ChangeRoleMemberDto,
   CreateRoomDto,
+  DeletedRoomDto,
   GetRoomDto,
   GetRoomType,
   LeavingRoomDto,
@@ -72,6 +73,7 @@ export interface RoomGrpcService {
   changeRole(data: any): any;
   pinnendRoom(data: any): any;
   mutedRoom(data: any): any;
+  deletedRoom(data: any): Promise<ChatGatewayResponse>;
   getMsgFromRoom(data: any): any;
   getDocumentsFromRoom(data: any): any;
 }
@@ -421,6 +423,26 @@ export class GatewayChatController {
     body.userId = req.user?._id;
     const result = (await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.mutedRoom.bind(this.RoomGrpcService),
+      body,
+    )) as ChatGatewayResponse;
+
+    if (result?.metadata) {
+      this.chatGateway.io
+        .to(this.key.ROOM_CLIENT(body.userId))
+        .emit(socketEvent.ROOMUPSERT, result.metadata);
+    }
+    return result;
+  }
+
+  @Patch('rooms/deleted')
+  async DeletedRoom(
+    @Body()
+    body: DeletedRoomDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    body.userId = req.user?._id;
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.deletedRoom.bind(this.RoomGrpcService),
       body,
     )) as ChatGatewayResponse;
 
