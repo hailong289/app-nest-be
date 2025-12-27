@@ -1,4 +1,5 @@
 import { Response } from '@app/helpers/response';
+import Utils from '@app/helpers/utils';
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -67,7 +68,7 @@ export class NotificationService {
   }
 
   async createNotification(data: {
-    userId: string | Types.ObjectId;
+    userId: string;
     push_type: NotificationType;
     title: string;
     message: string;
@@ -75,7 +76,7 @@ export class NotificationService {
   }) {
     try {
       await this.notificationModel.create({
-        noti_userId: data.userId,
+        noti_userId: Utils.convertToObjectIdMongoose(data.userId),
         noti_type: data.push_type,
         noti_title: data.title,
         noti_content: data.message,
@@ -109,8 +110,31 @@ export class NotificationService {
 
   async getNotifications(data: { userId: string }) {
     const notifications = await this.notificationModel
-      .find({ noti_userId: new Types.ObjectId(data.userId) })
+      .find({ noti_userId: Utils.convertToObjectIdMongoose(data.userId) })
       .sort({ createdAt: -1 });
-    return Response.success({ notifications }, 'Lấy thông báo thành công');
+
+    const toTimestamp = (date?: Date | null) => {
+      if (!date) return undefined;
+      const ms = date.getTime();
+      return {
+        seconds: Math.floor(ms / 1000),
+        nanos: (ms % 1000) * 1_000_000,
+      };
+    };
+
+    const payload = notifications.map((notification) => {
+      const plain = notification.toObject();
+      return {
+        ...plain,
+        createdAt: toTimestamp(notification.createdAt),
+        updatedAt: toTimestamp(notification.updatedAt),
+        noti_readAt: toTimestamp(notification.noti_readAt),
+      };
+    });
+
+    return Response.success(
+      { notifications: payload },
+      'Lấy thông báo thành công',
+    );
   }
 }
