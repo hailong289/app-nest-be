@@ -910,12 +910,15 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const callHistory = await this.callHistoryModel.findOne({
-        members: {
-          $elemMatch: { id: actionUser.usr_id },
-        },
-        room_id: room._id,
-      });
+      const callHistory = await this.callHistoryModel
+        .findOne({
+          members: {
+            $elemMatch: { id: actionUser.usr_id },
+          },
+          room_id: room._id,
+          ended_at: null,
+        })
+        .sort({ createdAt: -1 });
 
       if (!callHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
@@ -970,12 +973,15 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const callHistory = await this.callHistoryModel.findOne({
-        members: {
-          $elemMatch: { id: actionUser.usr_id },
-        },
-        room_id: room._id,
-      });
+      const callHistory = await this.callHistoryModel
+        .findOne({
+          members: {
+            $elemMatch: { id: actionUser.usr_id },
+          },
+          room_id: room._id,
+          ended_at: null,
+        })
+        .sort({ createdAt: -1 });
 
       if (!callHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
