@@ -7,6 +7,7 @@ import {
   ChangeNickNameMemberDto,
   ChangeRoleMemberDto,
   CreateRoomDto,
+  DeletedRoomDto,
   GetRoomDto,
   GetRoomType,
   LeavingRoomDto,
@@ -78,5 +79,10 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'MutedRoom')
   async MutedRoom(@Body() payload: MutedRoomDto) {
     return this.roomsService.MutedRoom(payload);
+  }
+
+  @GrpcMethod('ChatService', 'DeletedRoom')
+  async DeletedRoom(@Body() payload: DeletedRoomDto) {
+    return this.roomsService.DeletedRoom(payload);
   }
 }

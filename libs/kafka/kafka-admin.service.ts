@@ -11,7 +11,13 @@ export class KafkaAdminService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   async onModuleInit() {
-    await this.createTopics();
+    // Không await để không block startup nếu Kafka không available
+    this.createTopics().catch((error) => {
+      this.logger.warn(
+        '⚠️  Kafka topic creation failed, but service will continue:',
+        error.message,
+      );
+    });
   }
 
   private async createTopics() {
@@ -27,6 +33,9 @@ export class KafkaAdminService implements OnModuleInit {
       const kafka = new Kafka({
         ...kafkaConfig.client,
         logLevel: logLevel.ERROR,
+        // Thêm timeout để không block quá lâu
+        connectionTimeout: 5000,
+        requestTimeout: 5000,
       });
       const admin = kafka.admin();
 

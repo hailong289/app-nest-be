@@ -18,12 +18,34 @@ async function bootstrap() {
       forbidNonWhitelisted: true, // ném lỗi nếu có field lạ
       transform: true,
       exceptionFactory: (errors) => {
+        // Hàm recursive để thu thập tất cả lỗi từ children
+        const mapErrors = (error: any, path = ''): any[] => {
+          const fieldPath = path ? `${path}.${error.property}` : error.property;
+          const result: any[] = [];
+
+          // Thêm lỗi của chính field này
+          if (error.constraints && Object.keys(error.constraints).length > 0) {
+            result.push({
+              field: fieldPath,
+              errors: Object.values(error.constraints),
+            });
+          }
+
+          // Xử lý children (nested errors)
+          if (error.children && error.children.length > 0) {
+            error.children.forEach((child: any) => {
+              result.push(...mapErrors(child, fieldPath));
+            });
+          }
+
+          return result;
+        };
+
+        const allErrors = errors.flatMap((err) => mapErrors(err));
+
         return new BadRequestException({
           statusCode: 400,
-          message: errors.map((err) => ({
-            field: err.property,
-            errors: Object.values(err.constraints ?? {}),
-          })),
+          message: allErrors,
           reasonStatusCode: 'BAD_REQUEST',
         });
       },

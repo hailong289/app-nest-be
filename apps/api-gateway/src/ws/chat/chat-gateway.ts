@@ -813,6 +813,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
       // tạo tin nhắn cuộc gọi
       const handleSendMsg = await this.onMessage(
         {

@@ -30,7 +30,13 @@ async function bootstrap() {
     },
   });
 
-  await app.startAllMicroservices();
+  try {
+    await app.startAllMicroservices();
+  } catch (error) {
+    console.error('Error starting microservices:', error.message);
+    console.log('Some microservices may not be available, but continuing...');
+  }
+
   await app.init();
 
   console.log(`NODE_ENV: ${process.env.NODE_ENV}`);

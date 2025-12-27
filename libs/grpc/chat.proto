@@ -25,6 +25,7 @@ service ChatService {
   rpc HandlePinned(HandlePinnedInput)returns(CreateMessageOutput);
   rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
   rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
+  rpc DeletedRoom(inputDeletedRoom) returns (outputGetRoom);
   // Call
   rpc RequestCall(RequestCallInput)returns(outputCall);
   rpc AcceptCall(AcceptCallInput)returns(outputCall);
@@ -46,6 +47,11 @@ message inputMutedRoom {
   string userId = 1;
   string roomId = 2;
   bool muted = 3;
+}
+
+message inputDeletedRoom {
+  string userId = 1;
+  string roomId = 2;
 }
 
 message GetDocumentsFromRoomInput {

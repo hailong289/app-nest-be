@@ -3,6 +3,8 @@ import { AIService } from './ai.service';
 import { GrpcMethod, MessagePattern } from '@nestjs/microservices';
 import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
+import { SearchMessagesDto } from '@app/dto/ai.dto';
+import type { MulterFile } from '@app/dto';
 
 interface IAIService {
   suggestReplies(messages: string[]): Promise<{
@@ -12,7 +14,6 @@ interface IAIService {
   }>;
   checkMessage(text: string, userId: string): Promise<any>;
 }
-
 @Controller()
 export class AIController {
   constructor(
@@ -23,6 +24,63 @@ export class AIController {
   @GrpcMethod('AIService', 'Moderation')
   async moderation(data: { text: string; userId: string }) {
     return await this.service.checkMessage(data.text, data.userId);
+  }
+
+  @MessagePattern(KafkaEvent.AI_CHAT_MSG_EMBEDDING)
+  async createChatMessageEmbedding(data: {
+    text: string;
+    roomId: string;
+    messageId: string;
+  }) {
+    return await this.embeddingService.createChatMessageEmbedding(
+      data.text,
+      data.roomId,
+      data.messageId,
+    );
+  }
+
+  @MessagePattern(KafkaEvent.AI_DOC_EMBEDDING)
+  async createDocumentEmbedding(data: {
+    text: string;
+    docId: string;
+    userId: string;
+  }) {
+    return await this.embeddingService.createEmbedding({
+      text: data.text,
+      contextId: data.docId,
+      contextType: 'doc',
+      service: 'document',
+      userId: data.userId,
+      replaceOld: true,
+    });
+  }
+
+  @MessagePattern(KafkaEvent.AI_PROCESS_FILE_EMBEDDING)
+  async processFileEmbedding(data: {
+    fileUrl: string;
+    fileType: string;
+    docId: string;
+    userId: string;
+    mimeType: string;
+    messageId: string;
+  }) {
+    return await this.embeddingService.createEmbedding({
+      text: data.fileUrl,
+      contextId: data.docId,
+      contextType: 'file',
+      service: 'document',
+      userId: data.userId,
+      replaceOld: true,
+    });
+  }
+
+  @GrpcMethod('AIService', 'SearchMessages')
+  async searchMessages(data: SearchMessagesDto) {
+    return await this.embeddingService.searchSimilarMessages(
+      data.text,
+      data.roomId,
+      data.limit,
+    );
   }
 
   @GrpcMethod('AIService', 'Search')
@@ -68,51 +126,32 @@ export class AIController {
     return result;
   }
 
-  @MessagePattern(KafkaEvent.AI_CHAT_MSG_EMBEDDING)
-  async createChatMessageEmbedding(data: {
-    text: string;
-    roomId: string;
-    messageId: string;
-  }) {
-    return await this.embeddingService.createChatMessageEmbedding(
-      data.text,
-      data.roomId,
-      data.messageId,
-    );
+  @GrpcMethod('AIService', 'SummaryDocument')
+  async summaryDocument(data: { file: MulterFile }) {
+    return await this.service.summaryDocument(data.file);
   }
 
-  @MessagePattern(KafkaEvent.AI_DOC_EMBEDDING)
-  async createDocumentEmbedding(data: {
-    text: string;
-    docId: string;
-    userId: string;
-  }) {
-    return await this.embeddingService.createEmbedding({
-      text: data.text,
-      contextId: data.docId,
-      contextType: 'doc',
-      service: 'document',
-      userId: data.userId,
-      replaceOld: true,
-    });
+  @GrpcMethod('AIService', 'Translation')
+  async translation(data: { text: string; from: string; to: string }) {
+    return await this.service.translation(data.text, data.from, data.to);
   }
 
-  @MessagePattern(KafkaEvent.AI_PROCESS_FILE_EMBEDDING)
-  async processFileEmbedding(data: {
-    fileUrl: string;
-    fileType: string;
-    docId: string;
-    userId: string;
-    mimeType: string;
-    messageId: string;
+  @GrpcMethod('AIService', 'Quizz')
+  async quizz(data: {
+    file: MulterFile;
+    text: string;
+    type: 'text' | 'document';
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
+    question_max: number; // số lượng câu hỏi tối đa
+    question_max_points: number; // điểm số tối đa cho bài trắc nghiệm
   }) {
-    return await this.embeddingService.processFileEmbedding(
-      data.fileUrl,
-      data.fileType,
-      data.docId,
-      data.userId,
-      data.mimeType,
-      data.messageId,
+    return await this.service.generateQuizz(
+      data.file,
+      data?.text || '',
+      data.type,
+      data.question_type,
+      data.question_max,
+      data.question_max_points,
     );
   }
 }
