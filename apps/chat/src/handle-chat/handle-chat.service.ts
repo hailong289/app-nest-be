@@ -405,10 +405,6 @@ export class HandleChatService {
 
     // get info room
 
-    console.log(
-      '🚀 ~ HandleChatService ~ markReadUpTo ~ lastMessageId:',
-      lastMessageId,
-    );
     const [messgeInfo, roomInfro] = await Promise.all([
       this.messageModel.findById(
         this.utils.convertToObjectIdMongoose(lastMessageId),
