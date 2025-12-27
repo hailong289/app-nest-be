@@ -124,7 +124,7 @@ export { default as aIEmbeddingModel } from './AIEmbedding.model';
 export type { AIEmbeddingDocument } from './AIEmbedding.model';
 
 export { default as aIUsageLogModel } from './AIUsageLogs.model';
-export type { AIUsageLogDocument } from './AIUsageLogs.model';
+export type { AIUsageLogsDocument } from './AIUsageLogs.model';
 
 export {
   Document,

@@ -21,14 +21,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
           transport: Transport.GRPC,
           options: {
             package: ['chat', 'social'],
-            protoPath: [
-              join(
-                process.cwd(),
-                configService.get<string>('GATEWAY_CHAT_PROTO_PATH') ||
-                  'libs/grpc/chat.proto',
-              ),
-              join(process.cwd(), 'libs/grpc/social.proto'),
-            ],
+            protoPath: join(process.cwd(), 'libs/grpc/chat.proto'),
             url: (() => {
               const host =
                 configService.get<string>('GATEWAY_CHAT_HOST') || 'localhost';

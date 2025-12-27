@@ -4,18 +4,78 @@ import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
 import { Response } from '@app/helpers/response';
 import type { MulterFile } from '@app/dto';
+import {
+  generateQuizzPrompt,
+  suggestPrompt,
+  summaryDocumentPrompt,
+  translationPrompt,
+} from './prompt/ai.prompt';
+import { AiLogUseService } from './ai-log-use.service';
 @Injectable()
 export class GoogleModerationProvider {
   private readonly model: GenerativeModel;
   private readonly logger = new Logger(GoogleModerationProvider.name);
 
-  constructor(private cfg: ConfigService) {
+  constructor(
+    private cfg: ConfigService,
+    private aiLogUseService: AiLogUseService,
+  ) {
     const client = new GoogleGenerativeAI(
-      cfg.get<string>('google.apiKey') || '',
+      this.cfg.get<string>('google.apiKey') || '',
     );
     this.model = client.getGenerativeModel({
-      model: cfg.get<string>('google.model') ?? 'gemini-2.5-flash',
+      model: this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite',
     });
+  }
+
+  async generateContent(
+    contents: any,
+    userId: string,
+    service: string,
+  ): Promise<any> {
+    const start = Date.now();
+    try {
+      const result = await this.model.generateContent(contents);
+      const latencyMs = Date.now() - start;
+      const jsonString = result.response.text();
+      const parsedResult = JSON.parse(jsonString);
+      const tokenInput = result.response.usageMetadata?.promptTokenCount || 0;
+      const tokenOutput =
+        result.response.usageMetadata?.candidatesTokenCount || 0;
+      // Calculate cost manually based on token counts (pricing: input $0.075/1M tokens, output $0.30/1M tokens for gemini-2.5-flash-lite)
+      const costUsd =
+        tokenInput && tokenOutput
+          ? (tokenInput / 1_000_000) * 0.075 + (tokenOutput / 1_000_000) * 0.3
+          : 0;
+      await this.aiLogUseService.createLogUsage(
+        'google',
+        'gemini-2.5-flash-lite',
+        service,
+        userId,
+        tokenInput,
+        tokenOutput,
+        latencyMs,
+        costUsd,
+        'success',
+        parsedResult,
+      );
+      return parsedResult;
+    } catch (err: any) {
+      const latencyMs = Date.now() - start;
+      await this.aiLogUseService.createLogUsage(
+        'google',
+        'gemini-2.5-flash-lite',
+        service,
+        userId,
+        0,
+        0,
+        latencyMs,
+        0,
+        'error',
+        err,
+      );
+      throw err;
+    }
   }
 
   async moderate(text: string) {
@@ -29,9 +89,15 @@ export class GoogleModerationProvider {
     }
 
     try {
-      const start = Date.now();
-      const response = await this.model.generateContent(text);
-      const latencyMs = Date.now() - start;
+      const response = await this.generateContent(
+        {
+          contents: [{ role: 'user', parts: [{ text: text }] }],
+          generationConfig: { responseMimeType: 'application/json' },
+        },
+        'system',
+        'moderation',
+      );
+
       return Response.success(
         response,
         'Moderation completed successfully',
@@ -44,59 +110,83 @@ export class GoogleModerationProvider {
     }
   }
 
+  async suggestReplies(messages: string[]) {
+    try {
+      if (!messages || messages.length === 0)
+        return { suggestions: [], emojis: [], gif_keywords: [] };
+
+      // 2. Prompt định hướng rõ ràng hơn
+      const prompt = suggestPrompt(messages);
+
+      const result = await this.model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.4,
+        },
+      });
+      const responseText = result.response.text();
+      // 3. Parse JSON an toàn
+      let parsedData: {
+        suggestions: string[];
+        emojis: string[];
+        gif_keywords: string[];
+      } = { suggestions: [], emojis: [], gif_keywords: [] };
+      try {
+        parsedData = JSON.parse(responseText) as {
+          suggestions: string[];
+          emojis: string[];
+          gif_keywords: string[];
+        };
+      } catch (e) {
+        console.warn('Lỗi parse JSON', e);
+      }
+      return {
+        suggestions: Array.isArray(parsedData.suggestions)
+          ? parsedData.suggestions.slice(0, 3)
+          : [],
+        emojis: Array.isArray(parsedData.emojis)
+          ? parsedData.emojis.slice(0, 5)
+          : [],
+        gif_keywords: Array.isArray(parsedData.gif_keywords)
+          ? parsedData.gif_keywords.slice(0, 3)
+          : [],
+      };
+    } catch (error: any) {
+      if (error?.status === 429) {
+        this.logger.warn('Gemini API rate limit exceeded.');
+        return { suggestions: [], emojis: [], gif_keywords: [] };
+      }
+      this.logger.error('Failed to suggest replies', error);
+      return { suggestions: [], emojis: [], gif_keywords: [] };
+    }
+  }
+
   async summaryDocument(file: MulterFile) {
     // 1. Soạn Prompt chi tiết để AI tóm tắt có cấu trúc
-    const prompt = `
-  Role: Bạn là chuyên gia phân tích và tổng hợp thông tin.
-  Nhiệm vụ: Đọc tài liệu đính kèm và tạo bản tóm tắt nội dung chính.
-
-  YÊU CẦU ĐẦU RA (JSON FORMAT):
-  Hãy trả về một object JSON duy nhất (không markdown) với cấu trúc sau:
-  {
-    "title": "Tiêu đề ngắn gọn phù hợp với nội dung tài liệu",
-    "summary": "Đoạn văn tóm tắt tổng quan khoảng 2-3 câu",
-    "key_points": [
-      "Ý chính 1",
-      "Ý chính 2",
-      "Ý chính 3 (Tối đa 5-7 ý chính quan trọng nhất)"
-    ],
-    "language": "Ngôn ngữ chính của tài liệu (ví dụ: Tiếng Việt, Tiếng Anh)"
-  }
-  
-  Lưu ý: Nếu tài liệu là tiếng nước ngoài, hãy dịch phần tóm tắt sang Tiếng Việt.
-`;
-
-    // 2. Cấu trúc request gửi lên Gemini
-    const contents = [
-      {
-        role: 'user',
-        parts: [
-          { text: prompt }, // Gửi prompt hướng dẫn
-          {
-            inlineData: {
-              mimeType: file.mimetype,
-              data: Buffer.from(file.buffer).toString('base64'), // Gửi file binary
-            },
-          },
-        ],
-      },
-    ];
+    const prompt = summaryDocumentPrompt();
 
     try {
       // 3. Gọi model với config JSON
-      const result = await this.model.generateContent({
-        contents: contents,
-        generationConfig: {
-          temperature: 0.4, // Giữ mức sáng tạo vừa phải để tóm tắt chính xác
-          responseMimeType: 'application/json', // Bắt buộc trả về JSON
+      const result = await this.generateContent(
+        {
+          role: 'user',
+          parts: [
+            { text: prompt }, // Gửi prompt hướng dẫn
+            {
+              inlineData: {
+                mimeType: file.mimetype,
+                data: Buffer.from(file.buffer).toString('base64'), // Gửi file binary
+              },
+            },
+          ],
         },
-      });
+        'system',
+        'summary-document',
+      );
 
       // 4. Parse kết quả
-      const jsonString = result.response.text();
-      const parsedData = JSON.parse(jsonString);
-
-      console.log('parsedData', parsedData);
+      const parsedData = result;
 
       // Map data để đảm bảo đúng structure với proto (keyPoints thay vì key_points)
       const metadata = {
@@ -119,41 +209,23 @@ export class GoogleModerationProvider {
   }
 
   async translation(text: string, from: string, to: string) {
-    const prompt = `
-    Role: Bạn là một biên dịch viên chuyên nghiệp.
-    Nhiệm vụ: Dịch văn bản bên dưới từ ngôn ngữ '${from}' sang ngôn ngữ '${to}'.
-
-    YÊU CẦU QUAN TRỌNG:
-    1. Giữ nguyên các thuật ngữ chuyên ngành tiếng Anh nếu có.
-    2. Văn phong: Dễ hiểu, không quá chuyên sâu.
-    3. Định dạng: Giữ nguyên cấu trúc dòng, bullet points.
-
-    INPUT TEXT:
-    """
-    ${text}
-    """
-
-    OUTPUT FORMAT:
-    Trả về duy nhất 1 chuỗi JSON hợp lệ (không markdown) theo cấu trúc:
-    { "translated_text": "Nội dung đã dịch ở đây" }
-  `;
+    const prompt = translationPrompt(text, from, to);
 
     try {
-      // 2. Cấu hình gọi model
-      const result = await this.model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json', // Ép buộc trả về JSON
-          temperature: 0.3, // Giảm sáng tạo để dịch chính xác hơn
+      const result = await this.generateContent(
+        {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json' },
         },
-      });
+        'system',
+        'translation',
+      );
 
       // 3. Xử lý kết quả trả về
-      const jsonString = result.response.text();
-      const parsedResult = JSON.parse(jsonString); // Parse chuỗi JSON thành Object
+      const parsedResult = result;
 
       return Response.success(
-        parsedResult.translated_text, // Chỉ trả về chuỗi text đã dịch sạch sẽ
+        parsedResult.translated_text,
         'Dịch thành công',
         200,
         'OK',
@@ -168,5 +240,57 @@ export class GoogleModerationProvider {
         'Bad input or Model Error',
       );
     }
+  }
+
+  async generateQuizz(
+    file: MulterFile,
+    text: string,
+    type: 'text' | 'document',
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
+    question_max: number,
+    question_max_points: number,
+  ) {
+    const prompt = generateQuizzPrompt(text, type, question_type, question_max, question_max_points);
+    console.log('prompt', prompt);
+    try {
+      const result = await this.generateContent(
+        {
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: prompt },
+                type === 'document'
+                  ? {
+                      inlineData: {
+                        mimeType: file.mimetype,
+                        data: Buffer.from(file.buffer).toString('base64'),
+                      },
+                    }
+                  : { text: text },
+              ],
+            },
+          ],
+          generationConfig: { responseMimeType: 'application/json' },
+        },
+        'system',
+        'generate-quizz',
+      );
+
+      const parsedResult = result;
+      return Response.success(
+        parsedResult,
+        'Tạo câu hỏi trắc nghiệm thành công',
+        200,
+        'OK',
+      );
+    } catch (err) {
+      this.logger.error('Lỗi generate quizz:', err.message);
+    }
+    return Response.error(
+      'Không thể tạo câu hỏi trắc nghiệm lúc này',
+      400,
+      'Bad input',
+    );
   }
 }
