@@ -928,7 +928,7 @@ export class HandleChatService {
       callHistory.members = callHistory.members.map((m) => {
         // So sánh ObjectId đúng cách
         const isMatch = m.id.toString() === actionUser.usr_id.toString();
-        const shouldStart = isMatch || (m.is_caller && m.status === 'pending');
+        const shouldStart = isMatch || (m.is_caller && m.status === 'started');
         return {
           ...m,
           status: shouldStart ? ('started' as MemberStatus) : m.status,
