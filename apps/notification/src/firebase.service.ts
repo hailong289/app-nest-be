@@ -68,32 +68,45 @@ export class FirebaseService implements OnModuleInit {
     message,
     fcmTokens,
     data,
+    skipSaveToDb = false,
   }: {
     title: string;
     message: string;
     fcmTokens: string[];
     data?: Record<string, any>;
+    skipSaveToDb?: boolean;
   }) {
     /**
      * tạo notification cho người dùng (DB chết mà lỗi không làm chết service)
      */
-    try {
-      const userId = await this.keyModel.findOne(
-        { tkn_fcmToken: { $in: fcmTokens } },
-        { tkn_userId: 1 },
-      );
-      if (!userId) {
-        throw new Error('Không tìm thấy userId cho fcmTokens');
+    if (!skipSaveToDb) {
+      try {
+        const keys = await this.keyModel
+          .find({ tkn_fcmToken: { $in: fcmTokens } }, { tkn_userId: 1 })
+          .lean();
+
+        const userIds = [...new Set(keys.map((k) => k.tkn_userId.toString()))];
+
+        if (userIds.length === 0) {
+          console.warn(
+            'No users found for tokens, cannot save notification to DB',
+          );
+        }
+
+        await Promise.all(
+          userIds.map((uid) =>
+            this.notificationService.createNotification({
+              userId: uid,
+              push_type: (data?.push_type as NotificationType) || 'other',
+              title,
+              message,
+              metadata: data as Record<string, any>,
+            }),
+          ),
+        );
+      } catch (error) {
+        console.error('Không tạo được notification:', error);
       }
-      await this.notificationService.createNotification({
-        userId: userId.tkn_userId,
-        push_type: (data?.push_type as NotificationType) || 'other',
-        title,
-        message,
-        metadata: data as Record<string, any>,
-      });
-    } catch (error) {
-      console.error('Không tạo được notification:', error);
     }
 
     const payload: admin.messaging.MulticastMessage = {
@@ -144,12 +157,29 @@ export class FirebaseService implements OnModuleInit {
     message,
     userIds,
     data,
+    saveToDb = false,
   }: {
     title: string;
     message: string;
     userIds: string[];
     data?: Record<string, any>;
+    saveToDb?: boolean;
   }) {
+    // Save notification to DB for all users if requested
+    if (saveToDb) {
+      await Promise.all(
+        userIds.map((userId) =>
+          this.notificationService.createNotification({
+            userId,
+            push_type: (data?.push_type as NotificationType) || 'other',
+            title,
+            message,
+            metadata: data as Record<string, any>,
+          }),
+        ),
+      );
+    }
+
     // get fctoken from redis, fallback to MongoDB if empty
     let fcms: string[] = [];
     const redisResults = await Promise.all(
@@ -179,6 +209,7 @@ export class FirebaseService implements OnModuleInit {
         message,
         fcmTokens: fcms,
         data,
+        skipSaveToDb: true,
       });
     }
     console.log('đã gửi thông báo cho ', userIds);

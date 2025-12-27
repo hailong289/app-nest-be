@@ -3,7 +3,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
-import { NotificationType } from 'libs/db/src';
+import { Notification, NotificationType } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 
 @Injectable()
@@ -90,7 +90,7 @@ export class NotificationService {
 
   async markAllNotificationsAsRead(data: { userId: string }) {
     await this.notificationModel.updateMany(
-      { noti_userId: data.userId },
+      { noti_userId: new Types.ObjectId(data.userId) },
       { noti_read: true },
     );
     return Response.success(
@@ -109,8 +109,8 @@ export class NotificationService {
 
   async getNotifications(data: { userId: string }) {
     const notifications = await this.notificationModel
-      .find({ noti_userId: data.userId })
+      .find({ noti_userId: new Types.ObjectId(data.userId) })
       .sort({ createdAt: -1 });
-    return Response.success(notifications, 'Lấy thông báo thành công');
+    return Response.success({ notifications }, 'Lấy thông báo thành công');
   }
 }

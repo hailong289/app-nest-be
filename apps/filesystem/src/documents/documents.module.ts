@@ -25,6 +25,11 @@ import { SERVICES } from '@app/constants';
       clientId: 'filesystem-service-ai-client',
       groupId: 'filesystem-service-ai-group',
     }),
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.NOTIFICATION,
+      clientId: 'filesystem-service-notification-client',
+      groupId: 'filesystem-service-notification-group',
+    }),
   ],
   controllers: [DocumentsController],
   providers: [DocumentsService],

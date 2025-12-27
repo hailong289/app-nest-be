@@ -46,10 +46,109 @@ export class NotificationController {
       message: string;
       userIds: string[];
       data?: Record<string, any>;
+      saveToDb?: boolean;
     },
   ) {
     await this.firebaseService.pushNotificationForUsers(data);
     return Response.success(null, 'Push notification sent successfully');
+  }
+
+  @MessagePattern(KafkaEvent.DOC_CREATED)
+  async handleDocumentCreated(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.DOC_UPDATED)
+  async handleDocumentUpdated(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.DOC_NEW_VERSION)
+  async handleDocumentVersionUploaded(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.DOC_DELETED)
+  async handleDocumentDeleted(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.DOC_RESTORED)
+  async handleDocumentRestored(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.DOC_MOVED)
+  async handleDocumentMoved(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.DOC_SHARED)
+  async handleDocumentShared(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  // Workflow Events
+  @MessagePattern(KafkaEvent.FLOW_SUBMITTED)
+  async handleFlowSubmitted(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.FLOW_APPROVED)
+  async handleFlowApproved(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.FLOW_REJECTED)
+  async handleFlowRejected(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.FLOW_REQ_CHANGE)
+  async handleFlowReqChange(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.FLOW_OVERDUE)
+  async handleFlowOverdue(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  // Comment & Task Events
+  @MessagePattern(KafkaEvent.CMT_ADDED)
+  async handleCommentAdded(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.USER_MENTIONED)
+  async handleUserMentioned(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.TASK_ASSIGNED)
+  async handleTaskAssigned(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  // System & Security Events
+  @MessagePattern(KafkaEvent.SYS_QUOTA_WARN)
+  async handleSysQuotaWarn(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.SYS_CONVERT_FAIL)
+  async handleSysConvertFail(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.SEC_LOGIN_ALERT)
+  async handleSecLoginAlert(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
+  }
+
+  @MessagePattern(KafkaEvent.SEC_ACCESS_DENIED)
+  async handleSecAccessDenied(@Payload() data: any) {
+    return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @GrpcMethod('NotificationService', 'PushNotificationTest')
