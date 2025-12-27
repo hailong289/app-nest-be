@@ -903,6 +903,11 @@ export class HandleChatService {
     callType,
     messageId,
   }: RequestCallDto) {
+    console.log(
+      '🚀 ~ HandleChatService ~ requestCall ~ membersIds:',
+      membersIds,
+    );
+    console.log('🚀 ~ HandleChatService ~ requestCall ~ roomId:', roomId);
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
       if (!actionUser) {
@@ -913,7 +918,7 @@ export class HandleChatService {
           $in: membersIds.map((m) => m.toString()),
         },
       });
-
+      // Validate all members exist
       if (members.length !== membersIds.length) {
         throw new NotFoundException(
           'Một số thành viên trong cuộc gọi không tồn tại',
@@ -1000,7 +1005,7 @@ export class HandleChatService {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
-      callHistory.members = callHistory.members.map((m) => {
+      const updatedMembers = callHistory.members.map((m) => {
         // So sánh ObjectId đúng cách
         const isMatch = m.id.toString() === actionUser.usr_id.toString();
         const shouldStart = isMatch || (m.is_caller && m.status === 'pending');
@@ -1009,14 +1014,23 @@ export class HandleChatService {
           status: shouldStart ? ('started' as MemberStatus) : m.status,
         };
       });
-      callHistory.started_at = new Date();
-      // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
-      callHistory.markModified('members');
-      await callHistory.save();
+
+      await this.callHistoryModel.updateOne(
+        { _id: callHistory._id },
+        { $set: { members: updatedMembers, started_at: new Date() } },
+      );
+
+      const refreshedHistory = await this.callHistoryModel.findById(
+        callHistory._id,
+      );
+
+      if (!refreshedHistory) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      }
 
       return Response.success(
         {
-          history: callHistory,
+          history: refreshedHistory,
           room: room,
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',

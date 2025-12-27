@@ -66,8 +66,6 @@ export class AIService {
       const result = await model.generateContent(prompt);
       const responseText = result.response.text();
 
-      console.log('🚀 Raw Response:', responseText);
-
       // 3. Parse JSON an toàn
       let parsedData: {
         suggestions: string[];
