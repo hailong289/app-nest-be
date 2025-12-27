@@ -2,6 +2,7 @@ import {
   ChangeNickNameMemberDto,
   ChangeRoleMemberDto,
   CreateRoomEvent,
+  DeletedRoomDto,
   GetRoomDto,
   MutedRoomDto,
   PinnedRoomDto,
@@ -110,6 +111,18 @@ export class RoomsService {
                       '$$m', // giữ nguyên toàn bộ dữ liệu gốc của member
                       {
                         avatar: '$$u.usr_avatar', // chỉ cập nhật/ghi đè field avatar
+                        name: {
+                          $cond: [
+                            {
+                              $or: [
+                                { $not: ['$$m.name'] },
+                                { $eq: ['$$m.name', ''] },
+                              ],
+                            },
+                            '$$u.usr_fullname',
+                            '$$m.name',
+                          ],
+                        },
                       },
                     ],
                   },
@@ -500,18 +513,40 @@ export class RoomsService {
           },
         },
       },
+      {
+        $addFields: {
+          _lastMsgVisible: {
+            $cond: [
+              { $ifNull: ['$my_state.clear_before_ts', false] },
+              { $gt: ['$_lastMsgTs', '$my_state.clear_before_ts'] },
+              true,
+            ],
+          },
+        },
+      },
       { $sort: { _lastTs: -1 } },
       /** 11.1) Pinned messages của room */
       {
         $lookup: {
           from: 'Messages',
-          let: { pins: '$room_ghim', uid: uid },
+          let: {
+            pins: '$room_ghim',
+            uid: uid,
+            clearBefore: '$my_state.clear_before_ts',
+          },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
                     { $in: ['$_id', '$$pins'] },
+                    {
+                      $cond: [
+                        { $ifNull: ['$$clearBefore', false] },
+                        { $gt: ['$createdAt', '$$clearBefore'] },
+                        true,
+                      ],
+                    },
                     // KHÔNG lọc deleted để giữ đồng bộ trạng thái — UI đọc isDeleted để quyết
                     // Nếu muốn ẩn hẳn msg đã xoá, thêm bộ lọc deletedAt tại đây.
                   ],
@@ -682,7 +717,7 @@ export class RoomsService {
       /** 12) Project output gọn cho UI */
       {
         $project: {
-          _id: 0,
+          _id: 1,
 
           id: {
             $cond: [
@@ -719,21 +754,38 @@ export class RoomsService {
           members: 1,
 
           last_message: {
-            id: '$state.last_message_id',
-            content: '$state.last_message_snapshot.content',
-            createdAt: {
-              $ifNull: [
-                '$last_message_doc.createdAt',
-                '$state.last_message_snapshot.createdAt',
-              ],
-            },
-            sender: {
-              _id: '$last_message_sender._id',
-              id: '$last_message_sender.usr_id',
-              name: '$last_message_sender.usr_fullname',
-              avatar: '$last_message_sender.usr_avatar',
-            },
-            isMine: { $eq: ['$last_message_sender._id', uid] },
+            $cond: [
+              '$_lastMsgVisible',
+              {
+                id: '$state.last_message_id',
+                content: '$state.last_message_snapshot.content',
+                createdAt: {
+                  $ifNull: [
+                    '$last_message_doc.createdAt',
+                    '$state.last_message_snapshot.createdAt',
+                  ],
+                },
+                sender: {
+                  _id: '$last_message_sender._id',
+                  id: '$last_message_sender.usr_id',
+                  name: '$last_message_sender.usr_fullname',
+                  avatar: '$last_message_sender.usr_avatar',
+                },
+                isMine: { $eq: ['$last_message_sender._id', uid] },
+              },
+              {
+                id: null,
+                content: null,
+                createdAt: null,
+                sender: {
+                  _id: null,
+                  id: null,
+                  name: null,
+                  avatar: null,
+                },
+                isMine: false,
+              },
+            ],
           },
 
           is_read: 1,
@@ -808,7 +860,7 @@ export class RoomsService {
       role: (type === 'private'
         ? 'owner'
         : 'admin') as unknown as memberType['role'],
-      name: getInforUserCreateRoom.usr_fullname || '',
+      name: '',
       // joinedAt: new Date(),
     });
 
@@ -1366,7 +1418,6 @@ export class RoomsService {
 
     // xu lý filter
     const matchType = type && type !== 'all' ? { room_type: type } : {};
-    console.log('🚀 ~ RoomsService ~ GetRooms ~ matchType:', matchType);
     const objectId = this.utils.convertToObjectIdMongoose(userId);
 
     const listRoomIds = await this.redis.sMembers(this.key.USER_ROOMS(userId));
@@ -1506,11 +1557,6 @@ export class RoomsService {
     const { userId, roomId } = payload;
     if (!userId) {
       throw new NotFoundException('Không tìm thấy người dùng');
-    }
-    const checkEixsting = await this.checkExistedMemberRoom(userId, roomId);
-
-    if (!checkEixsting) {
-      throw new NotFoundException('bạn dã thoát nhóm');
     }
     return Response.success(
       await this.getRoomInfo({ userId, roomId }),
@@ -1780,6 +1826,45 @@ export class RoomsService {
       },
       {
         muted,
+      },
+    );
+    return await this.GetRoom({
+      userId,
+      roomId,
+    });
+  }
+
+  async DeletedRoom({ roomId, userId }: DeletedRoomDto) {
+    if (!userId)
+      throw new NotFoundException('bạn không phải thành viên nhóm này');
+    const checkEixsting = await this.checkExistedMemberRoom(userId, roomId);
+
+    if (!checkEixsting) {
+      throw new NotFoundException('bạn dã thoát nhóm');
+    }
+    // get info user
+    const userInfo = await this.userModel.findById(
+      this.utils.convertToObjectIdMongoose(userId),
+    );
+    if (!userInfo) {
+      throw new NotFoundException('Không tìm thấy người dùng');
+    }
+    // get info
+    const findRoom = await this.roomModel.findOne({
+      room_id: {
+        $in: [roomId, this.utils.pairRoomId(roomId, userInfo?.usr_id)],
+      },
+    });
+    if (!findRoom) {
+      throw new NotFoundException('không tìm thấy phòng');
+    }
+    await this.RoomsUsersState.findOneAndUpdate(
+      {
+        room_id: findRoom._id,
+        user_id: userInfo._id,
+      },
+      {
+        clear_before_ts: new Date(),
       },
     );
     return await this.GetRoom({

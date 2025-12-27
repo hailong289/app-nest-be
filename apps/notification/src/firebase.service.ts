@@ -107,7 +107,6 @@ export class FirebaseService implements OnModuleInit {
       },
     };
     try {
-      console.log('Firebase Cloud Messaging payload:', payload);
       await this.getMessaging().sendEachForMulticast(payload);
     } catch (error) {
       console.error('🔥 Firebase Cloud Messaging error:', error);

@@ -15,7 +15,7 @@ import {
 export class FilesystemController {
   constructor(private readonly filesystemService: FilesystemService) {}
 
-  @EventPattern(KafkaEvent.processLink)
+  @EventPattern(KafkaEvent.PROCESS_LINK)
   async handleProcessLink(
     @Payload()
     data: {

@@ -540,7 +540,7 @@ export class DocumentsService {
 
     // Trigger AI Embedding if plainText is updated
     if (updateData.plainText) {
-      this.aiClient.emit(KafkaEvent.aiDoc, {
+      this.aiClient.emit(KafkaEvent.AI_DOC_EMBEDDING, {
         text: updateData.plainText,
         docId: docId,
         userId: userId,
@@ -598,11 +598,11 @@ export class DocumentsService {
    */
   async listDocs(userId: string, roomId?: string) {
     const userObjId = this.utils.convertToObjectIdMongoose(userId);
-
-    // Base query: User has explicit access
-    const orConditions: any[] = [
+    // Access buckets
+    const baseAccessClauses = [
       { ownerId: userObjId },
       { 'sharedWith.userId': userObjId },
+      { visibility: DocVisibilityEnum.public },
     ];
 
     const query: Record<string, unknown> = {};
@@ -611,33 +611,24 @@ export class DocumentsService {
       const room = await this.findRoom(roomId, userId);
       query.roomIds = { $in: [room._id] };
 
-      // Check if user is member of the room
       const isMember = room.room_members.some(
         (m) => m.user_id.toString() === userObjId.toString(),
       );
 
+      const accessClauses = [...baseAccessClauses];
       if (isMember) {
-        // If member, can also see 'room' visibility docs
-        orConditions.push({ visibility: DocVisibilityEnum.room });
+        // Members can see room-visibility docs
+        accessClauses.push({ visibility: DocVisibilityEnum.room });
       }
-    } else {
-      // If no roomId, list personal docs (roomIds is empty or not exists)
-      query.$or = [{ roomIds: { $exists: false } }, { roomIds: { $size: 0 } }];
-    }
 
-    // Combine conditions
-    if (roomId) {
-      query.$or = orConditions;
+      query.$or = accessClauses;
     } else {
-      // For personal docs, we need to match (No Room) AND (Owner OR Shared)
-      // But wait, if it's personal doc, it MUST be owner or shared.
-      // The previous logic was: query.roomId = { $exists: false } AND $or = [owner, shared]
-      // So:
-      query.$and = [
-        { $or: [{ roomIds: { $exists: false } }, { roomIds: { $size: 0 } }] },
-        { $or: orConditions },
-      ];
-      delete query.$or; // Remove the previous $or assignment
+      // Personal docs: no room binding
+      const personalFilter = {
+        $or: [{ roomIds: { $exists: false } }, { roomIds: { $size: 0 } }],
+      };
+
+      query.$and = [personalFilter, { $or: baseAccessClauses }];
     }
 
     const docs = await this.docsModel.aggregate(

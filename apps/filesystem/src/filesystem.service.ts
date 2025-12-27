@@ -150,7 +150,7 @@ export class FilesystemService {
       if (['image', 'video', 'file', 'audio'].includes(kind) && messageId) {
         await this.utils.dispatchEventKafka(
           this.aiClient,
-          KafkaEvent.aiProcessFile,
+          KafkaEvent.AI_PROCESS_FILE_EMBEDDING,
           {
             fileUrl,
             fileType: kind,

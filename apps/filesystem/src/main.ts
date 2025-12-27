@@ -35,7 +35,14 @@ async function bootstrap() {
   Utils.createKafkaMicroserviceFromApplication(app, SERVICES.FILESYSTEM);
   const logger = new Logger();
   app.useGlobalFilters(new HttpExceptionsFilter());
-  await app.startAllMicroservices();
+
+  try {
+    await app.startAllMicroservices();
+  } catch (error) {
+    console.error('Error starting microservices:', error.message);
+    console.log('Some microservices may not be available, but continuing...');
+  }
+
   await app.init();
   console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
   logger.log(`file gRPC microservice is listening on port ${PORT}`);

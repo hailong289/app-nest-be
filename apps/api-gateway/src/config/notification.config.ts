@@ -1,7 +1,9 @@
 import { registerAs } from '@nestjs/config';
 
 export default registerAs('notification', () => {
-  const isSasl = process.env.NODE_ENV === 'production' ? true : false;
+  const isSasl =
+    process.env.GATEWAY_NOTI_KAFKA_SASL === 'true' ||
+    process.env.NODE_ENV === 'production';
   return {
     host: process.env.GATEWAY_NOTI_KAFKA_HOST,
     port: process.env.GATEWAY_NOTI_KAFKA_PORT,

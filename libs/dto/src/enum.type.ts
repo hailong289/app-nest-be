@@ -23,9 +23,29 @@ export enum notifyType {
 }
 
 export enum KafkaEvent {
-  aiMsg = 'ai.createChatMessageEmbedding',
-  aiDoc = 'ai.createDocumentEmbedding',
-  aiProcessFile = 'ai.processFileEmbedding',
-  processLink = 'filesystem.processLink',
-  shareDocForRoom = 'document.shareforRoom',
+  // File System
+  UPLOAD_SINGLE = 'upload_single_file',
+  UPLOAD_SINGLE_REPLY = 'upload_single_file.reply',
+  UPLOAD_MULTIPLE = 'upload_multiple_files',
+  UPLOAD_MULTIPLE_REPLY = 'upload_multiple_files.reply',
+  DELETE_FILE = 'delete_file',
+  DELETE_FILE_REPLY = 'delete_file.reply',
+  GET_PRESIGNED_URL = 'get_presigned_url',
+  GET_PRESIGNED_URL_REPLY = 'get_presigned_url.reply',
+  PROCESS_LINK = 'filesystem.processLink',
+
+  // AI & Processing
+  AI_CHAT_MSG_EMBEDDING = 'ai.createChatMessageEmbedding',
+  AI_DOC_EMBEDDING = 'ai.createDocumentEmbedding',
+  AI_PROCESS_FILE_EMBEDDING = 'ai.processFileEmbedding',
+
+  // Room & Document
+  CREATE_ROOMS = 'create_rooms',
+  SHARE_DOC_FOR_ROOM = 'document.shareforRoom',
+
+  // Notification & Auth
+  SEND_OTP = 'send_otp',
+  FORGOT_PASSWORD = 'forgot_password',
+  PUSH_NOTIFICATION = 'push_notification',
+  PUSH_NOTIFICATION_USERS = 'push_notification_users',
 }

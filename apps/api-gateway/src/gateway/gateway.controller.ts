@@ -68,10 +68,18 @@ export class GatewayController {
 
     try {
       const validUrl = new URL(url);
+      // Basic SSRF guard: block localhost unless explicitly allowed via env
+      const allowLocalPreview =
+        process.env.LINK_PREVIEW_ALLOW_LOCALHOST === 'true';
+      const blockedHosts = (
+        process.env.LINK_PREVIEW_BLOCKED_HOSTS || 'localhost,127.0.0.1,::1'
+      )
+        .split(',')
+        .map((h) => h.trim())
+        .filter(Boolean);
 
-      // Check localhost (Basic Security)
-      if (['localhost', '127.0.0.1', '::1'].includes(validUrl.hostname)) {
-        throw new Error('Restricted IP');
+      if (!allowLocalPreview && blockedHosts.includes(validUrl.hostname)) {
+        throw new HttpException('Restricted IP', HttpStatus.FORBIDDEN);
       }
 
       // 2. Generic Type cho Axios: báo trước data trả về là string (HTML)

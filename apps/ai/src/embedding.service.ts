@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, FilterQuery, Types } from 'mongoose';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
@@ -344,9 +344,10 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       const [vectorResults, keywordResults] = await Promise.all([
         this.embedModel
           .aggregate<SearchResult>(vectorPipeline)
-          .catch(async (err) => {
+          .catch(async (err: unknown) => {
+            const errMsg = err instanceof Error ? err.message : String(err);
             this.logger.warn(
-              `Vector search failed (likely local): ${err.message}. Switching to manual Cosine Similarity.`,
+              `Vector search failed (likely local): ${errMsg}. Switching to manual Cosine Similarity.`,
             );
 
             // Manual Vector Search (Local Fallback)
@@ -390,7 +391,6 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
             );
           }),
       ]);
-
       // 5. Merge & Deduplicate
       const combined = [...keywordResults, ...vectorResults];
       const uniqueMap = new Map<string, SearchResult>();
@@ -478,12 +478,13 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         });
       } else {
         // Append mode: Check exist
-        const query: any = {
+        const query: FilterQuery<AIEmbedding> = {
           contextId: Utils.convertToObjectIdMongoose(contextId),
           contextType: contextType,
         };
-        if (messageId)
+        if (messageId) {
           query.messageId = Utils.convertToObjectIdMongoose(messageId);
+        }
 
         const exists = await this.embedModel.exists(query);
         if (exists) return;
@@ -530,8 +531,26 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
    * @param userId ID user (để check quyền - TODO)
    * @param limit Số lượng kết quả
    */
-  async searchSimilarDocuments(query: string, userId: string, limit = 5) {
-    let results: any[] = [];
+  async searchSimilarDocuments(
+    query: string,
+    userId: string,
+    limit = 5,
+  ): Promise<
+    Array<{
+      text: string;
+      contextId: string;
+      contextType: string;
+      score: number;
+    }>
+  > {
+    type RawSearchResult = {
+      text: string;
+      contextId: string | Types.ObjectId;
+      contextType: string | undefined;
+      score: number;
+    };
+
+    let results: RawSearchResult[] = [];
     let queryVector: number[] | null = null;
 
     try {
@@ -565,11 +584,12 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         },
       ];
 
-      results = await this.embedModel.aggregate(pipeline);
+      results = await this.embedModel.aggregate<RawSearchResult>(pipeline);
     } catch (error: any) {
+      const err = error as { code?: number; message?: string };
       if (
         queryVector &&
-        (error.code === 6047401 || error.message?.includes('Vector search'))
+        (err.code === 6047401 || err.message?.includes('Vector search'))
       ) {
         this.logger.warn(
           'Vector search not supported. Falling back to manual Cosine Similarity.',
@@ -589,7 +609,14 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           score: this.cosineSimilarity(queryVector!, c.vector),
         }));
 
-        results = scored.sort((a, b) => b.score - a.score).slice(0, limit);
+        results = scored
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit)
+          .map((item) => ({
+            ...item,
+            contextId: item.contextId?.toString?.() ?? '',
+            contextType: item.contextType ?? 'doc',
+          }));
       } else {
         this.logger.error('Vector search failed', error);
       }
@@ -611,10 +638,23 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         `Found ${docs.length} docs/files via regex fallback for "${query}"`,
       );
 
-      results = docs.map((d) => ({ ...d, score: 0.5 }));
+      results = docs.map((d) => ({
+        ...d,
+        score: 0.5,
+        contextId: d.contextId?.toString?.() ?? '',
+        contextType: d.contextType ?? 'doc',
+      }));
     }
 
-    return results;
+    return results.map((r) => ({
+      text: r.text,
+      contextId:
+        typeof r.contextId === 'string'
+          ? r.contextId
+          : (r.contextId?.toString?.() ?? ''),
+      contextType: r.contextType ?? 'doc',
+      score: r.score,
+    }));
   }
 
   async processFileEmbedding(
@@ -629,10 +669,11 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       this.logger.log(`Processing file embedding: ${fileUrl} (${fileType})`);
 
       // 1. Download file
-      const response = await axios.get(fileUrl, {
+      const response = await axios.get<ArrayBuffer>(fileUrl, {
         responseType: 'arraybuffer',
       });
-      const buffer = Buffer.from(response.data);
+      const arrayBuffer = response.data;
+      const buffer: Buffer = Buffer.from(arrayBuffer);
 
       let textToEmbed = '';
 

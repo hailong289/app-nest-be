@@ -154,6 +154,19 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
+      // Check User Status
+      if (payload.usr_status && payload.usr_status !== 'active') {
+        this.logger.warn(
+          `[CONNECT] User ${payload._id} is not active (status: ${payload.usr_status})`,
+        );
+        client.emit('exception', {
+          status: 'error',
+          message: 'Tài khoản hiện không hoạt động',
+        });
+        client.disconnect();
+        return;
+      }
+
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
@@ -205,7 +218,57 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.redis.sRem(this.key.USER_ONLINE(client.userId), client.id);
     }
   }
+  private async getUser(@ConnectedSocket() client: SocketWithUser) {
+    if (!client.user) {
+      try {
+        let token: string | undefined =
+          (client.handshake.auth?.token as string) ||
+          (client.handshake.query?.token as string) ||
+          (client.handshake.headers?.authorization as string);
 
+        if (token) {
+          if (token.startsWith('Bearer ')) {
+            token = token.replace('Bearer ', '');
+          }
+          const jwtSecret = this.configService.get<string>(
+            'GATEWAY_JWT_ACCESS_SECRET',
+          );
+          if (jwtSecret) {
+            const payload = this.jwtService.verify<JwtPayload>(token, {
+              secret: jwtSecret,
+            });
+            if (payload.jti && payload._id) {
+              const redisResult: unknown = await this.redis.getData(
+                this.key.REFRESH_TOKEN(payload._id, payload.jti),
+              );
+              const isValid =
+                typeof redisResult === 'string' ||
+                typeof redisResult === 'number' ||
+                typeof redisResult === 'boolean'
+                  ? Boolean(redisResult)
+                  : !!redisResult;
+
+              if (isValid) {
+                client.user = payload;
+                client.userId = payload._id;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[getUser] Re-auth failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    const user = client.user;
+    if (!user) {
+      throw new Error('Unauthorized');
+    }
+    return user;
+  }
   // ========================================================
   // Document Events
   // ========================================================
@@ -214,8 +277,10 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { docId: string; userId?: string },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -263,12 +328,16 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ========================================================
   // Sự kiện này chưa có trong code cũ của bạn -> Bắt buộc thêm
   @SubscribeMessage('doc:broadcast')
-  onDocumentBroadcast(
+  async onDocumentBroadcast(
     @MessageBody() data: { docId: string; yjsUpdate: number[] }, // Nhận array number từ client
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) return;
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
+      return;
+    }
 
     const { docId, yjsUpdate } = data;
     const docRoom = `doc:${docId}`;
@@ -296,8 +365,10 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) {
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
@@ -349,7 +420,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('doc:cursor')
-  onCursorMove(
+  async onCursorMove(
     @MessageBody()
     data: {
       docId: string;
@@ -357,8 +428,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) return;
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
+      return;
+    }
 
     const { docId, cursorPosition } = data;
     const docRoom = `doc:${docId}`;
@@ -374,7 +449,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('doc:typing')
-  onUserTyping(
+  async onUserTyping(
     @MessageBody()
     data: {
       docId: string;
@@ -382,8 +457,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) return;
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
+      return;
+    }
 
     const { docId, isTyping } = data;
     const docRoom = `doc:${docId}`;
@@ -400,8 +479,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { docId: string },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) return;
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
+      return;
+    }
 
     const { docId } = data;
     const docRoom = `doc:${docId}`;
@@ -418,7 +501,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.leave(docRoom);
   }
   @SubscribeMessage('doc:awareness')
-  onAwarenessUpdate(
+  async onAwarenessUpdate(
     @MessageBody()
     data: {
       docId: string;
@@ -427,8 +510,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    const user = client.user;
-    if (!user) return;
+    let user: JwtPayload;
+    try {
+      user = await this.getUser(client);
+    } catch {
+      return;
+    }
 
     const { docId, awareness, changed } = data;
     const docRoom = `doc:${docId}`;
