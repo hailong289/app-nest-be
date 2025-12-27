@@ -1366,7 +1366,6 @@ export class RoomsService {
 
     // xu lý filter
     const matchType = type && type !== 'all' ? { room_type: type } : {};
-    console.log('🚀 ~ RoomsService ~ GetRooms ~ matchType:', matchType);
     const objectId = this.utils.convertToObjectIdMongoose(userId);
 
     const listRoomIds = await this.redis.sMembers(this.key.USER_ROOMS(userId));
