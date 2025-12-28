@@ -274,6 +274,7 @@ export class HandleChatService {
                 roomId,
                 userId,
                 docId: documentId,
+                messageId: createNewMsg._id.toString(),
               },
             ),
           ]
