@@ -911,33 +911,47 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const updatedHistory = await this.callHistoryModel.findOneAndUpdate(
-        {
+      const callHistory = await this.callHistoryModel
+        .findOne({
+          members: {
+            $elemMatch: { id: actionUser.usr_id },
+          },
           room_id: room._id,
           ended_at: null,
-          'members.id': actionUser.usr_id,
-        },
-        {
-          $set: {
-            'members.$.status': 'started',
-            // Ensure started_at is set if it wasn't already (though requestCall sets it)
-            // If we want to be safe we can use $setOnInsert but this is an update.
-            // The original code set it if missing.
-            // started_at: new Date()
-          },
-        },
-        { new: true },
-      );
+        })
+        .sort({ createdAt: -1 });
 
-      if (!updatedHistory) {
-        throw new BadRequestException(
-          'Không tìm thấy lịch sử cuộc gọi hoặc đã kết thúc',
-        );
+      if (!callHistory) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      }
+
+      // Cập nhật status cho members
+      callHistory.members = callHistory.members.map((m) => {
+        // So sánh ObjectId đúng cách
+        const isMatch = m.id.toString() === actionUser.usr_id.toString();
+        const shouldStart = isMatch || (m.is_caller && m.status === 'started');
+        return {
+          ...m,
+          status: shouldStart ? ('started' as MemberStatus) : m.status,
+        };
+      });
+
+      // Cập nhật started_at nếu chưa có
+      if (!callHistory.started_at) {
+        callHistory.started_at = new Date();
+      }
+
+      // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
+      callHistory.markModified('members');
+      const refreshedHistory = await callHistory.save();
+
+      if (!refreshedHistory) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
       return Response.success(
         {
-          history: updatedHistory,
+          history: refreshedHistory,
           room: room,
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',
@@ -961,63 +975,63 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const callHistory = await this.callHistoryModel.findOne({
-        room_id: room._id,
-        ended_at: null,
-        'members.id': actionUser.usr_id,
-      });
+      const callHistory = await this.callHistoryModel
+        .findOne({
+          members: {
+            $elemMatch: { id: actionUser.usr_id },
+          },
+          room_id: room._id,
+          ended_at: null,
+        })
+        .sort({ createdAt: -1 });
 
       if (!callHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
-      const isCaller = callHistory.members.find(
-        (m) => m.id === actionUser.usr_id,
-      )?.is_caller;
       const totalMembers = callHistory.members.length;
+      const isCallerEnded = !!callHistory.members.find(
+        (m) => m.id.toString() === actionUser.usr_id.toString() && m.is_caller,
+      );
 
-      let updatedHistory;
+      // Cập nhật status cho member hiện tại
+      callHistory.members = callHistory.members.map((m) => {
+        // So sánh ObjectId đúng cách
+        const isMatch = m.id.toString() === actionUser.usr_id.toString();
+        return {
+          ...m,
+          status:
+            totalMembers === 2 || isCallerEnded
+              ? 'ended'
+              : isMatch
+                ? status
+                : m.status,
+        };
+      });
 
-      if (totalMembers === 2 || isCaller) {
-        updatedHistory = await this.callHistoryModel.findOneAndUpdate(
-          { _id: callHistory._id },
-          {
-            $set: {
-              'members.$[].status': 'ended',
-              ended_at: new Date(),
-            },
-          },
-          { new: true },
-        );
-      } else {
-        updatedHistory = await this.callHistoryModel.findOneAndUpdate(
-          {
-            _id: callHistory._id,
-            'members.id': actionUser.usr_id,
-          },
-          {
-            $set: { 'members.$.status': status },
-          },
-          { new: true },
-        );
+      // Tính lại totalMembersEnded sau khi cập nhật
+      const totalMembersEnded = callHistory.members.filter(
+        (m) =>
+          m.status === 'ended' ||
+          m.status === 'missed' ||
+          m.status === 'rejected' ||
+          m.status === 'cancelled',
+      ).length;
 
-        if (updatedHistory) {
-          const allEnded = updatedHistory.members.every((m) =>
-            ['ended', 'missed', 'rejected', 'cancelled'].includes(m.status),
-          );
-          if (allEnded) {
-            updatedHistory = await this.callHistoryModel.findOneAndUpdate(
-              { _id: callHistory._id, ended_at: null },
-              { $set: { ended_at: new Date() } },
-              { new: true },
-            );
-          }
-        }
-      }
+      callHistory.ended_at =
+        totalMembersEnded === totalMembers ||
+        isCallerEnded ||
+        totalMembers === 2
+          ? new Date()
+          : null;
+
+      // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
+      callHistory.markModified('members');
+      await callHistory.save();
 
       return Response.success(
         {
-          history: updatedHistory,
+          history: callHistory,
           room: room,
         },
         'Cuộc gọi đã được kết thúc',
