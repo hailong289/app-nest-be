@@ -46,6 +46,13 @@ interface AiGrpcService {
   quizz(data: QuizzDto): Observable<unknown>;
 }
 
+type AiSearchPayload = {
+  query: string;
+  userId: string;
+  limit: number;
+  roomId?: string;
+};
+
 @Controller('ai')
 export class GatewayAiController {
   private aiService: AiGrpcService;
@@ -89,6 +96,27 @@ export class GatewayAiController {
     return this.gatewayService.dispatchGrpcRequest(
       (data: SearchMessagesDto) => this.aiService.searchMessages(data),
       query,
+    );
+  }
+
+  @Post('search')
+  async search(
+    @Body()
+    body: {
+      query: string;
+      roomId?: string;
+      limit?: number;
+    },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.gatewayService.dispatchGrpcRequest(
+      (data: AiSearchPayload) => this.aiService.search(data),
+      {
+        query: body.query,
+        userId: req.user.usr_id,
+        limit: body.limit ?? 5,
+        roomId: body.roomId,
+      },
     );
   }
 
