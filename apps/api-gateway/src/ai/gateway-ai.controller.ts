@@ -120,7 +120,11 @@ export class GatewayAiController {
     body: {
       text: string;
       type: 'text' | 'document';
-      question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
+      question_type:
+        | 'single_choice'
+        | 'multiple_choice'
+        | 'true_false'
+        | 'text';
       question_max: number;
       question_max_points: number;
     },

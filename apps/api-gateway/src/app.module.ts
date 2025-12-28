@@ -39,22 +39,26 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
 })
 export class AppModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(AuthMiddleware)
-      .forRoutes(
-        { path: 'auth/logout', method: RequestMethod.ALL },
-        { path: 'auth/refresh-token', method: RequestMethod.POST },
-        { path: 'auth/update-password', method: RequestMethod.POST },
-        { path: 'auth/reset-password', method: RequestMethod.POST },
-        { path: 'auth/update-avatar', method: RequestMethod.POST },
-        { path: 'auth/update-profile', method: RequestMethod.POST },
-        { path: 'chat/*path', method: RequestMethod.ALL },
-        { path: 'social/*path', method: RequestMethod.ALL },
-        { path: 'documents', method: RequestMethod.ALL },
-        { path: 'documents/*path', method: RequestMethod.ALL },
-        { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
-        { path: 'ai/search', method: RequestMethod.POST },
-        { path: 'ai/suggest-replies', method: RequestMethod.POST },
-      );
+    consumer.apply(AuthMiddleware).forRoutes(
+      { path: 'auth/logout', method: RequestMethod.ALL },
+      { path: 'auth/refresh-token', method: RequestMethod.POST },
+      { path: 'auth/update-password', method: RequestMethod.POST },
+      { path: 'auth/reset-password', method: RequestMethod.POST },
+      { path: 'auth/update-avatar', method: RequestMethod.POST },
+      { path: 'auth/update-profile', method: RequestMethod.POST },
+      { path: 'chat/*path', method: RequestMethod.ALL },
+      { path: 'social/*path', method: RequestMethod.ALL },
+      { path: 'documents', method: RequestMethod.ALL },
+      { path: 'documents/*path', method: RequestMethod.ALL },
+      { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
+      { path: 'ai/search', method: RequestMethod.POST },
+      { path: 'ai/suggest-replies', method: RequestMethod.POST },
+      { path: 'notifications', method: RequestMethod.GET },
+      { path: 'notifications/read-all', method: RequestMethod.PUT },
+      {
+        path: 'notifications/:notificationId/read',
+        method: RequestMethod.PUT,
+      },
+    );
   }
 }
