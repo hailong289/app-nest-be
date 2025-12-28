@@ -3,13 +3,14 @@ name: Deploy Microservices
 on:
   push:
     branches:
-      - developer
+      - master
     paths:
       - 'apps/auth/**'
       - 'apps/api-gateway/**'
       - 'apps/notification/**'
       - 'apps/filesystem/**'
       - 'apps/chat/**'
+      - 'apps/ai/**'
 
 jobs:
   detect-changes:

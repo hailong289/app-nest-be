@@ -900,6 +900,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      console.log('🚀 ~ ChatGateway ~ handleAccept ~ data:', data);
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
         {
