@@ -1025,6 +1025,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage('call:share-screen')
+  async handleShareScreen(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isSharing: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error sharing screen:', error);
+      client.emit('error', {
+        message: 'Chia sẻ màn hình thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   // ==== candidate
   @SubscribeMessage('call:candidate')
   async handleCandidate(
