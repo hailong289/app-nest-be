@@ -29,21 +29,21 @@ import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import { Observable } from 'rxjs';
 interface AiGrpcService {
   // Define AI service methods here
-  moderation(data: ModerationDto): any;
+  moderation(data: ModerationDto): Observable<unknown>;
   search(data: {
     query: string;
     userId: string;
     limit: number;
     roomId?: string;
-  }): Observable<any>;
+  }): Observable<unknown>;
   suggestReplies(data: {
     contextMessages: string[];
     userId: string;
-  }): Observable<any>;
-  searchMessages(data: SearchMessagesDto): any;
-  summaryDocument(data: SummaryDocumentDto): any;
-  translation(data: TranslationDto): any;
-  quizz(data: QuizzDto): any;
+  }): Observable<unknown>;
+  searchMessages(data: SearchMessagesDto): Observable<unknown>;
+  summaryDocument(data: SummaryDocumentDto): Observable<unknown>;
+  translation(data: TranslationDto): Observable<unknown>;
+  quizz(data: QuizzDto): Observable<unknown>;
 }
 
 @Controller('ai')
@@ -62,7 +62,7 @@ export class GatewayAiController {
   async moderation(@Body() body: ModerationDto) {
     // Tăng timeout lên 2 phút (120000ms) cho moderation
     return this.gatewayService.dispatchGrpcRequest(
-      this.aiService.moderation,
+      (data: ModerationDto) => this.aiService.moderation(data),
       body,
       120000, // 2 minutes timeout
     );
@@ -74,7 +74,8 @@ export class GatewayAiController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.gatewayService.dispatchGrpcRequest(
-      this.aiService.suggestReplies,
+      (data: { contextMessages: string[]; userId: string }) =>
+        this.aiService.suggestReplies(data),
       {
         contextMessages: body.contextMessages,
         userId: req.user.usr_id,
@@ -86,7 +87,7 @@ export class GatewayAiController {
   @Get('search-messages')
   async searchMessages(@Query() query: SearchMessagesDto) {
     return this.gatewayService.dispatchGrpcRequest(
-      this.aiService.searchMessages,
+      (data: SearchMessagesDto) => this.aiService.searchMessages(data),
       query,
     );
   }
@@ -97,7 +98,7 @@ export class GatewayAiController {
     console.log('SummaryDocument request:', file);
     // Tăng timeout lên 2 phút (120000ms) cho xử lý document lớn
     return this.gatewayService.dispatchGrpcRequest(
-      this.aiService.summaryDocument,
+      (data: SummaryDocumentDto) => this.aiService.summaryDocument(data),
       { file },
       120000, // 2 minutes timeout
     );
@@ -106,7 +107,7 @@ export class GatewayAiController {
   @Post('translation')
   async translation(@Body() body: TranslationDto) {
     return this.gatewayService.dispatchGrpcRequest(
-      this.aiService.translation,
+      (data: TranslationDto) => this.aiService.translation(data),
       body,
       100000, // 1 minute timeout
     );
@@ -131,7 +132,7 @@ export class GatewayAiController {
   ) {
     console.log('Quizz request:', { file, body });
     return this.gatewayService.dispatchGrpcRequest(
-      this.aiService.quizz,
+      (data: QuizzDto) => this.aiService.quizz(data),
       {
         file: file,
         text: body?.text || '',

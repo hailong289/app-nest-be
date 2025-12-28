@@ -18,7 +18,7 @@ import { GatewayFlashcardController } from './flashcard/gateway-flashcard.contro
       {
         name: SERVICES.AI,
         imports: [ConfigModule],
-        useFactory: async (configService: ConfigService) => ({
+        useFactory: (configService: ConfigService) => ({
           transport: Transport.GRPC,
           options: {
             package: ['ai', 'quizz', 'flashcard'],
@@ -28,7 +28,7 @@ import { GatewayFlashcardController } from './flashcard/gateway-flashcard.contro
               join(process.cwd(), 'libs/grpc/flashcard.proto'),
             ],
             loader: {
-              keepCase: true, // 👈 "Chìa khóa" đây nè Trí!
+              keepCase: true,
               includeDirs: [join(process.cwd(), 'libs/grpc')],
             },
             url: `${configService.get<string>('GATEWAY_AI_HOST') || 'localhost'}:${configService.get<string>('GATEWAY_AI_PORT') || '5004'}`,
