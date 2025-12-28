@@ -120,6 +120,7 @@ export class GatewayService {
         ),
       );
     } catch (error) {
+      console.log('🚀 ~ GatewayService ~ dispatchGrpcRequest ~ error:', error);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       return Response.error(errorMessage, 503, 'SERVICE_UNAVAILABLE');
