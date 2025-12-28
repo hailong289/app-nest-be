@@ -473,12 +473,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Lấy danh sách userId của members khác (để gửi notification)
 
       // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất
-      const globalMsgData = await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-        { userId: data.userId, msgId },
-      );
-
-      // Batch gọi getRoom cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
           const memberUserId = member.user_id as string;
