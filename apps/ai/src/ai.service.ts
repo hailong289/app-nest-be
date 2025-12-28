@@ -65,7 +65,14 @@ export class AIService {
     question_max: number,
     question_max_points: number,
   ) {
-    const result = await this.googleProvider.generateQuizz(file, text, type, question_type, question_max, question_max_points);
+    const result = await this.googleProvider.generateQuizz(
+      file,
+      text,
+      type,
+      question_type,
+      question_max,
+      question_max_points,
+    );
     return result;
   }
 }

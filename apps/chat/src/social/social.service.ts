@@ -1,4 +1,4 @@
-import { SendFriendRequestDto } from '@app/dto';
+import { KafkaEvent, SendFriendRequestDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -92,24 +92,22 @@ export class SocialService {
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
-      Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
-        fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-        title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
-        message: 'Bạn có một lời mời kết bạn mới',
-        data: {
-          userId: receiver.usr_id,
-          senderId: user.usr_id,
-          senderName: user.usr_fullname,
-          senderAvatar: user.usr_avatar,
-          push_type: 'friend_request',
+      Utils.dispatchEventKafka(
+        this.notificationClient,
+        KafkaEvent.PUSH_NOTIFICATION,
+        {
+          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+          title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
+          message: 'Bạn có một lời mời kết bạn mới',
+          data: {
+            userId: receiver.usr_id,
+            senderId: user.usr_id,
+            senderName: user.usr_fullname,
+            senderAvatar: user.usr_avatar,
+            push_type: 'friend_request',
+          },
         },
-      }).then((response) => {
-        if (response.statusCode !== 200) {
-          console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
-        } else {
-          console.log('🔥 Gửi notification thành công:', response);
-        }
-      });
+      );
     }
     return Response.success(friendship, 'Gửi lời mời kết bạn thành công');
   }
@@ -185,24 +183,22 @@ export class SocialService {
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
-      Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
-        fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-        title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
-        message: 'Bạn đã được kết bạn với người dùng',
-        data: {
-          userId: user1._id,
-          senderId: user2._id,
-          senderName: user2.usr_fullname,
-          senderAvatar: user2.usr_avatar,
-          push_type: 'friend_request',
+      Utils.dispatchEventKafka(
+        this.notificationClient,
+        KafkaEvent.PUSH_NOTIFICATION,
+        {
+          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+          title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
+          message: 'Bạn đã được kết bạn với người dùng',
+          data: {
+            userId: user1._id,
+            senderId: user2._id,
+            senderName: user2.usr_fullname,
+            senderAvatar: user2.usr_avatar,
+            push_type: 'friend_request',
+          },
         },
-      }).then((response) => {
-        if (response.statusCode !== 200) {
-          console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
-        } else {
-          console.log('🔥 Gửi notification thành công:', response);
-        }
-      });
+      );
     }
     const result: {
       frpId: string;
@@ -296,18 +292,22 @@ export class SocialService {
       { tkn_fcmToken: 1 },
     );
     if (fcmTokens.length > 0) {
-      Utils.dispatchEventKafka(this.notificationClient, 'push_notification', {
-        fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
-        title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
-        message: 'Bạn đã bị từ chối kết bạn với người dùng',
-        data: {
-          userId: user1._id,
-          senderId: user1._id,
-          senderName: user1.usr_fullname,
-          senderAvatar: user1.usr_avatar,
-          push_type: 'friend_request',
+      Utils.dispatchEventKafka(
+        this.notificationClient,
+        KafkaEvent.PUSH_NOTIFICATION,
+        {
+          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+          title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
+          message: 'Bạn đã bị từ chối kết bạn với người dùng',
+          data: {
+            userId: user1._id,
+            senderId: user1._id,
+            senderName: user1.usr_fullname,
+            senderAvatar: user1.usr_avatar,
+            push_type: 'friend_rejected',
+          },
         },
-      }).then((response) => {
+      ).then((response) => {
         if (response.statusCode !== 200) {
           console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
         } else {

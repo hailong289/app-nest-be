@@ -69,5 +69,5 @@ export class QuizzDto {
   @IsNotEmpty({ message: 'Tổng điểm số không để trống' })
   @IsNumber({}, { message: 'Tổng điểm số phải là số' })
   @Min(1, { message: 'Tổng điểm số phải lớn hơn 0' })
-  question_max_points: number;  
+  question_max_points: number;
 }

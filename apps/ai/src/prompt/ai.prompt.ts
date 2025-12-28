@@ -72,30 +72,30 @@ export const generateQuizzPrompt = (
   question_max: number,
   question_max_points: number,
 ) => {
-
   // Tính toán điểm trung bình mỗi câu để đưa vào prompt cho AI dễ hiểu
-  const pointsPerQuestion = question_max > 0 ? (question_max_points / question_max) : 0;
+  const pointsPerQuestion =
+    question_max > 0 ? question_max_points / question_max : 0;
 
   const questionTypeInstructions = {
-    'single_choice': `
+    single_choice: `
       - Loại câu hỏi: Trắc nghiệm 1 đáp án đúng.
       - Cấu trúc answers: Phải có 4 đáp án (1 đúng, 3 sai).
       - Logic điểm answers: Đáp án đúng có points = ${pointsPerQuestion}, đáp án sai có points = 0.`,
-    
-    'multiple_choice': `
+
+    multiple_choice: `
       - Loại câu hỏi: Trắc nghiệm nhiều đáp án đúng.
       - Cấu trúc answers: Phải có 4 đáp án (tối thiểu 2 đúng, tối đa 4 đúng).
-      - Logic điểm answers: Chia đều điểm câu hỏi (${pointsPerQuestion}) cho số lượng đáp án đúng. Ví dụ: 2 câu đúng thì mỗi câu ${pointsPerQuestion/2} điểm. Đáp án sai points = 0.`,
-    
-    'true_false': `
+      - Logic điểm answers: Chia đều điểm câu hỏi (${pointsPerQuestion}) cho số lượng đáp án đúng. Ví dụ: 2 câu đúng thì mỗi câu ${pointsPerQuestion / 2} điểm. Đáp án sai points = 0.`,
+
+    true_false: `
       - Loại câu hỏi: Đúng/Sai.
       - Cấu trúc answers: Phải có 2 đáp án (True và False).
       - Logic điểm answers: Đáp án đúng points = ${pointsPerQuestion}, đáp án sai points = 0.`,
-    
-    'text': `
+
+    text: `
       - Loại câu hỏi: Tự luận.
       - Cấu trúc answers: Mảng rỗng [] (Không tạo đáp án giả).
-      - Logic điểm: Chỉ set points ở level câu hỏi, không set trong answers.`
+      - Logic điểm: Chỉ set points ở level câu hỏi, không set trong answers.`,
   };
 
   return `

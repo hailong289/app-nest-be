@@ -250,7 +250,13 @@ export class GoogleModerationProvider {
     question_max: number,
     question_max_points: number,
   ) {
-    const prompt = generateQuizzPrompt(text, type, question_type, question_max, question_max_points);
+    const prompt = generateQuizzPrompt(
+      text,
+      type,
+      question_type,
+      question_max,
+      question_max_points,
+    );
     console.log('prompt', prompt);
     try {
       const result = await this.generateContent(

@@ -22,6 +22,7 @@ import {
   aIEmbeddingModel,
   aIUsageLogModel,
   attachmentModel,
+  notificationModel,
 } from './model';
 
 @Global()
@@ -66,6 +67,7 @@ import {
       documentModel,
       aIEmbeddingModel,
       aIUsageLogModel,
+      notificationModel,
     ]),
   ],
   exports: [

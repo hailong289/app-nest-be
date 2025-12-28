@@ -1,13 +1,19 @@
+import { Response } from '@app/helpers/response';
+import Utils from '@app/helpers/utils';
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import path from 'path';
+import { InjectModel } from '@nestjs/mongoose';
+import { Notification, NotificationType } from 'libs/db/src';
+import { Model, Types } from 'mongoose';
 
 @Injectable()
 export class NotificationService {
   constructor(
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<Notification>,
   ) {}
 
   async sendOtp(user: { email: string; otp: string }) {
@@ -59,5 +65,76 @@ export class NotificationService {
         </div>
       `,
     });
+  }
+
+  async createNotification(data: {
+    userId: string;
+    push_type: NotificationType;
+    title: string;
+    message: string;
+    metadata?: Record<string, any>;
+  }) {
+    try {
+      await this.notificationModel.create({
+        noti_userId: Utils.convertToObjectIdMongoose(data.userId),
+        noti_type: data.push_type,
+        noti_title: data.title,
+        noti_content: data.message,
+        noti_metadata: data.metadata,
+      });
+      return Response.success(null, 'Tạo thông báo thành công');
+    } catch (error) {
+      console.error('Không tạo được notification:', error);
+      return Response.error('Không tạo được notification', 400, 'BAD_REQUEST');
+    }
+  }
+
+  async markAllNotificationsAsRead(data: { userId: string }) {
+    await this.notificationModel.updateMany(
+      { noti_userId: new Types.ObjectId(data.userId) },
+      { noti_read: true },
+    );
+    return Response.success(
+      null,
+      'Đánh dấu tất cả thông báo đã đọc thành công',
+    );
+  }
+
+  async markNotificationAsRead(data: { notificationId: string }) {
+    await this.notificationModel.updateOne(
+      { noti_id: data.notificationId },
+      { noti_read: true },
+    );
+    return Response.success(null, 'Đánh dấu thông báo đã đọc thành công');
+  }
+
+  async getNotifications(data: { userId: string }) {
+    const notifications = await this.notificationModel
+      .find({ noti_userId: Utils.convertToObjectIdMongoose(data.userId) })
+      .sort({ createdAt: -1 });
+
+    const toTimestamp = (date?: Date | null) => {
+      if (!date) return undefined;
+      const ms = date.getTime();
+      return {
+        seconds: Math.floor(ms / 1000),
+        nanos: (ms % 1000) * 1_000_000,
+      };
+    };
+
+    const payload = notifications.map((notification) => {
+      const plain = notification.toObject();
+      return {
+        ...plain,
+        createdAt: toTimestamp(notification.createdAt),
+        updatedAt: toTimestamp(notification.updatedAt),
+        noti_readAt: toTimestamp(notification.noti_readAt),
+      };
+    });
+
+    return Response.success(
+      { notifications: payload },
+      'Lấy thông báo thành công',
+    );
   }
 }

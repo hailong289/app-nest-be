@@ -3,9 +3,13 @@ syntax = "proto3";
 package notification;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 service NotificationService {
   rpc PushNotificationTest(PushNotificationTestRequest) returns (PushNotificationTestResponse);
+  rpc GetNotifications(GetNotificationsRequest) returns (GetNotificationsResponse);
+  rpc MarkNotificationAsRead(MarkNotificationAsReadRequest) returns (MarkNotificationAsReadResponse);
+  rpc MarkAllNotificationsAsRead(MarkAllNotificationsAsReadRequest) returns (MarkAllNotificationsAsReadResponse);
 }
 
 message PushNotificationTestRequest {
@@ -20,4 +24,60 @@ message PushNotificationTestResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   google.protobuf.Struct metadata = 4;
+}
+
+// GetNotifications
+message GetNotificationsRequest {
+  string userId = 1;
+}
+
+message GetNotificationsResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetNotificationsMetadata metadata = 4;
+}
+
+message GetNotificationsMetadata {
+  repeated Notification notifications = 1;
+}
+
+// MarkNotificationAsRead
+message MarkNotificationAsReadRequest {
+  string notificationId = 1;
+}
+
+message MarkNotificationAsReadResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
+}
+
+// MarkAllNotificationsAsRead
+message MarkAllNotificationsAsReadRequest {
+  string userId = 1;
+}
+
+message MarkAllNotificationsAsReadResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
+}
+
+// Notification message type
+message Notification {
+  string noti_id = 1;
+  string noti_userId = 2;
+  string noti_type = 3; // 'friend_request' | 'friend_accepted' | 'friend_rejected' | 'message' | 'room_invite' | 'system' | 'other'
+  string noti_title = 4;
+  string noti_content = 5;
+  bool noti_read = 6;
+  google.protobuf.Timestamp noti_readAt = 7;
+  google.protobuf.Struct noti_metadata = 8;
+  string noti_image = 9;
+  string noti_level = 10; // 'info' | 'success' | 'warning' | 'error'
+  google.protobuf.Timestamp createdAt = 11;
+  google.protobuf.Timestamp updatedAt = 12;
 }
