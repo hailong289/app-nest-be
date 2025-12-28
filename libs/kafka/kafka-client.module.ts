@@ -36,6 +36,10 @@ export class SharedKafkaClientModule {
                     ...kafkaConfig.consumer,
                     // Override Group ID (QUAN TRỌNG)
                     groupId: options.groupId || kafkaConfig.consumer.groupId,
+                    sessionTimeout:
+                      kafkaConfig.consumer.sessionTimeout || 60000, // Tăng lên 60s (mặc định 30s)
+                    heartbeatInterval:
+                      kafkaConfig.consumer.heartbeatInterval || 20000, // Tăng lên 20s (mặc định 3s - phải nhỏ hơn sessionTimeout)
                   },
                   producer: kafkaConfig.producer,
                 },

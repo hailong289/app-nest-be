@@ -819,7 +819,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       // tạo tin nhắn cuộc gọi
-      const handleSendMsg = await this.onMessage(
+      const createMsgResult = (await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
         {
           userId: user._id,
           roomId: data.roomId,
@@ -828,23 +829,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           attachments: [],
           replyTo: '',
         },
-        client,
-      );
+      )) as ChatGatewayResponse;
 
-      if (!handleSendMsg.ok) {
-        throw new BadRequestException(handleSendMsg.error);
+      if (!createMsgResult || createMsgResult.statusCode !== 200) {
+        const errorMessage = Array.isArray(createMsgResult?.message)
+          ? createMsgResult.message.join(', ')
+          : createMsgResult?.message || 'Tạo tin nhắn cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
       }
 
-      if (!handleSendMsg.data || !handleSendMsg.data.metadata) {
-        throw new BadRequestException('Tạo tin nhắn cuộc gọi thất bại');
-      }
+      const { msgId, roomId, members } = createMsgResult.metadata;
 
-      const { msgId } = handleSendMsg.data.metadata;
-
-      const dataMsg: ChatGatewayResponse['metadata'] = {
-        ...handleSendMsg.data.metadata,
-        call_history: undefined,
-      };
       data.messageId = msgId;
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -861,7 +856,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { history, room, callType } = result.metadata;
 
-      dataMsg.call_history = history;
+      await this.pushMessageToRoom(roomId, msgId, members, history);
       // emit call:request
       this.io.to(data.roomId).except(client.id).emit('call:request', {
         members: history.members,
@@ -920,6 +915,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         offer: data.offer,
         history: history,
       });
+
+      await this.pushMessageToRoom(
+        room.room_id,
+        history.message_id?.toString() ?? '',
+        history.members,
+        history,
+      );
+
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error answering call:', error);
@@ -1000,11 +1003,47 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         status: data.status,
         history: history,
       });
+
+      await this.pushMessageToRoom(
+        room.room_id,
+        history.message_id?.toString() ?? '',
+        history.members,
+        history,
+      );
+
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error ending call:', error);
       client.emit('error', {
         message: 'Kết thúc cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:share-screen')
+  async handleShareScreen(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isSharing: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error sharing screen:', error);
+      client.emit('error', {
+        message: 'Chia sẻ màn hình thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {
@@ -1170,6 +1209,44 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       user,
       typing: data.typing,
       roomId: data.roomId,
+    });
+  }
+
+  async pushMessageToRoom(
+    roomId: string,
+    msgId: string,
+    members: any[],
+    history: CallHistory,
+  ) {
+    const memberUpdates = await Promise.all(
+      members.map(async (member) => {
+        const memberUserId = member.user_id as string;
+
+        // Gọi song song getRoom và GetOneMsg
+        const [roomData, msgData] = await Promise.all([
+          this.gatewayService.dispatchGrpcRequest(
+            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+            { userId: memberUserId, roomId },
+          ) as Promise<RoomGatewayResponse>,
+          this.gatewayService.dispatchGrpcRequest(
+            this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+            { userId: memberUserId, msgId },
+          ),
+        ]);
+        return {
+          socketRoom: this.key.ROOM_CLIENT(member.id),
+          roomData: roomData.metadata,
+          msgData: {
+            ...(msgData as any),
+            call_history: history,
+          },
+        };
+      }),
+    );
+    // Emit events đến từng member
+    memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
+      this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+      this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
     });
   }
 }

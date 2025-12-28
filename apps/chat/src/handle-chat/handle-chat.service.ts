@@ -274,6 +274,7 @@ export class HandleChatService {
                 roomId,
                 userId,
                 docId: documentId,
+                messageId: createNewMsg._id.toString(),
               },
             ),
           ]
@@ -924,24 +925,25 @@ export class HandleChatService {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
-      const updatedMembers = callHistory.members.map((m) => {
+      // Cập nhật status cho members
+      callHistory.members = callHistory.members.map((m) => {
         // So sánh ObjectId đúng cách
         const isMatch = m.id.toString() === actionUser.usr_id.toString();
-        const shouldStart = isMatch || (m.is_caller && m.status === 'pending');
+        const shouldStart = isMatch || (m.is_caller && m.status === 'started');
         return {
           ...m,
           status: shouldStart ? ('started' as MemberStatus) : m.status,
         };
       });
 
-      await this.callHistoryModel.updateOne(
-        { _id: callHistory._id },
-        { $set: { members: updatedMembers, started_at: new Date() } },
-      );
+      // Cập nhật started_at nếu chưa có
+      if (!callHistory.started_at) {
+        callHistory.started_at = new Date();
+      }
 
-      const refreshedHistory = await this.callHistoryModel.findById(
-        callHistory._id,
-      );
+      // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
+      callHistory.markModified('members');
+      const refreshedHistory = await callHistory.save();
 
       if (!refreshedHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
@@ -988,6 +990,9 @@ export class HandleChatService {
       }
 
       const totalMembers = callHistory.members.length;
+      const isCallerEnded = !!callHistory.members.find(
+        (m) => m.id.toString() === actionUser.usr_id.toString() && m.is_caller,
+      );
 
       // Cập nhật status cho member hiện tại
       callHistory.members = callHistory.members.map((m) => {
@@ -995,7 +1000,12 @@ export class HandleChatService {
         const isMatch = m.id.toString() === actionUser.usr_id.toString();
         return {
           ...m,
-          status: isMatch ? status : totalMembers === 2 ? 'ended' : m.status,
+          status:
+            totalMembers === 2 || isCallerEnded
+              ? 'ended'
+              : isMatch
+                ? status
+                : m.status,
         };
       });
 
@@ -1009,7 +1019,11 @@ export class HandleChatService {
       ).length;
 
       callHistory.ended_at =
-        totalMembersEnded === totalMembers ? new Date() : null;
+        totalMembersEnded === totalMembers ||
+        isCallerEnded ||
+        totalMembers === 2
+          ? new Date()
+          : null;
 
       // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
       callHistory.markModified('members');
