@@ -24,11 +24,11 @@ export class QuizzController {
   }
 
   @GrpcMethod('QuizzService', 'ListQuizzes')
-  async listQuizzes(data: ListQuizzesDto & { userId: string }) {
+  async listQuizzes(data: ListQuizzesDto) {
     return await this.quizzService.listQuizzes(
       data.page,
       data.limit,
-      data.userId,
+      data.roomId,
     );
   }
 

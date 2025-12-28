@@ -66,7 +66,6 @@ class QuestionDto {
 
   @IsOptional()
   @IsString({ message: 'URL ảnh phải là chuỗi' })
-  @IsUrl({}, { message: 'URL ảnh không hợp lệ' })
   image_url?: string;
 }
 
@@ -123,7 +122,6 @@ export class CreateQuizzDto {
 
   @IsOptional()
   @IsString({ message: 'URL ảnh phải là chuỗi' })
-  @IsUrl({}, { message: 'URL ảnh không hợp lệ' })
   quiz_image?: string;
 
   @IsNotEmpty({ message: 'Câu hỏi không để trống' })
@@ -140,6 +138,9 @@ export class GetQuizzDto {
 }
 
 export class ListQuizzesDto {
+  @IsNotEmpty({ message: 'ID phòng không để trống' })
+  @IsString({ message: 'ID phòng phải là chuỗi' })
+  roomId: string;
   @IsNotEmpty({ message: 'Trang không để trống' })
   @IsNumber(
     { allowNaN: false, allowInfinity: false },

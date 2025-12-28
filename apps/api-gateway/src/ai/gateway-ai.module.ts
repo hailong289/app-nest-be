@@ -11,30 +11,37 @@ import { GatewayService } from '../gateway/gateway.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GatewayQuizzController } from './quizz/gateway-quizz.controller';
 import { GatewayFlashcardController } from './flashcard/gateway-flashcard.controller';
+import * as grpc from '@grpc/grpc-js';
 
 @Module({
   imports: [
     ClientsModule.registerAsync([
       {
         name: SERVICES.AI,
-        imports: [ConfigModule],
-        useFactory: (configService: ConfigService) => ({
+        useFactory: () => ({
           transport: Transport.GRPC,
           options: {
             package: ['ai', 'quizz', 'flashcard'],
-            protoPath: [
-              join(process.cwd(), 'libs/grpc/ai.proto'),
-              join(process.cwd(), 'libs/grpc/quizz.proto'),
-              join(process.cwd(), 'libs/grpc/flashcard.proto'),
-            ],
+            protoPath: join(process.cwd(), 'libs/grpc/ai.proto'),
+            url: (() => {
+              const host = (process.env.GATEWAY_AI_HOST || 'localhost').trim();
+              const port = process.env.GATEWAY_AI_PORT || '5004';
+              return `${host}:${port}`;
+            })(),
+            credentials:
+              process.env.NODE_ENV === 'production'
+                ? grpc.credentials.createSsl()
+                : grpc.credentials.createInsecure(),
             loader: {
               keepCase: true,
+              longs: String,
+              enums: String,
+              defaults: true,
+              oneofs: true,
               includeDirs: [join(process.cwd(), 'libs/grpc')],
             },
-            url: `${configService.get<string>('GATEWAY_AI_HOST') || 'localhost'}:${configService.get<string>('GATEWAY_AI_PORT') || '5004'}`,
           },
         }),
-        inject: [ConfigService],
       },
     ]),
   ],
