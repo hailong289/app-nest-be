@@ -16,17 +16,10 @@ import {
   translationPrompt,
 } from './prompt/ai.prompt';
 import { AiLogUseService } from './ai-log-use.service';
-import * as mammoth from 'mammoth';
 @Injectable()
 export class GoogleModerationProvider {
   private readonly model: GenerativeModel;
   private readonly logger = new Logger(GoogleModerationProvider.name);
-
-  private readonly supportedInlineMimeTypes = new Set<string>([
-    'application/pdf',
-    'text/plain',
-    'text/markdown',
-  ]);
 
   constructor(
     private cfg: ConfigService,
@@ -192,46 +185,25 @@ export class GoogleModerationProvider {
   }
 
   async summaryDocument(file: MulterFile) {
+    // 1. Soạn Prompt chi tiết để AI tóm tắt có cấu trúc
     const prompt = summaryDocumentPrompt();
 
     try {
-      const parts: Part[] = [{ text: prompt }];
-
-      if (
-        file.mimetype ===
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        file.mimetype === 'application/msword'
-      ) {
-        // Extract text from docx and send as plain text
-        const docxText = await mammoth.extractRawText({ buffer: file.buffer });
-        const textContent = docxText.value || '';
-        if (!textContent.trim()) {
-          throw new Error('DOCX conversion returned empty text');
-        }
-        parts.push({ text: textContent });
-      } else if (this.supportedInlineMimeTypes.has(file.mimetype)) {
-        parts.push({
-          inlineData: {
-            mimeType: file.mimetype,
-            data: Buffer.from(file.buffer).toString('base64'),
-          },
-        });
-      } else {
-        // Fallback: send as octet-stream inline
-        parts.push({
-          inlineData: {
-            mimeType: 'application/octet-stream',
-            data: Buffer.from(file.buffer).toString('base64'),
-          },
-        });
-      }
-
+      // 3. Gọi model với config JSON
       const result = await this.generateContent(
         {
           contents: [
             {
               role: 'user',
-              parts,
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType: file.mimetype,
+                    data: Buffer.from(file.buffer).toString('base64'),
+                  },
+                },
+              ],
             },
           ],
           generationConfig: { responseMimeType: 'application/json' },
@@ -240,6 +212,7 @@ export class GoogleModerationProvider {
         'summary-document',
       );
 
+      // 4. Parse kết quả
       const parsedData = result as {
         summary?: unknown;
         title?: unknown;
@@ -248,6 +221,7 @@ export class GoogleModerationProvider {
         language?: unknown;
       };
 
+      // Map data để đảm bảo đúng structure với proto (keyPoints thay vì key_points)
       const metadata = {
         summary:
           typeof parsedData.summary === 'string' ? parsedData.summary : '',
@@ -261,9 +235,8 @@ export class GoogleModerationProvider {
           typeof parsedData.language === 'string' ? parsedData.language : '',
       };
 
-      // Proto expects metadata as string; stringify to preserve structure
       return Response.success(
-        JSON.stringify(metadata),
+        metadata, // Trả về object đã structure đúng với proto
         'Tóm tắt tài liệu thành công',
         200,
         'OK',

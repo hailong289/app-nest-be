@@ -10,7 +10,6 @@ service NotificationService {
   rpc GetNotifications(GetNotificationsRequest) returns (GetNotificationsResponse);
   rpc MarkNotificationAsRead(MarkNotificationAsReadRequest) returns (MarkNotificationAsReadResponse);
   rpc MarkAllNotificationsAsRead(MarkAllNotificationsAsReadRequest) returns (MarkAllNotificationsAsReadResponse);
-  rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
 }
 
 message PushNotificationTestRequest {
@@ -61,17 +60,6 @@ message MarkAllNotificationsAsReadRequest {
 }
 
 message MarkAllNotificationsAsReadResponse {
-  string message = 1;
-  int32 statusCode = 2;
-  string reasonStatusCode = 3;
-  google.protobuf.Struct metadata = 4;
-}
-
-message DeleteNotificationRequest {
-  string notificationId = 1;
-}
-
-message DeleteNotificationResponse {
   string message = 1;
   int32 statusCode = 2;
   string reasonStatusCode = 3;

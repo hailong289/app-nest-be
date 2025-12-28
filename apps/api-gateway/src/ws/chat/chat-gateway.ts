@@ -280,7 +280,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
 
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
+      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất (dùng userId của người gửi)
+      const globalMsgData = await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+        { userId: data.userId, msgId },
+      );
+
+      // Batch gọi getRoom cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
           const memberUserId = member.user_id as string;
@@ -466,7 +472,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { msgId, roomId, members } = result.metadata;
       // Lấy danh sách userId của members khác (để gửi notification)
 
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
+      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất
+      const globalMsgData = await this.gatewayService.dispatchGrpcRequest(
+        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+        { userId: data.userId, msgId },
+      );
+
+      // Batch gọi getRoom cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
           const memberUserId = member.user_id as string;
@@ -853,13 +865,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { history, room, callType } = result.metadata;
 
       await this.pushMessageToRoom(roomId, msgId, members, history);
-      // emit call:request
-      this.io.to(data.roomId).except(client.id).emit('call:request', {
-        members: history.members,
-        roomId: room.room_id,
-        actionUserId: user.usr_id,
-        callType: callType,
-      });
+      const otherMembers = members.filter((m) => m.id !== user.usr_id);
+      for (const member of otherMembers) {
+        this.io.to(this.key.ROOM_CLIENT(member.id)).emit('call:request', {
+          members: history.members,
+          roomId: room.room_id,
+          actionUserId: user.usr_id,
+          callType: callType,
+        });
+      }
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
@@ -921,9 +935,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       return { ok: true };
     } catch (error) {
-      this.logger.error('[CALL] Error handle accept call:', error);
+      this.logger.error('[CALL] Error answering call:', error);
       client.emit('error', {
-        message: 'Xử lý trả lời cuộc gọi thất bại',
+        message: 'Trả lời cuộc gọi thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {
@@ -948,6 +962,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+      // this.io.to(data.roomId).except(client.id).emit('call:answer', data);
       this.io.to(targetSocketId).emit('call:answer', data);
       return { ok: true };
     } catch (error) {
