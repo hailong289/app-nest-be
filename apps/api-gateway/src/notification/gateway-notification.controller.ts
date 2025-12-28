@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   OnModuleInit,
@@ -33,6 +34,7 @@ interface NotificationServiceGrpc {
   GetNotifications(data: { userId: string }): Observable<any>;
   MarkNotificationAsRead(data: { notificationId: string }): Observable<any>;
   MarkAllNotificationsAsRead(data: { userId: string }): Observable<any>;
+  DeleteNotification(data: { notificationId: string }): Observable<any>;
 }
 
 const NOTIFICATION_GRPC_SERVICE = 'NOTIFICATION_GRPC_SERVICE';
@@ -137,6 +139,14 @@ export class GatewayNotificationController implements OnModuleInit {
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.notificationGrpc.MarkNotificationAsRead.bind(this.notificationGrpc),
+      { notificationId },
+    );
+  }
+
+  @Delete(':notificationId')
+  async deleteNotification(@Param('notificationId') notificationId: string) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.DeleteNotification.bind(this.notificationGrpc),
       { notificationId },
     );
   }
