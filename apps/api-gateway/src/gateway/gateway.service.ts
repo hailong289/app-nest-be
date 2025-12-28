@@ -10,6 +10,7 @@ import {
   timeout,
 } from 'rxjs';
 import { Request } from 'express';
+import { Metadata } from '@grpc/grpc-js';
 
 @Injectable()
 export class GatewayService {
@@ -96,25 +97,35 @@ export class GatewayService {
   }
 
   async dispatchGrpcRequest<T>(
-    grpcMethod: (data: T) => Observable<unknown>,
+    grpcMethod: (data: T, metadata?: Metadata) => Observable<unknown>,
     data: T,
     timeoutMs = 20000,
   ): Promise<unknown> {
     // Default timeout 20s
     try {
       // Add headers to data if request is available
-      let dataWithHeaders = data;
-      if (this.request?.headers && typeof data === 'object' && data !== null) {
-        dataWithHeaders = { ...data, headers: this.request.headers } as T;
+      const metadata = new Metadata();
+      if (this.request?.headers) {
+        // Chỉ lấy các header cần thiết hoặc loop qua để add
+        // Lưu ý: gRPC metadata values chỉ chấp nhận string hoặc Buffer
+        const headers = this.request.headers;
+        Object.keys(headers).forEach((key) => {
+          const value = headers[key];
+          if (value && typeof value === 'string') {
+            metadata.add(key, value);
+          }
+        });
       }
       return await lastValueFrom(
-        grpcMethod(dataWithHeaders).pipe(
+        grpcMethod(data, metadata).pipe(
           timeout(timeoutMs),
-          catchError((err: unknown) => {
-            const errorMessage =
-              err instanceof Error ? err.message : String(err);
+          catchError((err: any) => {
+            // Lấy message chi tiết hơn nếu có
+            const detailedMessage =
+              err.details || err.message || JSON.stringify(err);
+
             return throwError(
-              () => new Error(`Service unavailable: ${errorMessage}`),
+              () => new Error(`Service unavailable: ${detailedMessage}`),
             );
           }),
         ),
