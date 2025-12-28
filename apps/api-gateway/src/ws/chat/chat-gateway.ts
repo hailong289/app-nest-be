@@ -902,7 +902,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await this.gatewayService.dispatchGrpcRequest(
         this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
-        data,
+        {
+          actionUserId: data.actionUserId,
+          membersIds: data.membersIds,
+          roomId: data.roomId,
+          callId: data.callId,
+        },
       )) as ChatGatewayCallResponse;
 
       if (!result || result.statusCode !== 200) {
