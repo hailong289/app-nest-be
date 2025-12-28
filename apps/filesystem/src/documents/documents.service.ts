@@ -34,6 +34,8 @@ export class DocumentsService {
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
+    @Inject(SERVICES.NOTIFICATION)
+    private readonly notificationClient: ClientKafka,
   ) {}
 
   /**
@@ -416,6 +418,36 @@ export class DocumentsService {
       newDoc._id.toString(),
     );
 
+    // Dispatch Notification
+    if (roomId) {
+      const room = await this.roomModel.findById(
+        this.utils.convertToObjectIdMongoose(roomId),
+      );
+      if (room) {
+        const memberIds = room.room_members.map((m) => m.user_id.toString());
+        // Filter out the creator (owner) if needed, but usually they might want to know it's done?
+        // User request: "Receiver: Admin, Người theo dõi folder".
+        // "Ông A vừa quăng bom..." -> Don't notify Ông A?
+        const receiverIds = memberIds.filter((id) => id !== owerId);
+
+        if (receiverIds.length > 0) {
+          await this.utils.dispatchEventKafka(
+            this.notificationClient,
+            KafkaEvent.DOC_CREATED as unknown as string,
+            {
+              title: 'Tài liệu mới',
+              message: `Tài liệu mới '${title}' đã được thêm vào thư mục ${room.room_name || 'Chung'}.`,
+              userIds: receiverIds,
+              data: {
+                docId: String(formattedDoc._id),
+                roomId: roomId,
+              },
+            },
+          );
+        }
+      }
+    }
+
     return Response.success(formattedDoc, 'Tạo thành công');
   }
 
@@ -548,6 +580,30 @@ export class DocumentsService {
     }
 
     const formattedDoc = await this.getFormattedDocumentById(docId);
+
+    // Dispatch Notification
+    if (formattedDoc && formattedDoc.sharedWith) {
+      const receiverIds = formattedDoc.sharedWith
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
+        .map((s: any) => s.userId)
+        .filter((id: string) => id !== userId);
+
+      if (receiverIds.length > 0) {
+        await this.utils.dispatchEventKafka(
+          this.notificationClient,
+          KafkaEvent.DOC_NEW_VERSION as unknown as string,
+          {
+            title: 'Cập nhật phiên bản',
+            message: `Phiên bản mới của tài liệu '${formattedDoc.title}' đã sẵn sàng.`,
+            userIds: receiverIds,
+            data: {
+              docId: String(formattedDoc._id),
+            },
+          },
+        );
+      }
+    }
+
     return Response.success(formattedDoc, 'Cập nhật tài liệu thành công');
   }
 
@@ -584,6 +640,37 @@ export class DocumentsService {
       contextId: doc._id,
       contextType: AttachmentContextEnumType.doc,
     });
+
+    // Dispatch Notification
+    const receivers = new Set<string>();
+    if (doc.roomIds && doc.roomIds.length > 0) {
+      const rooms = await this.roomModel.find({ _id: { $in: doc.roomIds } });
+      rooms.forEach((room) => {
+        room.room_members.forEach((m) => {
+          if (m.user_id.toString() !== userId) {
+            receivers.add(m.user_id.toString());
+          }
+        });
+      });
+    }
+
+    const receiverIds = Array.from(receivers);
+    if (receiverIds.length > 0) {
+      const deleter = await this.userModel.findById(userId);
+      const deleterName = deleter?.usr_fullname || 'Ai đó';
+      await this.utils.dispatchEventKafka(
+        this.notificationClient,
+        KafkaEvent.DOC_DELETED as unknown as string,
+        {
+          title: 'Xóa tài liệu',
+          message: `Tài liệu '${doc.title}' đã bị xóa bởi ${deleterName}.`,
+          userIds: receiverIds,
+          data: {
+            docId: String(doc._id),
+          },
+        },
+      );
+    }
 
     return Response.success(null, 'Xóa tài liệu thành công');
   }
@@ -696,6 +783,23 @@ export class DocumentsService {
     );
 
     const formattedDoc = await this.getFormattedDocumentById(docId);
+
+    // Dispatch Notification
+    const sharer = await this.userModel.findById(userId);
+    const sharerName = sharer?.usr_fullname || 'Ai đó';
+    await this.utils.dispatchEventKafka(
+      this.notificationClient,
+      KafkaEvent.DOC_SHARED as unknown as string,
+      {
+        title: 'Chia sẻ tài liệu',
+        message: `${sharerName} đã chia sẻ tài liệu '${doc.title}' với bạn.`,
+        userIds: [shareUserId],
+        data: {
+          docId: String(formattedDoc._id),
+        },
+      },
+    );
+
     return Response.success(formattedDoc, 'Chia sẻ tài liệu thành công');
   }
 
@@ -817,6 +921,30 @@ export class DocumentsService {
     );
 
     const formattedDoc = await this.getFormattedDocumentById(docId);
+
+    // Dispatch Notification
+    if (formattedDoc && formattedDoc.sharedWith) {
+      const receiverIds = formattedDoc.sharedWith
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
+        .map((s: any) => s.userId)
+        .filter((id: string) => id !== userId);
+
+      if (receiverIds.length > 0) {
+        await this.utils.dispatchEventKafka(
+          this.notificationClient,
+          KafkaEvent.DOC_UPDATED as unknown as string,
+          {
+            title: 'Cập nhật thông tin',
+            message: `Thông tin của tài liệu '${title}' vừa được cập nhật.`,
+            userIds: receiverIds,
+            data: {
+              docId: String(formattedDoc._id),
+            },
+          },
+        );
+      }
+    }
+
     return Response.success(formattedDoc, 'Cập nhật tiêu đề thành công');
   }
 
@@ -861,6 +989,30 @@ export class DocumentsService {
     );
 
     const formattedDoc = await this.getFormattedDocumentById(docId);
+
+    // Dispatch Notification
+    if (formattedDoc && formattedDoc.sharedWith) {
+      const receiverIds = formattedDoc.sharedWith
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
+        .map((s: any) => s.userId)
+        .filter((id: string) => id !== userId);
+
+      if (receiverIds.length > 0) {
+        await this.utils.dispatchEventKafka(
+          this.notificationClient,
+          KafkaEvent.DOC_UPDATED as unknown as string,
+          {
+            title: 'Cập nhật thông tin',
+            message: `Thông tin của tài liệu '${doc.title}' vừa được cập nhật.`,
+            userIds: receiverIds,
+            data: {
+              docId: String(formattedDoc._id),
+            },
+          },
+        );
+      }
+    }
+
     return Response.success(formattedDoc, 'Cập nhật quyền truy cập thành công');
   }
 

@@ -206,3 +206,13 @@ export class MutedRoomDto {
   @IsOptional()
   muted: boolean;
 }
+
+export class DeletedRoomDto {
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roomId: string;
+}

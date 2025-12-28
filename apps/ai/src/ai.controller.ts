@@ -127,8 +127,23 @@ export class AIController {
   }
 
   @GrpcMethod('AIService', 'SummaryDocument')
-  async summaryDocument(data: { file: MulterFile }) {
-    return await this.service.summaryDocument(data.file);
+  async summaryDocument(data: {
+    file: Uint8Array;
+    filename?: string;
+    mimetype?: string;
+  }) {
+    // Rehydrate Multer-like file from gRPC payload
+    const mime = data.mimetype || 'application/octet-stream';
+    const file: MulterFile = {
+      fieldname: 'file',
+      originalname: data.filename || 'document',
+      encoding: '7bit',
+      mimetype: mime,
+      size: data.file?.length || 0,
+      buffer: Buffer.from(data.file || []),
+    } as unknown as MulterFile;
+
+    return await this.service.summaryDocument(file);
   }
 
   @GrpcMethod('AIService', 'Translation')
@@ -138,15 +153,33 @@ export class AIController {
 
   @GrpcMethod('AIService', 'Quizz')
   async quizz(data: {
-    file: MulterFile;
+    file?: {
+      buffer?: Uint8Array;
+      originalname?: string;
+      mimetype?: string;
+      fieldname?: string;
+      encoding?: string;
+      size?: number;
+    };
     text: string;
     type: 'text' | 'document';
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
     question_max: number; // số lượng câu hỏi tối đa
     question_max_points: number; // điểm số tối đa cho bài trắc nghiệm
   }) {
+    const file: MulterFile | undefined = data.file
+      ? {
+          fieldname: data.file.fieldname || 'file',
+          originalname: data.file.originalname || 'document',
+          encoding: data.file.encoding || '7bit',
+          mimetype: data.file.mimetype || 'application/octet-stream',
+          size: data.file.size || data.file.buffer?.length || 0,
+          buffer: Buffer.from(data.file.buffer || []),
+        }
+      : undefined;
+
     return await this.service.generateQuizz(
-      data.file,
+      file as MulterFile,
       data?.text || '',
       data.type,
       data.question_type,

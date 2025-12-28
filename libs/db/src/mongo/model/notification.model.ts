@@ -30,6 +30,7 @@ export class Notification {
     enum: [
       'friend_request',
       'friend_accepted',
+      'friend_rejected',
       'message',
       'room_invite',
       'system',
@@ -51,16 +52,6 @@ export class Notification {
 
   @Prop({ type: Date, default: null })
   noti_readAt: Date | null; // Thời gian đọc
-
-  // Tham chiếu đến entity liên quan (tùy chọn)
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
-  noti_fromUserId: Types.ObjectId | null; // Người gửi (nếu có)
-
-  @Prop({ type: Types.ObjectId, ref: 'Room', default: null })
-  noti_roomId: Types.ObjectId | null; // Room liên quan (nếu có)
-
-  @Prop({ type: Types.ObjectId, ref: 'Friendship', default: null })
-  noti_friendshipId: Types.ObjectId | null; // Friendship liên quan (nếu có)
 
   // Dữ liệu bổ sung dạng JSON (flexible)
   @Prop({ type: Object, default: {} })

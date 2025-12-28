@@ -107,7 +107,6 @@ export class DocumentsController {
    */
   @GrpcMethod('DocumentService', 'UpdateDoc')
   async updateDoc(request: UpdateDocRequest): Promise<ServiceResponse> {
-    console.log('🚀 ~ DocumentsController ~ updateDoc ~ request:', request);
     try {
       const result = await this.documentsService.updateDoc(
         request.docId,

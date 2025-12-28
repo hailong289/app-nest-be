@@ -1,10 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   Inject,
   OnModuleInit,
   Post,
+  Put,
   Req,
+  Param,
 } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import type { ClientGrpc } from '@nestjs/microservices';
@@ -27,6 +31,10 @@ interface NotificationServiceGrpc {
     fcmTokens: string[];
     data?: Record<string, any>;
   }): Observable<any>;
+  GetNotifications(data: { userId: string }): Observable<any>;
+  MarkNotificationAsRead(data: { notificationId: string }): Observable<any>;
+  MarkAllNotificationsAsRead(data: { userId: string }): Observable<any>;
+  DeleteNotification(data: { notificationId: string }): Observable<any>;
 }
 
 const NOTIFICATION_GRPC_SERVICE = 'NOTIFICATION_GRPC_SERVICE';
@@ -104,6 +112,42 @@ export class GatewayNotificationController implements OnModuleInit {
     return await this.gatewayService.dispatchGrpcRequest(
       this.notificationGrpc.PushNotificationTest.bind(this.notificationGrpc),
       body,
+    );
+  }
+
+  @Get()
+  async getNotifications(@Req() req: AuthenticatedRequest) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.GetNotifications.bind(this.notificationGrpc),
+      { userId: req.user?._id },
+    );
+  }
+
+  @Put('read-all')
+  async markAllNotificationsAsRead(@Req() req: AuthenticatedRequest) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.MarkAllNotificationsAsRead.bind(
+        this.notificationGrpc,
+      ),
+      { userId: req.user?._id },
+    );
+  }
+
+  @Put(':notificationId/read')
+  async markNotificationAsRead(
+    @Param('notificationId') notificationId: string,
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.MarkNotificationAsRead.bind(this.notificationGrpc),
+      { notificationId },
+    );
+  }
+
+  @Delete(':notificationId')
+  async deleteNotification(@Param('notificationId') notificationId: string) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.DeleteNotification.bind(this.notificationGrpc),
+      { notificationId },
     );
   }
 }
