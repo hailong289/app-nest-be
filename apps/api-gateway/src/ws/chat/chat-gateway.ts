@@ -857,13 +857,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { history, room, callType } = result.metadata;
 
       await this.pushMessageToRoom(roomId, msgId, members, history);
-      // emit call:request
-      this.io.to(data.roomId).except(client.id).emit('call:request', {
-        members: history.members,
-        roomId: room.room_id,
-        actionUserId: user.usr_id,
-        callType: callType,
-      });
+      const otherMembers = members.filter((m) => m.id !== user.usr_id);
+      for (const member of otherMembers) {
+        this.io.to(this.key.ROOM_CLIENT(member.id)).emit('call:request', {
+          members: history.members,
+          roomId: room.room_id,
+          actionUserId: user.usr_id,
+          callType: callType,
+        });
+      }
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
