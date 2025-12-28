@@ -938,9 +938,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       return { ok: true };
     } catch (error) {
-      this.logger.error('[CALL] Error answering call:', error);
+      this.logger.error('[CALL] Error handle accept call:', error);
       client.emit('error', {
-        message: 'Trả lời cuộc gọi thất bại',
+        message: 'Xử lý trả lời cuộc gọi thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {
@@ -965,7 +965,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
-      // this.io.to(data.roomId).except(client.id).emit('call:answer', data);
       this.io.to(targetSocketId).emit('call:answer', data);
       return { ok: true };
     } catch (error) {
