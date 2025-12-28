@@ -280,24 +280,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
 
-      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất (dùng userId của người gửi)
-      const globalMsgData = await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-        { userId: data.userId, msgId },
-      );
-
-      // Batch gọi getRoom cho tất cả members song song
+      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
           const memberUserId = member.user_id as string;
 
-          // Chỉ gọi getRoom (giảm 50% request)
-          const roomData = (await this.gatewayService.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            { userId: memberUserId, roomId },
-          )) as RoomGatewayResponse;
-
-          const msgData = globalMsgData;
+          // Gọi song song getRoom và GetOneMsg
+          const [roomData, msgData] = await Promise.all([
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+              { userId: memberUserId, roomId },
+            ) as Promise<RoomGatewayResponse>,
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+              { userId: memberUserId, msgId },
+            ),
+          ]);
           if (member.user_id !== user._id && !roomData?.metadata?.mute) {
             const title =
               roomData.metadata.type === RoomTypeEnum.Private
@@ -468,24 +466,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { msgId, roomId, members } = result.metadata;
       // Lấy danh sách userId của members khác (để gửi notification)
 
-      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất
-      const globalMsgData = await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-        { userId: data.userId, msgId },
-      );
-
-      // Batch gọi getRoom cho tất cả members song song
+      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
       const memberUpdates = await Promise.all(
         members.map(async (member) => {
           const memberUserId = member.user_id as string;
 
-          // Chỉ gọi getRoom
-          const roomData = (await this.gatewayService.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            { userId: memberUserId, roomId },
-          )) as RoomGatewayResponse;
-
-          const msgData = globalMsgData;
+          // Gọi song song getRoom và GetOneMsg
+          const [roomData, msgData] = await Promise.all([
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+              { userId: memberUserId, roomId },
+            ) as Promise<RoomGatewayResponse>,
+            this.gatewayService.dispatchGrpcRequest(
+              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+              { userId: memberUserId, msgId },
+            ),
+          ]);
           if (member.user_id !== user._id && !roomData?.metadata?.mute) {
             const title =
               roomData.metadata.type === RoomTypeEnum.Private
