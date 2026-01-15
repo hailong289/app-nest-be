@@ -16,6 +16,14 @@ import axios from 'axios';
 import { Types } from 'mongoose';
 import { Response } from '../response';
 import { SharedKafkaConfig } from '../../kafka';
+import {
+  catchError,
+  lastValueFrom,
+  Observable,
+  throwError,
+  timeout,
+} from 'rxjs';
+import { Metadata } from '@grpc/grpc-js';
 
 type Unprefixed<T, P extends string> = {
   [K in keyof T as K extends `${P}${infer R}` ? R : never]: T[K];
@@ -331,6 +339,35 @@ class Utils {
       );
     }
     return Response.success(true, 'Gửi event thành công');
+  }
+
+  static async dispatchGrpcRequest<T>(
+    grpcMethod: (data: T, metadata?: Metadata) => Observable<unknown>,
+    data: T,
+    timeoutMs = 20000,
+  ): Promise<unknown> {
+    try {
+      const metadata = new Metadata();
+      return await lastValueFrom(
+        grpcMethod(data, metadata).pipe(
+          timeout(timeoutMs),
+          catchError((err: any) => {
+            // Lấy message chi tiết hơn nếu có
+            const detailedMessage =
+              err.details || err.message || JSON.stringify(err);
+
+            return throwError(
+              () => new Error(`Service unavailable: ${detailedMessage}`),
+            );
+          }),
+        ),
+      );
+    } catch (error) {
+      console.log('🚀 ~ GatewayService ~ dispatchGrpcRequest ~ error:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      return Response.error(errorMessage, 503, 'SERVICE_UNAVAILABLE');
+    }
   }
 
   static parsePrivateKey(raw: string): string {
