@@ -11,7 +11,13 @@ import { BadRequestException, Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
+import {
+  CallHistory,
+  CallStatus,
+  Message,
+  RedisService,
+  Room,
+} from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { GatewayService } from '../../gateway/gateway.service';
@@ -265,12 +271,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('error', { message: 'Unauthorized' });
       return { ok: false };
     }
-
     data.userId = user._id;
-
-    // this.logger.log(
-    //   `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
-    // );
     try {
       // Tạo message qua gRPC
       const result = (await this.gatewayService.dispatchGrpcRequest(
@@ -281,68 +282,57 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const { msgId, roomId, members } = result.metadata;
 
       // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất (dùng userId của người gửi)
-      const globalMsgData = await this.gatewayService.dispatchGrpcRequest(
-        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-        { userId: data.userId, msgId },
+      const [roomData, msgData] = await Promise.all([
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+          { userId: data.userId, roomId },
+        ) as Promise<RoomGatewayResponse>,
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+          { userId: data.userId, msgId },
+        ),
+      ]);
+
+      const otherMembers = members.filter(
+        (member) => member.user_id !== user._id,
       );
 
-      // Batch gọi getRoom cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<RoomGatewayResponse>,
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-          if (member.user_id !== user._id && !roomData?.metadata?.mute) {
-            const title =
-              roomData.metadata.type === RoomTypeEnum.Private
-                ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
-                : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
-            await this.gatewayService.dispatchServiceEvent(
-              this.notificationClient,
-              'push_notification_users',
-              {
-                title,
-                message:
-                  roomData.metadata.last_message &&
-                  typeof roomData.metadata.last_message === 'object' &&
-                  roomData.metadata.last_message !== null &&
-                  'content' in roomData.metadata.last_message
-                    ? ((roomData.metadata.last_message as { content?: string })
-                        ?.content ?? '')
-                    : '',
-                userIds: [member.user_id],
-                data: {
-                  type: notifyType.noify_new_message,
-                  room: roomData.metadata,
-                  msg: msgData,
-                  push_type: 'message',
-                },
-              },
-            );
-          }
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
-      );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+      members.map(async (member) => {
+        const socketMember = this.key.ROOM_CLIENT(member.id);
+        this.io
+          .to(socketMember)
+          .emit(socketEvent.ROOMUPSERT, roomData.metadata);
+        this.io.to(socketMember).emit(socketEvent.MSGUPSERT, msgData);
       });
+
+      if (!roomData?.metadata?.mute) {
+        const title =
+          roomData.metadata.type === RoomTypeEnum.Private
+            ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
+            : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
+        await this.gatewayService.dispatchServiceEvent(
+          this.notificationClient,
+          'push_notification_users',
+          {
+            title,
+            message:
+              roomData.metadata.last_message &&
+              typeof roomData.metadata.last_message === 'object' &&
+              roomData.metadata.last_message !== null &&
+              'content' in roomData.metadata.last_message
+                ? ((roomData.metadata.last_message as { content?: string })
+                    ?.content ?? '')
+                : '',
+            userIds: otherMembers.map((member) => member.user_id),
+            data: {
+              type: notifyType.noify_new_message,
+              room: roomData.metadata,
+              msg: msgData,
+              push_type: 'message',
+            },
+          },
+        );
+      }
 
       return { ok: true, data: result };
     } catch (error) {
@@ -399,35 +389,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
 
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
+      const [roomData, msgData] = await Promise.all([
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+          { userId: data.userId, roomId },
+        ) as Promise<RoomGatewayResponse>,
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+          { userId: data.userId, msgId },
+        ),
+      ]);
 
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<ChatGatewayResponse>,
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
-      );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+      members.map(async (member) => {
+        const socketMember = this.key.ROOM_CLIENT(member.id);
+        this.io
+          .to(socketMember)
+          .emit(socketEvent.ROOMUPSERT, roomData.metadata);
+        this.io.to(socketMember).emit(socketEvent.MSGUPSERT, msgData);
       });
 
       return { ok: true, data: result };
@@ -471,64 +449,57 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
       // Lấy danh sách userId của members khác (để gửi notification)
+      const [roomData, msgData] = await Promise.all([
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+          { userId: data.userId, roomId },
+        ) as Promise<RoomGatewayResponse>,
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+          { userId: data.userId, msgId },
+        ),
+      ]);
 
-      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<RoomGatewayResponse>,
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-          if (member.user_id !== user._id && !roomData?.metadata?.mute) {
-            const title =
-              roomData.metadata.type === RoomTypeEnum.Private
-                ? `${user.usr_fullname} thả cảm xúc đến bạn`
-                : `${user.usr_fullname} thả  cảm xúc đến tin nhắn của nhóm ${roomData.metadata.name}`;
-            await this.gatewayService.dispatchServiceEvent(
-              this.notificationClient,
-              'push_notification_users',
-              {
-                title,
-                message:
-                  roomData.metadata.last_message &&
-                  typeof roomData.metadata.last_message === 'object' &&
-                  roomData.metadata.last_message !== null &&
-                  'content' in roomData.metadata.last_message
-                    ? ((roomData.metadata.last_message as { content?: string })
-                        ?.content ?? '')
-                    : '',
-                userIds: [member.user_id],
-                data: {
-                  type: notifyType.noify_new_message,
-                  room: roomData.metadata,
-                  msg: msgData,
-                  push_type: 'message',
-                },
-              },
-            );
-          }
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
+      const otherMembers = members.filter(
+        (member) => member.user_id !== user._id,
       );
 
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+      members.map(async (member) => {
+        const socketMember = this.key.ROOM_CLIENT(member.id);
+        this.io
+          .to(socketMember)
+          .emit(socketEvent.ROOMUPSERT, roomData.metadata);
+        this.io.to(socketMember).emit(socketEvent.MSGUPSERT, msgData);
       });
+
+      if (!roomData?.metadata?.mute) {
+        const title =
+          roomData.metadata.type === RoomTypeEnum.Private
+            ? `${user.usr_fullname} thả cảm xúc đến bạn`
+            : `${user.usr_fullname} thả  cảm xúc đến tin nhắn của nhóm ${roomData.metadata.name}`;
+        await this.gatewayService.dispatchServiceEvent(
+          this.notificationClient,
+          'push_notification_users',
+          {
+            title,
+            message:
+              roomData.metadata.last_message &&
+              typeof roomData.metadata.last_message === 'object' &&
+              roomData.metadata.last_message !== null &&
+              'content' in roomData.metadata.last_message
+                ? ((roomData.metadata.last_message as { content?: string })
+                    ?.content ?? '')
+                : '',
+            userIds: otherMembers.map((m) => m.user_id),
+            data: {
+              type: notifyType.noify_new_message,
+              room: roomData.metadata,
+              msg: msgData,
+              push_type: 'message',
+            },
+          },
+        );
+      }
 
       return { ok: true, data: result };
     } catch (error) {
@@ -573,35 +544,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const { msgId, roomId, members } = result.metadata;
 
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
+      const [roomData, msgData] = await Promise.all([
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+          { userId: data.userId, roomId },
+        ) as Promise<RoomGatewayResponse>,
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+          { userId: data.userId, msgId },
+        ),
+      ]);
 
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<ChatGatewayResponse>,
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
-      );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+      members.map(async (member) => {
+        const socketMember = this.key.ROOM_CLIENT(member.id);
+        this.io
+          .to(socketMember)
+          .emit(socketEvent.ROOMUPSERT, roomData.metadata);
+        this.io.to(socketMember).emit(socketEvent.MSGUPSERT, msgData);
       });
 
       return { ok: true, data: result };
@@ -656,44 +615,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ? metadata.members
         : [];
 
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
+      const [roomDataPromise, msgDataPromises] = await Promise.all([
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+          { userId: data.userId, roomId },
+        ) as Promise<ChatGatewayResponse>,
+        msgIds.map((mId: string) =>
+          this.gatewayService.dispatchGrpcRequest(
+            this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+            { userId: data.userId, msgId: mId },
+          ),
+        ),
+      ]);
 
-          const roomDataPromise = this.gatewayService.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            { userId: memberUserId, roomId },
-          ) as Promise<ChatGatewayResponse>;
+      const [roomData, msgDatas] = await Promise.all([
+        roomDataPromise,
+        Promise.all(msgDataPromises),
+      ]);
 
-          const msgDataPromises = msgIds.map((mId: string) =>
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId: mId },
-            ),
-          );
-
-          const [roomData, msgDatas] = await Promise.all([
-            roomDataPromise,
-            Promise.all(msgDataPromises),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData: msgDatas ?? [],
-          };
-        }),
-      );
-
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        if (Array.isArray(msgData)) {
-          msgData.forEach((m) =>
-            this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, m),
+      members.map(async (member) => {
+        const socketMember = this.key.ROOM_CLIENT(member.id);
+        this.io
+          .to(socketMember)
+          .emit(socketEvent.ROOMUPSERT, roomData.metadata);
+        if (Array.isArray(msgDatas)) {
+          msgDatas.forEach((m) =>
+            this.io.to(socketMember).emit(socketEvent.MSGUPSERT, m),
           );
         } else {
-          this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+          this.io.to(socketMember).emit(socketEvent.MSGUPSERT, msgDatas);
         }
       });
 
@@ -750,44 +700,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ? metadata.members
         : [];
 
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
+      const [roomDataPromise, msgDataPromises] = await Promise.all([
+        this.gatewayService.dispatchGrpcRequest(
+          this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+          { userId: data.userId, roomId },
+        ) as Promise<ChatGatewayResponse>,
+        msgIds.map((mId: string) =>
+          this.gatewayService.dispatchGrpcRequest(
+            this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+            { userId: data.userId, msgId: mId },
+          ),
+        ),
+      ]);
 
-          const roomDataPromise = this.gatewayService.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            { userId: memberUserId, roomId },
-          ) as Promise<ChatGatewayResponse>;
+      const [roomData, msgDatas] = await Promise.all([
+        roomDataPromise,
+        Promise.all(msgDataPromises),
+      ]);
 
-          const msgDataPromises = msgIds.map((mId: string) =>
-            this.gatewayService.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId: mId },
-            ),
-          );
-
-          const [roomData, msgDatas] = await Promise.all([
-            roomDataPromise,
-            Promise.all(msgDataPromises),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData: msgDatas ?? [],
-          };
-        }),
-      );
-
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        if (Array.isArray(msgData)) {
-          msgData.forEach((m) =>
-            this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, m),
+      members.map(async (member) => {
+        const socketMember = this.key.ROOM_CLIENT(member.id);
+        this.io
+          .to(socketMember)
+          .emit(socketEvent.ROOMUPSERT, roomData.metadata);
+        if (Array.isArray(msgDatas)) {
+          msgDatas.forEach((m) =>
+            this.io.to(socketMember).emit(socketEvent.MSGUPSERT, m),
           );
         } else {
-          this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+          this.io.to(socketMember).emit(socketEvent.MSGUPSERT, msgDatas);
         }
       });
 
@@ -1275,6 +1216,7 @@ interface ChatGatewayResponse<T = any> {
     msgId: string;
     members: Array<Record<string, any>>;
     roomId: string;
+    message: Message;
     call_history?: CallHistory;
     // Có thể bổ sung các trường khác nếu cần
   };
