@@ -21,7 +21,7 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
       isGlobal: true,
       envFilePath: path.resolve(
         process.cwd(),
-        `apps/api-gateway/.env.${process.env.NODE_ENV || 'development'}`,
+        `apps/api-gateway/.env`,
       ),
       load: [redisConfig, kafkaConfig],
     }),
