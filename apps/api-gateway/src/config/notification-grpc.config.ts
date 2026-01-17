@@ -3,8 +3,11 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 
 export default registerAs('notificationGrpc', () => {
-  const nodeEnv = process.env.GATEWAY_NOTIFICATION_NODE_ENV || process.env.NODE_ENV || 'local';
-  
+  const nodeEnv =
+    process.env.GATEWAY_NOTIFICATION_NODE_ENV ||
+    process.env.NODE_ENV ||
+    'local';
+
   // Chỉ hợp pháp khi NODE_ENV là 'local' hoặc 'production'
   if (nodeEnv !== 'local' && nodeEnv !== 'production') {
     throw new Error(
@@ -15,7 +18,7 @@ export default registerAs('notificationGrpc', () => {
   // Load file env tương ứng với NODE_ENV của service này
   const envFile = nodeEnv === 'local' ? 'development' : 'production';
   const envPath = resolve(process.cwd(), `apps/api-gateway/.env.${envFile}`);
-  
+
   // Load file env riêng cho service này (không override process.env hiện tại)
   const envConfig = config({ path: envPath, override: false });
   const serviceEnv = envConfig.parsed || {};
@@ -31,4 +34,3 @@ export default registerAs('notificationGrpc', () => {
     envFile,
   };
 });
-
