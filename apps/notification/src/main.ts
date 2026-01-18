@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import Utils from '@app/helpers/utils';
 import { join } from 'path';
 import { NestFactory } from '@nestjs/core';
-import { SERVICES } from '@app/constants';
+
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
 import { Logger } from '@nestjs/common';
 
@@ -39,7 +39,7 @@ async function bootstrap() {
   try {
     await app.startAllMicroservices();
   } catch (error) {
-    console.error('Error starting microservices:', error.message);
+    console.error('Error starting microservices:', (error as Error).message);
     console.log('Some microservices may not be available, but continuing...');
   }
 

@@ -5,6 +5,7 @@ import { WsSharedModule } from 'libs/ws/src/ws.module';
 import { ConfigModule } from '@nestjs/config';
 import redisConfig from 'libs/db/src/config/redis.config';
 import path from 'path';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import path from 'path';
       ),
       load: [redisConfig],
     }),
+    JwtModule.register({}),
     WsSharedModule,
     ChatWebSocketModule,
     DocWebSocketModule,

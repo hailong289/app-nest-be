@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { BadRequestException, Inject, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
@@ -16,7 +17,7 @@ import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { notifyType, socketEvent } from 'libs/dto/src/enum.type';
-import { RoomTypeEnum } from 'libs/db/src/mongo/model/room.model';
+import { RoomType } from 'libs/db/src/mongo/model/room.model';
 import Utils from 'libs/helpers/src/utils';
 
 interface JwtPayload {
@@ -40,23 +41,35 @@ interface SocketWithUser extends Socket {
   userId?: string; // MongoDB _id
   user?: JwtPayload; // Full user payload
 }
+interface GatewayMember {
+  user_id: any;
+  id: string;
+  [key: string]: any; // Allow indexing
+}
+
 export interface ChatGrpcService {
-  CreateNewMsg(data: any): any;
-  getRoom(data: any): any;
-  GetOneMsg(data: any): any;
-  MarkReadUpTo(data: any): any;
-  HandleReact(data: any): any;
-  HandlePinned(data: any): any;
-  HandleDeleteForUser(data: any): any;
-  HandleDelete(data: any): any;
-  RequestCall(data: any): any;
-  AcceptCall(data: any): any;
-  EndCall(data: any): any;
-  SendCandidate(data: any): any;
+  CreateNewMsg<T = any>(data: T): Observable<any>;
+  getRoom<T = any>(data: T): Observable<any>;
+  GetOneMsg<T = any>(data: T): Observable<any>;
+  MarkReadUpTo<T = any>(data: T): Observable<any>;
+  HandleReact<T = any>(data: T): Observable<any>;
+  HandlePinned<T = any>(data: T): Observable<any>;
+  HandleDeleteForUser<T = any>(data: T): Observable<any>;
+  HandleDelete<T = any>(data: T): Observable<any>;
+  RequestCall<T = any>(data: T): Observable<any>;
+  AcceptCall<T = any>(data: T): Observable<any>;
+  EndCall<T = any>(data: T): Observable<any>;
+  SendCandidate<T = any>(data: T): Observable<any>;
 }
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  cors: {
+    origin: '*',
+    credentials: true,
+  },
   namespace: '/chat',
+  // Thêm 2 dòng dưới đây để Server chấp nhận mọi loại kết nối
+  transports: ['websocket', 'polling'],
+  allowEIO3: true, // Cho phép tương thích ngược với các client đời cũ (nếu có)
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() io: Server;
@@ -277,71 +290,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
-      const { msgId, roomId, members } = result.metadata;
-
-      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất (dùng userId của người gửi)
-      const globalMsgData = await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-        { userId: data.userId, msgId },
-      );
-
-      // Batch gọi getRoom cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<RoomGatewayResponse>,
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-          if (member.user_id !== user._id && !roomData?.metadata?.mute) {
-            const title =
-              roomData.metadata.type === RoomTypeEnum.Private
-                ? `${user.usr_fullname} gửi 1 tin nhắn đến bạn`
-                : `${user.usr_fullname} gửi 1 tin nhắn đến ${roomData.metadata.name}`;
-            await Utils.dispatchEventKafka(
-              this.notificationClient,
-              'push_notification_users',
-              {
-                title,
-                message:
-                  roomData.metadata.last_message &&
-                  typeof roomData.metadata.last_message === 'object' &&
-                  roomData.metadata.last_message !== null &&
-                  'content' in roomData.metadata.last_message
-                    ? ((roomData.metadata.last_message as { content?: string })
-                        ?.content ?? '')
-                    : '',
-                userIds: [member.user_id],
-                data: {
-                  type: notifyType.noify_new_message,
-                  room: roomData.metadata,
-                  msg: msgData,
-                  push_type: 'message',
-                },
-              },
-            );
-          }
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
-      );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-      });
+      const roomId = result.metadata.roomId;
+      const msg = result.metadata.msg;
+      this.io.to(roomId).emit(socketEvent.MSGUPSERT, msg);
 
       return { ok: true, data: result };
     } catch (error) {
@@ -381,55 +332,48 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       // Đánh dấu đã đọc qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayResponse;
-
+      // const result = (await Utils.dispatchGrpcRequest(
+      //   this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
+      //   data,
+      // )) as ChatGatewayResponse;
       // Kiểm tra result có metadata không
-      if (!result || !result.metadata) {
-        this.logger.error(
-          '[MARK_READ] Invalid response from MarkReadUpTo:',
-          result,
-        );
-        client.emit('error', { message: 'Failed to mark as read' });
-        return { ok: false };
-      }
-
-      const { msgId, roomId, members } = result.metadata;
-
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<ChatGatewayResponse>,
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
-      );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-      });
-
-      return { ok: true, data: result };
+      // if (!result || !result.metadata) {
+      //   this.logger.error(
+      //     '[MARK_READ] Invalid response from MarkReadUpTo:',
+      //     result,
+      //   );
+      //   client.emit('error', { message: 'Failed to mark as read' });
+      //   return { ok: false };
+      // }
+      // const { msgId, roomId, members } = result.metadata;
+      // // Batch gọi getRoom và GetOneMsg cho tất cả members song song
+      // const memberUpdates = await Promise.all(
+      //   members.map(async (member) => {
+      //     const memberUserId = member.user_id as string;
+      //     // Gọi song song getRoom và GetOneMsg
+      //     const [roomData, msgData] = await Promise.all([
+      //       Utils.dispatchGrpcRequest(
+      //         this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
+      //         { userId: memberUserId, roomId },
+      //       ) as Promise<ChatGatewayResponse>,
+      //       Utils.dispatchGrpcRequest(
+      //         this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
+      //         { userId: memberUserId, msgId },
+      //       ),
+      //     ]);
+      //     return {
+      //       socketRoom: this.key.ROOM_CLIENT(member.id),
+      //       roomData: roomData.metadata,
+      //       msgData,
+      //     };
+      //   }),
+      // );
+      // // Emit events đến từng member
+      // memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
+      //   this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
+      //   this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
+      // });
+      // return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MARK_READ] Error marking message as read:', error);
       client.emit('error', {
@@ -489,7 +433,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ]);
           if (member.user_id !== user._id && !roomData?.metadata?.mute) {
             const title =
-              roomData.metadata.type === RoomTypeEnum.Private
+              roomData.metadata.type === RoomType.Private
                 ? `${user.usr_fullname} thả cảm xúc đến bạn`
                 : `${user.usr_fullname} thả  cảm xúc đến tin nhắn của nhóm ${roomData.metadata.name}`;
             await Utils.dispatchEventKafka(
@@ -561,7 +505,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
-    console.log('🚀 ~ ChatGateway ~ on pinned ~ data:', data);
 
     try {
       // Tạo message qua gRPC
@@ -1233,8 +1176,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     history: CallHistory,
   ) {
     const memberUpdates = await Promise.all(
-      members.map(async (member) => {
-        const memberUserId = member.user_id as string;
+      members.map(async (m) => {
+        const member = m as GatewayMember;
+        const memberUserId = String(member.user_id);
 
         // Gọi song song getRoom và GetOneMsg
         const [roomData, msgData] = await Promise.all([
@@ -1248,10 +1192,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ),
         ]);
         return {
-          socketRoom: this.key.ROOM_CLIENT(member.id),
+          socketRoom: this.key.ROOM_CLIENT(String(member.id)),
           roomData: roomData.metadata,
           msgData: {
-            ...(msgData as any),
+            ...(msgData as Record<string, any>),
             call_history: history,
           },
         };
@@ -1274,6 +1218,7 @@ interface ChatGatewayResponse<T = any> {
     msgId: string;
     members: Array<Record<string, any>>;
     roomId: string;
+    msg: Record<string, any>;
     call_history?: CallHistory;
     // Có thể bổ sung các trường khác nếu cần
   };

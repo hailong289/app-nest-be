@@ -23,7 +23,7 @@ async function bootstrap() {
   try {
     await app.startAllMicroservices();
   } catch (error) {
-    console.error('Error starting microservices:', error.message);
+    console.error('Error starting microservices:', (error as Error).message);
     console.log('Some microservices may not be available, but continuing...');
   }
 

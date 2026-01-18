@@ -3,14 +3,12 @@ import { JwtModule } from '@nestjs/jwt';
 import path from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
 import { ConfigModule } from '@nestjs/config';
-import { WsSharedModule } from 'libs/ws/src';
 import { GatewayAuthModule } from './auth/gateway-auth.module';
 import { GatewayNotificationModule } from './notification/gateway-notification.module';
 import { GatewayFileSystemModule } from './filesystem/gateway-filesystem.module';
 import { GatewayChatModule } from './chat/gateway-chat.module';
 import { GatewayModule } from './gateway/gateway.module';
-import { ChatWebSocketModule } from './ws/chat/chat.module';
-import { DocWebSocketModule } from './ws/doc/doc.module';
+
 import redisConfig from 'libs/db/src/config/redis.config';
 import { kafkaConfig } from 'libs/kafka';
 import { GatewayAiModule } from './ai/gateway-ai.module';
@@ -19,13 +17,9 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(
-        process.cwd(),
-        `apps/api-gateway/.env`,
-      ),
+      envFilePath: path.resolve(process.cwd(), `apps/api-gateway/.env`),
       load: [redisConfig, kafkaConfig],
     }),
-    WsSharedModule,
     JwtModule.register({}),
     GatewayModule,
     GatewayAuthModule,
@@ -33,8 +27,6 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
     GatewayFileSystemModule,
     GatewayChatModule,
     GatewayAiModule,
-    ChatWebSocketModule,
-    DocWebSocketModule,
   ],
 })
 export class AppModule {

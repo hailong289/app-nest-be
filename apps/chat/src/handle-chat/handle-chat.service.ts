@@ -38,12 +38,16 @@ import {
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
-import { buildMessageCorePipeline } from './Pipeline/getMsg';
+import {
+  buildMessageCorePipeline,
+  buildMessageDetailPipeline,
+} from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
 import { MemberStatus } from 'libs/db/src/mongo/model/call-history.model';
 import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import { KafkaEvent } from '@app/dto/enum.type';
+import { KafkaEvent, notifyType } from '@app/dto/enum.type';
+import { RoomType } from 'libs/db/src/mongo/model/room.model';
 
 @Injectable()
 export class HandleChatService {
@@ -78,6 +82,8 @@ export class HandleChatService {
     private readonly fileClient: ClientKafka,
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+    @Inject(SERVICES.NOTIFICATION)
+    private readonly notificationClient: ClientKafka,
   ) {}
 
   async createMessage(payload: CreateMessage) {
@@ -167,6 +173,10 @@ export class HandleChatService {
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(createNewMsg._id.toString()),
+    );
+    console.log('🚀 ~ HandleChatService ~ createMessage ~ msg:', msg);
     // Generate content snapshot based on message type
     let contentSnap: string;
     switch (type) {
@@ -199,7 +209,19 @@ export class HandleChatService {
         break;
       }
     }
+    const roomUserState = await this.RoomsUsersState.find({
+      room_id: finInfo._id,
+      user_id: {
+        $in: finInfo.room_members
+          .filter((i) => i.user_id != userInfo._id)
+          .map((m) => m.user_id),
+      },
+      muted: false,
+    }).select('user_id');
 
+    const userMongoIds = finInfo.room_members
+      .filter((i) => i.user_id.toString() !== userId)
+      .map((i) => i.user_id.toString());
     // Update message read and room state in parallel
     await Promise.allSettled([
       this.messageReadModel.findOneAndUpdate(
@@ -279,22 +301,35 @@ export class HandleChatService {
             ),
           ]
         : []),
+      this.utils.dispatchEventKafka(
+        this.notificationClient,
+        KafkaEvent.PUSH_NOTIFICATION_USERS,
+        {
+          userIds: roomUserState.map((i) => i.user_id),
+          title:
+            finInfo.room_type === RoomType.Private
+              ? userInfo.usr_fullname
+              : `${finInfo.room_name} : ${userInfo.usr_fullname}`,
+          message: contentSnap,
+          data: {
+            type: notifyType.noify_new_message,
+            push_type: 'message',
+            msg: msg[0] as Record<string, any>,
+          },
+        },
+      ),
+      ...userMongoIds.map(
+        async (i) =>
+          await this.recomputeUnreadForUserRoom(i, finInfo._id.toString()),
+      ),
     ]);
 
-    // Update unread count for other members
-    const userMongoIds = finInfo.room_members
-      .filter((i) => i.user_id.toString() !== userId)
-      .map((i) => i.user_id.toString());
-    await Promise.all(
-      userMongoIds.map((i) =>
-        this.recomputeUnreadForUserRoom(i, finInfo._id.toString()),
-      ),
-    );
     return Response.success(
       {
         msgId: createNewMsg._id.toString(),
         members: finInfo.room_members,
         roomId: finInfo.room_id,
+        msg: msg[0] as Record<string, any>,
       },
       'Tin nhắn mới thành công',
     );

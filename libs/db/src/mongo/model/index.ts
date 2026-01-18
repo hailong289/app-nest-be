@@ -8,7 +8,7 @@ export { Room, RoomSchema, Member, MemberSchema } from './room.model';
 export { default as roomModel } from './room.model';
 export type {
   RoomDocument,
-  roomType,
+  RoomType,
   roleMember,
   memberType,
 } from './room.model';
