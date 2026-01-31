@@ -56,7 +56,14 @@ message ListQuizzesResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    repeated QuizMetadata metadata = 4;
+    ListQuizzesMetadata metadata = 4;
+}
+
+message ListQuizzesMetadata {
+    repeated QuizMetadata data = 1;
+    int64 total_item = 2;
+    int64 total_page = 3;
+    int64 page = 4;
 }
 
 message UpdateQuizzRequest {

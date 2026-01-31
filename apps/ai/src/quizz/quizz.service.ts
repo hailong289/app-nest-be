@@ -40,7 +40,18 @@ export class QuizzService {
       .skip((page - 1) * limit)
       .limit(limit)
       .sort({ createdAt: -1 });
-    return Response.success(quizzes);
+
+    const total = await this.quizModel.countDocuments({
+      quiz_roomId: new Types.ObjectId(roomId),
+    });
+    const totalPage = Math.ceil(total / limit);
+
+    return Response.success({
+      data: quizzes,
+      total_item: total,
+      total_page: totalPage,
+      page: page,
+    });
   }
 
   async updateQuizzById(quiz_id: string, data: UpdateQuizzDto) {
