@@ -504,22 +504,33 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       }
 
       // 4. Lưu vào DB
-      await this.embedModel.create({
-        service,
-        provider: 'google',
-        model: 'text-embedding-004',
-        contextType,
-        contextId: Utils.convertToObjectIdMongoose(contextId),
-        messageId: messageId
-          ? Utils.convertToObjectIdMongoose(messageId)
-          : undefined,
-        userId,
-        text,
-        hash,
-        vector,
-      });
+      try {
+        await this.embedModel.create({
+          service,
+          provider: 'google',
+          model: 'text-embedding-004',
+          contextType,
+          contextId: Utils.convertToObjectIdMongoose(contextId),
+          messageId: messageId
+            ? Utils.convertToObjectIdMongoose(messageId)
+            : undefined,
+          userId,
+          text,
+          hash,
+          vector,
+        });
 
-      this.logger.log(`✅ Embedded [${service}/${contextType}] ${contextId}`);
+        this.logger.log(`✅ Embedded [${service}/${contextType}] ${contextId}`);
+      } catch (error: any) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        if (error?.code === 11000) {
+          this.logger.warn(
+            `Skipped duplicate hash insertion (E11000) for ${contextId}`,
+          );
+          return;
+        }
+        throw error;
+      }
     } catch (error) {
       this.logger.error(`Failed to embed ${contextId}`, error);
     }

@@ -10,7 +10,7 @@ export class KafkaAdminService implements OnModuleInit {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     // Không await để không block startup nếu Kafka không available
     this.createTopics().catch((error) => {
       this.logger.warn(

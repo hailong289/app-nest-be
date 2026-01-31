@@ -4,13 +4,11 @@ import { SERVICES } from '@app/constants';
 import { GatewayChatController } from './gateway-chat.controller';
 import { GatewaySocialController } from './social/gateway-social.controller';
 import { GatewayService } from '../gateway/gateway.service';
-import { ChatWebSocketModule } from '../ws/chat/chat.module';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import chatConfig from '../config/chat.config';
 
 @Module({
   imports: [
-    ChatWebSocketModule, // Import WebSocket module để có thể inject ChatGateway
     ConfigModule.forFeature(chatConfig),
     GrpcClientModule.registerAsync({
       name: SERVICES.CHAT,

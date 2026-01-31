@@ -14,10 +14,10 @@ import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
-import { GatewayService } from '../../gateway/gateway.service';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from '@app/dto/enum.type';
 import { Observable } from 'rxjs';
+import Utils from 'libs/helpers/src/utils';
 
 interface JwtPayload {
   _id: string;
@@ -75,7 +75,6 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     @Inject(SERVICES.FILESYSTEM) private readonly docClient: ClientGrpc,
-    private readonly gatewayService: GatewayService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
@@ -298,7 +297,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await client.join(docRoom);
 
       // Get document from service
-      const result = (await this.gatewayService.dispatchGrpcRequest(
+      const result = (await Utils.dispatchGrpcRequest(
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument
         (this.DocGrpcService.GetDoc as any).bind(this.DocGrpcService),
         { docId, userId: user._id },
@@ -386,7 +385,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
       // Gọi Service để lưu vào DB (Logic nặng)
-      (await this.gatewayService.dispatchGrpcRequest(
+      (await Utils.dispatchGrpcRequest(
         this.DocGrpcService.UpdateDoc.bind(this.DocGrpcService),
         {
           docId,

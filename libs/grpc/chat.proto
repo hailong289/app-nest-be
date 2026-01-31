@@ -325,9 +325,8 @@ message MessageReply {
   string content = 3;
   string createdAt = 4;
   ReplySender sender = 5;
-  bool isMine=6;
   bool isDelete=7;
-  bool hiddenByMe=8;
+  repeated string hiddenBy=8;
 }
 
 message ReadByUser {
@@ -340,7 +339,6 @@ message ReadByUser {
 message MessageReadBy {
   string readAt = 1;
   ReadByUser user = 2;
-  bool isMine=3;
 }
 
 /* ===================== Core output ===================== */
@@ -363,15 +361,12 @@ message MessageCore {
   MessageReply reply = 12;                    // Reply to message (nullable)
 
   // ==== User-specific state ====
-  bool isMine = 13;                           // Is current user's message
-  bool isRead = 14;                           // Read status
-  bool hiddenByMe = 15;                       // Hidden by current user
-  string hiddenAt = 16;                       // Hidden timestamp (nullable)
   repeated MessageReadBy read_by = 17;        // List of users who read
   int32 read_by_count = 18;  
   bool isDeleted=19; 
   CallHistory call_history = 20;             // Call history
   string documentId=21;
+  repeated string hiddenBy = 22;
 
 }
 
@@ -407,7 +402,7 @@ message MessageDeleteOutput{
   MessageDeleteMetadata metadata = 4;
 }
 message MessageDeleteMetadata {
-  repeated string msgIds = 1;
+  repeated MessageCoreMetadata msgs = 1;
   repeated membersTypePrivate members = 2;
   string roomId=3;
 }
@@ -415,6 +410,8 @@ message MessageCoreMetadata {
   string msgId = 1;
   repeated membersTypePrivate members = 2;
   string roomId=3;
+  MessageCore msg=4;
+
 }
 message membersTypePrivate {
   string id =1;

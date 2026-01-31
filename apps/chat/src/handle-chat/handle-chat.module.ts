@@ -20,6 +20,11 @@ import { SharedKafkaClientModule } from 'libs/kafka';
       clientId: 'chat-service-filesystem-client',
       groupId: 'chat-service-filesystem-group',
     }),
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.NOTIFICATION,
+      clientId: 'chat-msg-notification',
+      groupId: 'chat-msg-notification-group',
+    }),
   ],
 })
 export class HandleChatModule {}

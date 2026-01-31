@@ -5,6 +5,14 @@ import { Response } from '@app/helpers/response';
 import { FirebaseService } from './firebase.service';
 import { KafkaEvent } from '@app/dto';
 
+type PushNotificationUsersPayload = {
+  title: string;
+  message: string;
+  userIds: string[];
+  data?: Record<string, any>;
+  saveToDb?: boolean;
+};
+
 @Controller()
 export class NotificationController {
   constructor(
@@ -54,100 +62,102 @@ export class NotificationController {
   }
 
   @MessagePattern(KafkaEvent.DOC_CREATED)
-  async handleDocumentCreated(@Payload() data: any) {
+  async handleDocumentCreated(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.DOC_UPDATED)
-  async handleDocumentUpdated(@Payload() data: any) {
+  async handleDocumentUpdated(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.DOC_NEW_VERSION)
-  async handleDocumentVersionUploaded(@Payload() data: any) {
+  async handleDocumentVersionUploaded(
+    @Payload() data: PushNotificationUsersPayload,
+  ) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.DOC_DELETED)
-  async handleDocumentDeleted(@Payload() data: any) {
+  async handleDocumentDeleted(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.DOC_RESTORED)
-  async handleDocumentRestored(@Payload() data: any) {
+  async handleDocumentRestored(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.DOC_MOVED)
-  async handleDocumentMoved(@Payload() data: any) {
+  async handleDocumentMoved(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.DOC_SHARED)
-  async handleDocumentShared(@Payload() data: any) {
+  async handleDocumentShared(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   // Workflow Events
   @MessagePattern(KafkaEvent.FLOW_SUBMITTED)
-  async handleFlowSubmitted(@Payload() data: any) {
+  async handleFlowSubmitted(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.FLOW_APPROVED)
-  async handleFlowApproved(@Payload() data: any) {
+  async handleFlowApproved(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.FLOW_REJECTED)
-  async handleFlowRejected(@Payload() data: any) {
+  async handleFlowRejected(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.FLOW_REQ_CHANGE)
-  async handleFlowReqChange(@Payload() data: any) {
+  async handleFlowReqChange(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.FLOW_OVERDUE)
-  async handleFlowOverdue(@Payload() data: any) {
+  async handleFlowOverdue(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   // Comment & Task Events
   @MessagePattern(KafkaEvent.CMT_ADDED)
-  async handleCommentAdded(@Payload() data: any) {
+  async handleCommentAdded(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.USER_MENTIONED)
-  async handleUserMentioned(@Payload() data: any) {
+  async handleUserMentioned(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.TASK_ASSIGNED)
-  async handleTaskAssigned(@Payload() data: any) {
+  async handleTaskAssigned(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   // System & Security Events
   @MessagePattern(KafkaEvent.SYS_QUOTA_WARN)
-  async handleSysQuotaWarn(@Payload() data: any) {
+  async handleSysQuotaWarn(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.SYS_CONVERT_FAIL)
-  async handleSysConvertFail(@Payload() data: any) {
+  async handleSysConvertFail(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.SEC_LOGIN_ALERT)
-  async handleSecLoginAlert(@Payload() data: any) {
+  async handleSecLoginAlert(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
   @MessagePattern(KafkaEvent.SEC_ACCESS_DENIED)
-  async handleSecAccessDenied(@Payload() data: any) {
+  async handleSecAccessDenied(@Payload() data: PushNotificationUsersPayload) {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
