@@ -6,12 +6,14 @@ import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import * as grpc from '@grpc/grpc-js';
-import { kafkaConfig, SharedKafkaClientModule } from 'libs/kafka';
+import { ChatConsumer } from './chat.consumer';
+import { SharedBullModule } from 'libs/db/src';
+import { OnlineStatusTask } from '../tasks/online-status.task';
+
 @Module({
   imports: [
     ConfigModule, // WsJwtGuard cần ConfigService
     JwtModule.register({}), // WsJwtGuard cần JwtService
-    ConfigModule.forFeature(kafkaConfig),
     ClientsModule.register([
       {
         name: SERVICES.CHAT,
@@ -45,13 +47,10 @@ import { kafkaConfig, SharedKafkaClientModule } from 'libs/kafka';
         },
       },
     ]),
-    SharedKafkaClientModule.registerAsync({
-      name: SERVICES.NOTIFICATION, // Token để inject (bắt buộc)
-      clientId: 'notification-service', // Tên định danh (Optional - override mặc định)
-      groupId: 'notification-consumer', // Group ID (Optional - override mặc định)
-    }),
+    SharedBullModule.registerQueue('room_updates'),
   ],
-  providers: [ChatGateway],
+  controllers: [],
+  providers: [ChatGateway, ChatConsumer, OnlineStatusTask],
   exports: [ChatGateway],
 })
 export class ChatWebSocketModule {}

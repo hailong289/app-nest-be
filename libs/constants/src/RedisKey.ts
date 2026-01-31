@@ -96,18 +96,35 @@ export const REDISKEY = {
   // ==========================================
 
   /**
-   * Set chứa danh sách users đang online (Set)
+   * Set chứa danh sách users đang online (Set) - DEPRECATED for performance
    * Format: chat:users:online
    * Type: SET
    * Members: userId1, userId2, ...
    */
-  USERS_ONLINE: 'chat:users:online',
+  // USERS_ONLINE: 'chat:users:online:v2',
 
   /**
-   * Online status của 1 user (String với TTL)
-   * Format: chat:user:{userId}:online
+   * ZSET tracking heartbeat timestamps for Cron job
+   * Format: chat:users:heartbeat
+   * Type: ZSET
+   * Score: Timestamp (ms)
+   * Member: userId
+   */
+  USERS_HEARTBEAT: 'chat:users:heartbeat',
+
+  /**
+   * Online Presence của 1 user (String với TTL)
+   * Format: chat:user:{userId}:presence
    * Type: STRING
    * Value: timestamp của lần ping cuối
+   * TTL: 45s (heartbeat + buffer)
+   */
+  USER_PRESENCE: (userId: string) => `chat:user:${userId}:presence`,
+
+  /**
+   * Online status set of sockets (Set of socketIds)
+   * Format: chat:user:{userId}:online
+   * Type: SET
    * TTL: 30s (heartbeat)
    */
   USER_ONLINE: (userId: string) => `chat:user:${userId}:online`,
@@ -180,6 +197,11 @@ export const REDISKEY = {
    * TTL: 10 seconds
    */
   RATE_LIMIT_MESSAGE: (userId: string) => `chat:rate_limit:message:${userId}`,
+
+  // ==========================================
+  // 📢 PUBSUB CHANNELS
+  // ==========================================
+  PUBSUB_ROOM_UPDATE: 'events:room:update',
 } as const;
 
 /**

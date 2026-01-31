@@ -14,6 +14,7 @@ import {
   roomsStateModel,
   roomsUsersStateModel,
   userModel,
+  SharedBullModule,
 } from 'libs/db/src';
 
 @Module({
@@ -30,6 +31,7 @@ import {
       messageReactionsModel,
     ]),
     RedisModule,
+    SharedBullModule.registerQueue('room_updates'),
   ],
   controllers: [RoomsController],
   providers: [RoomsService],

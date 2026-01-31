@@ -67,8 +67,8 @@ export class CallHistory {
   room_id: Types.ObjectId; // ID phòng gọi
 
   // tin nhắn cuộc gọi
-  @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
-  message_id: Types.ObjectId | null; // ID tin nhắn cuộc gọi
+  @Prop({ type: Types.ObjectId, ref: 'Message', required: true })
+  message_id: Types.ObjectId;
 
   @Prop({
     type: [Member],

@@ -64,6 +64,33 @@ export class GrpcClientModule {
                       join(process.cwd(), 'libs/grpc'), // để resolve google/protobuf/struct.proto
                     ],
                   },
+                  channelOptions: {
+                    'grpc.keepalive_time_ms': 10000,
+                    'grpc.keepalive_timeout_ms': 5000,
+                    'grpc.keepalive_permit_without_calls': 1,
+                    'grpc.http2.max_pings_without_data': 0,
+                    'grpc.http2.min_time_between_pings_ms': 10000,
+                    'grpc.http2.min_ping_interval_without_data_ms': 5000,
+                    'grpc.enable_retries': 1,
+                    'grpc.service_config': JSON.stringify({
+                      methodConfig: [
+                        {
+                          name: [{}],
+                          retryPolicy: {
+                            maxAttempts: 5,
+                            initialBackoff: '0.1s',
+                            maxBackoff: '1s',
+                            backoffMultiplier: 2,
+                            retryableStatusCodes: [
+                              'UNAVAILABLE',
+                              'INTERNAL',
+                              'UNKNOWN',
+                            ],
+                          },
+                        },
+                      ],
+                    }),
+                  },
                 },
               };
             },

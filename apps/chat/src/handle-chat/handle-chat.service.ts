@@ -712,6 +712,9 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
+    // Notify clients to refresh room info (pinned messages updated)
+    await this.roomService.emitRoomUpdate(finInfo.room_id.toString());
+
     return Response.success(
       {
         msgId,
@@ -868,28 +871,36 @@ export class HandleChatService {
     membersIds,
     roomId,
     callType,
-    messageId,
   }: RequestCallDto) {
-    console.log(
-      '🚀 ~ HandleChatService ~ requestCall ~ membersIds:',
-      membersIds,
-    );
-    console.log('🚀 ~ HandleChatService ~ requestCall ~ roomId:', roomId);
     try {
+      const room = await this.roomModel.findOne({ room_id: roomId });
+      if (!room) {
+        throw new NotFoundException('Phòng gọi không tồn tại');
+      }
+
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
       if (!actionUser) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
+
+      const msg = await this.messageModel.create({
+        msg_roomId: room._id,
+        msg_sender: actionUser._id,
+        msg_type: 'call',
+        msg_content: '',
+        attachment_ids: [],
+        reply_to: null,
+      });
+
+      if (!msg) {
+        throw new BadRequestException('Không tạo được tin nhắn cuộc gọi');
+      }
+
       const members = await this.userModel.find({
         usr_id: {
           $in: membersIds.map((m) => m.toString()),
         },
       });
-
-      const room = await this.roomModel.findOne({ room_id: roomId });
-      if (!room) {
-        throw new NotFoundException('Phòng gọi không tồn tại');
-      }
 
       const membersData = members.map((m) => ({
         user_id: m._id,
@@ -906,20 +917,22 @@ export class HandleChatService {
         room_id: room._id,
         call_type: callType,
         started_at: new Date(),
-        message_id: messageId
-          ? this.utils.convertToObjectIdMongoose(messageId)
-          : null,
+        message_id: msg._id,
       });
 
       if (!callHistory) {
         throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
       }
-
+      const message = await this.messageModel.aggregate(
+        buildMessageDetailPipeline(msg._id.toString()),
+      );
       return Response.success(
         {
           history: callHistory,
           room: room,
+
           callType: callType,
+          msg: message[0] as Record<string, any>,
         },
         'Cuộc gọi đã được tạo',
       );
@@ -975,11 +988,14 @@ export class HandleChatService {
       if (!refreshedHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
-
+      const msg = await this.messageModel.aggregate(
+        buildMessageDetailPipeline(refreshedHistory.message_id.toString()),
+      );
       return Response.success(
         {
           history: refreshedHistory,
           room: room,
+          msg: msg[0] as Record<string, any>,
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',
       );
@@ -1050,11 +1066,14 @@ export class HandleChatService {
       // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
       callHistory.markModified('members');
       await callHistory.save();
-
+      const msg = await this.messageModel.aggregate(
+        buildMessageDetailPipeline(callHistory.message_id.toString()),
+      );
       return Response.success(
         {
           history: callHistory,
           room: room,
+          msg: msg[0] as Record<string, any>,
         },
         'Cuộc gọi đã được kết thúc',
       );

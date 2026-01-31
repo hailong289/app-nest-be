@@ -10,7 +10,8 @@ export type MsgType =
   | 'video'
   | 'audio'
   | 'gif'
-  | 'document';
+  | 'document'
+  | 'call';
 
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {

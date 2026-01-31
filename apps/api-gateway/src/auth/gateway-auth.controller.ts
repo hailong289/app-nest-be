@@ -25,7 +25,7 @@ import type { AuthenticatedRequest } from 'libs/types';
 interface AuthGrpcService {
   login(data: LoginDto): any;
   register(data: RegisterDto): any;
-  logout(data: { userId: string; jti: string }): any;
+  logout(data: { userId: string; jti: string; fcmToken?: string }): any;
   getUser(data: { userId: string }): any;
   updatePassword(data: UpdatePasswordDto & { userId: string }): any;
   verifyOtp(data: VerifyOtpDto): any;
@@ -69,7 +69,10 @@ export class GatewayAuthController {
   }
 
   @Post('logout')
-  async logout(@Req() req: AuthenticatedRequest) {
+  async logout(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { fcmToken?: string },
+  ) {
     console.log('Logout request user:', req.user);
     // Safely extract jti from user object
     const jti: string | undefined =
@@ -79,7 +82,7 @@ export class GatewayAuthController {
 
     return await this.gatewayService.dispatchGrpcRequest(
       this.authService.logout.bind(this.authService),
-      { userId: req.user?._id, jti },
+      { userId: req.user?._id, jti, fcmToken: body.fcmToken },
     );
   }
 

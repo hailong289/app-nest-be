@@ -53,6 +53,21 @@ export class RedisService {
   }
 
   /**
+   * Get values of multiple keys.
+   * @param keys - Array of Redis keys.
+   * @returns Array of values (null if key does not exist).
+   */
+  async mget(keys: string[]): Promise<(string | null)[]> {
+    try {
+      if (!keys || keys.length === 0) return [];
+      return await this.redis.mget(keys);
+    } catch (err) {
+      console.error('Redis mget error:', err);
+      return keys.map(() => null);
+    }
+  }
+
+  /**
    * Delete a key from Redis.
    * @param key - The key to delete.
    * @returns 1 if deleted, 0 if not found.
@@ -141,14 +156,15 @@ export class RedisService {
   }
 
   /**
-   * Add a member to a Redis Set.
+   * Add one or more members to a Redis Set.
    * @param key - The Redis key.
-   * @param value - The value to add.
-   * @returns Number of elements added (1 or 0).
+   * @param values - The values to add.
+   * @returns Number of elements added.
    */
-  async sAdd(key: string, value: string): Promise<number> {
+  async sAdd(key: string, ...values: string[]): Promise<number> {
     try {
-      return await this.redis.sadd(key, value);
+      if (values.length === 0) return 0;
+      return await this.redis.sadd(key, ...values);
     } catch (err) {
       console.error('Redis sAdd error:', err);
       return 0;
@@ -156,14 +172,15 @@ export class RedisService {
   }
 
   /**
-   * Remove a member from a Redis Set.
+   * Remove one or more members from a Redis Set.
    * @param key - The Redis key.
-   * @param value - The value to remove.
+   * @param values - The values to remove.
    * @returns Number of elements removed.
    */
-  async sRem(key: string, value: string): Promise<number> {
+  async sRem(key: string, ...values: string[]): Promise<number> {
     try {
-      return await this.redis.srem(key, value);
+      if (values.length === 0) return 0;
+      return await this.redis.srem(key, ...values);
     } catch (err) {
       console.error('Redis sRem error:', err);
       return 0;
@@ -247,5 +264,109 @@ export class RedisService {
       console.error('Redis sMembers error:', err);
       return [];
     }
+  }
+
+  /**
+   * Add a member to a sorted set, or update its score if it already exists.
+   * @param key - The Redis key.
+   * @param score - The score.
+   * @param member - The member.
+   */
+  async zAdd(
+    key: string,
+    score: number,
+    member: string,
+  ): Promise<number | string> {
+    try {
+      return await this.redis.zadd(key, score, member);
+    } catch (err) {
+      console.error('Redis zAdd error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Remove one or more members from a sorted set.
+   * @param key - The Redis key.
+   * @param members - The members to remove.
+   */
+  async zRem(key: string, ...members: string[]): Promise<number> {
+    try {
+      if (members.length === 0) return 0;
+      return await this.redis.zrem(key, ...members);
+    } catch (err) {
+      console.error('Redis zRem error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Return a range of members in a sorted set, by score.
+   * @param key - The Redis key.
+   * @param min - The minimum score.
+   * @param max - The maximum score.
+   */
+  async zRangeByScore(
+    key: string,
+    min: number | string,
+    max: number | string,
+  ): Promise<string[]> {
+    try {
+      return await this.redis.zrangebyscore(key, min, max);
+    } catch (err) {
+      console.error('Redis zRangeByScore error:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Get the score of a member in a sorted set.
+   * @param key - The Redis key.
+   * @param member - The member.
+   */
+  async zScore(key: string, member: string): Promise<string | null> {
+    try {
+      return await this.redis.zscore(key, member);
+    } catch (err) {
+      console.error('Redis zScore error:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Publish a message to a channel.
+   * @param channel - The channel name.
+   * @param message - The message string or object.
+   */
+  async publish(channel: string, message: string | object): Promise<number> {
+    try {
+      const msg =
+        typeof message === 'string' ? message : JSON.stringify(message);
+      return await this.redis.publish(channel, msg);
+    } catch (err) {
+      console.error('Redis publish error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Subscribe to a channel.
+   * @param channel - The channel name.
+   * @param callback - Function to handle messages.
+   */
+  subscribe(channel: string, callback: (message: string) => void): void {
+    const subscriber = this.redis.duplicate();
+    subscriber.subscribe(channel, (err) => {
+      if (err) {
+        console.error(`Failed to subscribe to ${channel}:`, err);
+        return;
+      }
+    });
+
+    subscriber.on('message', (chan, msg) => {
+      if (chan === channel) {
+        callback(msg);
+      }
+    });
   }
 }

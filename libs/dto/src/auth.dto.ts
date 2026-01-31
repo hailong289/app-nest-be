@@ -89,6 +89,10 @@ export class LogoutDto {
 
   @IsNotEmpty()
   userId: string;
+
+  @IsOptional()
+  @IsString()
+  fcmToken?: string;
 }
 
 export class SearchUserDto {
