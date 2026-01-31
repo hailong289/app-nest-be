@@ -60,5 +60,6 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 ./yarn
 ./yarn/*
+yarn.lock
 
 install-state.gz

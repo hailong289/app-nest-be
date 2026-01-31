@@ -490,12 +490,14 @@ message AcceptCallInput{
   string actionUserId = 1;
   repeated string membersIds = 2;
   string roomId = 3;
+  string callId = 4;
 }
 
 message EndCallInput{
   string actionUserId = 1;
   string roomId = 2;
   string status = 3; // 'ended' | 'missed' | 'rejected' | 'cancelled'
+  string callId = 4;
 }
 
 message GetCallHistoryInput{

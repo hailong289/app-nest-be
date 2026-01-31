@@ -11,7 +11,6 @@ import {
   Post,
   Query,
   Req,
-  BadRequestException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -28,7 +27,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { MulterFile } from '@app/dto';
 import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import { Observable } from 'rxjs';
-import { memoryStorage } from 'multer';
 interface AiGrpcService {
   // Define AI service methods here
   moderation(data: ModerationDto): Observable<unknown>;
@@ -47,13 +45,6 @@ interface AiGrpcService {
   translation(data: TranslationDto): Observable<unknown>;
   quizz(data: QuizzDto): Observable<unknown>;
 }
-
-type AiSearchPayload = {
-  query: string;
-  userId: string;
-  limit: number;
-  roomId?: string;
-};
 
 @Controller('ai')
 export class GatewayAiController {
@@ -101,48 +92,14 @@ export class GatewayAiController {
     );
   }
 
-  @Post('search')
-  async search(
-    @Body()
-    body: {
-      query: string;
-      roomId?: string;
-      limit?: number;
-    },
-    @Req() req: AuthenticatedRequest,
-  ) {
-    return this.gatewayService.dispatchGrpcRequest(
-      (data: AiSearchPayload) => this.aiService.search(data),
-      {
-        query: body.query,
-        userId: req.user.usr_id,
-        limit: body.limit ?? 5,
-        roomId: body.roomId,
-      },
-    );
-  }
-
   @Post('summary-document')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 20 * 1024 * 1024 },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file'))
   async summaryDocument(@UploadedFile() file: MulterFile) {
     console.log('SummaryDocument request:', file);
     // Tăng timeout lên 2 phút (120000ms) cho xử lý document lớn
-    if (!file) {
-      throw new BadRequestException('File is required');
-    }
-
     return this.gatewayService.dispatchGrpcRequest(
       (data: SummaryDocumentDto) => this.aiService.summaryDocument(data),
-      {
-        file: file.buffer,
-        filename: file.originalname,
-        mimetype: file.mimetype,
-      },
+      { file },
       120000, // 2 minutes timeout
     );
   }
@@ -157,12 +114,7 @@ export class GatewayAiController {
   }
 
   @Post('quizz')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 20 * 1024 * 1024 },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file'))
   async quizz(
     @UploadedFile() file: MulterFile,
     @Body()
@@ -179,34 +131,16 @@ export class GatewayAiController {
     },
   ) {
     console.log('Quizz request:', { file, body });
-
-    if (body.type === 'document' && !file) {
-      throw new BadRequestException('File is required for document quizzes');
-    }
-
     return this.gatewayService.dispatchGrpcRequest(
       (data: QuizzDto) => this.aiService.quizz(data),
-      Object.assign(
-        {
-          text: body?.text || '',
-          type: body.type,
-          question_type: body.question_type,
-          question_max: body.question_max,
-          question_max_points: body.question_max_points,
-        },
-        file
-          ? {
-              file: {
-                buffer: file.buffer,
-                originalname: file.originalname,
-                mimetype: file.mimetype,
-                fieldname: file.fieldname,
-                encoding: file.encoding,
-                size: file.size,
-              },
-            }
-          : {},
-      ) as unknown as QuizzDto,
+      {
+        file: file,
+        text: body?.text || '',
+        type: body.type,
+        question_type: body.question_type,
+        question_max: body.question_max,
+        question_max_points: body.question_max_points,
+      },
       100000, // 1 minute timeout
     );
   }

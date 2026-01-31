@@ -100,10 +100,12 @@ export class AcceptCallDto {
   actionUserId: string;
   membersIds: string[];
   roomId: string;
+  callId: string;
 }
 
 export class EndCallDto {
   actionUserId: string;
   roomId: string;
   status: 'ended' | 'missed' | 'rejected' | 'cancelled';
+  callId: string;
 }

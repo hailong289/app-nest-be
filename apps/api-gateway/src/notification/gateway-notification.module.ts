@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ConfigModule } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
 import { GatewayNotificationController } from './gateway-notification.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { SharedKafkaClientModule } from 'libs/kafka';
-import { join } from 'path';
-import * as grpc from '@grpc/grpc-js';
+import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
+import notificationGrpcConfig from '../config/notification-grpc.config';
 
 @Module({
   imports: [
@@ -14,40 +14,14 @@ import * as grpc from '@grpc/grpc-js';
       clientId: 'notification-service', // Tên định danh (Optional - override mặc định)
       groupId: 'notification-consumer', // Group ID (Optional - override mặc định)
     }),
-    ClientsModule.register([
-      {
-        name: 'NOTIFICATION_GRPC_SERVICE',
-        transport: Transport.GRPC,
-        options: {
-          package: 'notification',
-          protoPath: join(
-            process.cwd(),
-            process.env.GATEWAY_NOTIFICATION_PROTO_PATH ||
-              'libs/grpc/notification.proto',
-          ),
-          url: (() => {
-            const host = process.env.GATEWAY_NOTIFICATION_HOST || 'localhost';
-            const port = process.env.GATEWAY_NOTIFICATION_PORT || '5005';
-            return `${host}:${port}`;
-          })(),
-          credentials:
-            process.env.NODE_ENV === 'production'
-              ? grpc.credentials.createSsl()
-              : grpc.credentials.createInsecure(),
-          loader: {
-            keepCase: true,
-            longs: String,
-            enums: String,
-            defaults: true,
-            oneofs: true,
-            includeDirs: [join(process.cwd(), 'libs/grpc')],
-          },
-        },
-      },
-    ]),
+    ConfigModule.forFeature(notificationGrpcConfig),
+    GrpcClientModule.registerAsync({
+      name: 'NOTIFICATION_GRPC_SERVICE',
+      configKey: 'notificationGrpc',
+      packages: ['notification'],
+    }),
   ],
   controllers: [GatewayNotificationController],
   providers: [GatewayService],
-  exports: [ClientsModule],
 })
 export class GatewayNotificationModule {}

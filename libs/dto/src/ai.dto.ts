@@ -6,7 +6,6 @@ import {
   Min,
   ValidateIf,
   ValidateNested,
-  IsString,
 } from 'class-validator';
 import { FileUploadData } from './filesystem.dto';
 import { Type } from 'class-transformer';
@@ -30,16 +29,9 @@ export class SearchMessagesDto {
 }
 
 export class SummaryDocumentDto {
-  @IsNotEmpty({ message: 'File không được để trống' })
-  file: Buffer;
-
-  @IsNotEmpty({ message: 'Tên file không được để trống' })
-  @IsString()
-  filename: string;
-
-  @IsNotEmpty({ message: 'Mimetype không được để trống' })
-  @IsString()
-  mimetype: string;
+  @ValidateNested()
+  @Type(() => FileUploadData)
+  file: FileUploadData;
 }
 
 export class TranslationDto {

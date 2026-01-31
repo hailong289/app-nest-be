@@ -898,7 +898,7 @@ export class HandleChatService {
   }
 
   // trả lời cuộc gọi
-  async acceptCall({ actionUserId, roomId }: AcceptCallDto) {
+  async acceptCall({ actionUserId, roomId, callId }: AcceptCallDto) {
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
 
@@ -911,15 +911,10 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const callHistory = await this.callHistoryModel
-        .findOne({
-          members: {
-            $elemMatch: { id: actionUser.usr_id },
-          },
-          room_id: room._id,
-          ended_at: null,
-        })
-        .sort({ createdAt: -1 });
+      const callHistory = await this.callHistoryModel.findOne({
+        room_id: room._id,
+        call_id: callId,
+      });
 
       if (!callHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
@@ -963,7 +958,7 @@ export class HandleChatService {
   }
 
   // kết thúc cuộc gọi
-  async endCall({ actionUserId, roomId, status }: EndCallDto) {
+  async endCall({ actionUserId, roomId, status, callId }: EndCallDto) {
     try {
       const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
       if (!actionUser) {
@@ -975,15 +970,10 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const callHistory = await this.callHistoryModel
-        .findOne({
-          members: {
-            $elemMatch: { id: actionUser.usr_id },
-          },
-          room_id: room._id,
-          ended_at: null,
-        })
-        .sort({ createdAt: -1 });
+      const callHistory = await this.callHistoryModel.findOne({
+        room_id: room._id,
+        call_id: callId,
+      });
 
       if (!callHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
