@@ -12,6 +12,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 import { kafkaConfig } from 'libs/kafka';
 import { GatewayAiModule } from './ai/gateway-ai.module';
+import { RedisModule } from 'libs/db/src';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { GatewayAiModule } from './ai/gateway-ai.module';
       envFilePath: path.resolve(process.cwd(), `apps/api-gateway/.env`),
       load: [redisConfig, kafkaConfig],
     }),
+    RedisModule,
     JwtModule.register({}),
     GatewayModule,
     GatewayAuthModule,

@@ -41,6 +41,7 @@ import { RoomsService } from '../rooms/rooms.service';
 import {
   buildMessageCorePipeline,
   buildMessageDetailPipeline,
+  buildMessagesDetailPipeline,
 } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
 import { MemberStatus } from 'libs/db/src/mongo/model/call-history.model';
@@ -176,7 +177,6 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(createNewMsg._id.toString()),
     );
-    console.log('🚀 ~ HandleChatService ~ createMessage ~ msg:', msg);
     // Generate content snapshot based on message type
     let contentSnap: string;
     switch (type) {
@@ -494,11 +494,15 @@ export class HandleChatService {
         ),
       ),
     );
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(messgeInfo._id.toString()),
+    );
     return Response.success(
       {
         msgId: messgeInfo._id.toString(),
         members: roomInfro.room_members,
         roomId: roomInfro.room_id,
+        msg: msg[0] as Record<string, any>,
       },
       'Đã đọc tin nhắn',
     );
@@ -592,14 +596,7 @@ export class HandleChatService {
     }
     const findMsg = await this.messageModel.findById(msgId);
     if (!findMsg) {
-      return Response.success(
-        {
-          msgId,
-          members: finInfo.room_members,
-          roomId: finInfo.room_id,
-        },
-        'Đã thả icon',
-      );
+      throw new NotAcceptableException('Tin nhắn không tồn tại');
     }
     let contentSnap: string;
     switch (findMsg?.msg_type) {
@@ -635,13 +632,13 @@ export class HandleChatService {
     await Promise.all([
       this.messageReactionModel.findOneAndUpdate(
         {
-          room_id: finInfo._id,
-          user_id: userInfo._id,
-          msg_id: this.utils.convertToObjectIdMongoose(msgId),
+          uniq: `${finInfo._id.toString()}:${msgId}:${userId}`,
         },
         {
           emoji,
-          uniq: `${msgId}:${userId}:${emoji}`,
+          room_id: finInfo._id,
+          user_id: userInfo._id,
+          msg_id: this.utils.convertToObjectIdMongoose(msgId),
         },
         { upsert: true },
       ),
@@ -657,11 +654,15 @@ export class HandleChatService {
         { upsert: true },
       ),
     ]);
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(msgId),
+    );
     return Response.success(
       {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
+        msg: msg[0] as Record<string, any>,
       },
       'Đã thả icon',
     );
@@ -708,18 +709,21 @@ export class HandleChatService {
         new: true,
       }),
     ]);
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(msgId),
+    );
     return Response.success(
       {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
+        msg: msg[0] as Record<string, any>,
       },
       'Đã ghim',
     );
   }
 
   async handleDeleteForUser({ userId, roomId, msgId }: HandleDeleteDto) {
-    console.log('🚀 ~ HandleChatService ~ handleDeleteForUser ~ msgId:', msgId);
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
       throw new NotFoundException('Bạn không thể gửi tin nhắn');
@@ -739,12 +743,17 @@ export class HandleChatService {
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
-    const findHiddne = await this.messageHideModel.findOne({
-      room_id: finInfo._id,
-      msg_id: this.utils.convertToObjectIdMongoose(msgId),
-      user_id: userInfo._id,
-      uniq: `${msgId}:${userId}`,
-    });
+    await this.messageHideModel.findOneAndUpdate(
+      {
+        uniq: `${finInfo._id.toString()}:${msgId}:${userId}`,
+      },
+      {
+        room_id: finInfo._id,
+        msg_id: this.utils.convertToObjectIdMongoose(msgId),
+        user_id: userInfo._id,
+        uniq: `${finInfo._id.toString()}:${msgId}:${userId}`,
+      },
+    );
     // update many
     const findMsg = await this.messageModel
       .find({
@@ -753,26 +762,12 @@ export class HandleChatService {
       .select('_id');
     const msgIds = findMsg.map((i) => i._id.toHexString());
     msgIds.push(msgId);
-    if (findHiddne) {
-      return Response.success(
-        {
-          msgIds,
-          members: finInfo.room_members,
-          roomId: finInfo.room_id,
-        },
-        'Đã Xoá tin Nhắn',
-      );
-    }
-    await this.messageHideModel.create({
-      room_id: finInfo._id,
-      msg_id: this.utils.convertToObjectIdMongoose(msgId),
-      user_id: userInfo._id,
-      uniq: `${msgId}:${userId}`,
-    });
-    console.log('result');
+    const msgs = await this.messageModel.aggregate(
+      buildMessagesDetailPipeline(msgIds),
+    );
     return Response.success(
       {
-        msgIds,
+        msgs,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
       },
@@ -852,12 +847,14 @@ export class HandleChatService {
         finInfo._id.toString(),
       ),
     );
-
     await Promise.all([updatePromise, Promise.all(recomputePromises)]);
 
+    const msgs = await this.messageModel.aggregate(
+      buildMessagesDetailPipeline(msgIds),
+    );
     return Response.success(
       {
-        msgIds,
+        msgs,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
       },

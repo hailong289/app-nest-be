@@ -16,8 +16,7 @@ import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import { notifyType, socketEvent } from 'libs/dto/src/enum.type';
-import { RoomType } from 'libs/db/src/mongo/model/room.model';
+import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
 
 interface JwtPayload {
@@ -279,10 +278,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     data.userId = user._id;
-
-    // this.logger.log(
-    //   `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
-    // );
     try {
       // Tạo message qua gRPC
       const result = (await Utils.dispatchGrpcRequest(
@@ -290,9 +285,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayResponse;
 
-      const roomId = result.metadata.roomId;
       const msg = result.metadata.msg;
-      this.io.to(roomId).emit(socketEvent.MSGUPSERT, msg);
+      const memberIds = result.metadata.members.map(
+        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
+      );
+
+      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
 
       return { ok: true, data: result };
     } catch (error) {
@@ -332,48 +330,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       // Đánh dấu đã đọc qua gRPC
-      // const result = (await Utils.dispatchGrpcRequest(
-      //   this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
-      //   data,
-      // )) as ChatGatewayResponse;
-      // Kiểm tra result có metadata không
-      // if (!result || !result.metadata) {
-      //   this.logger.error(
-      //     '[MARK_READ] Invalid response from MarkReadUpTo:',
-      //     result,
-      //   );
-      //   client.emit('error', { message: 'Failed to mark as read' });
-      //   return { ok: false };
-      // }
-      // const { msgId, roomId, members } = result.metadata;
-      // // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      // const memberUpdates = await Promise.all(
-      //   members.map(async (member) => {
-      //     const memberUserId = member.user_id as string;
-      //     // Gọi song song getRoom và GetOneMsg
-      //     const [roomData, msgData] = await Promise.all([
-      //       Utils.dispatchGrpcRequest(
-      //         this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-      //         { userId: memberUserId, roomId },
-      //       ) as Promise<ChatGatewayResponse>,
-      //       Utils.dispatchGrpcRequest(
-      //         this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-      //         { userId: memberUserId, msgId },
-      //       ),
-      //     ]);
-      //     return {
-      //       socketRoom: this.key.ROOM_CLIENT(member.id),
-      //       roomData: roomData.metadata,
-      //       msgData,
-      //     };
-      //   }),
-      // );
-      // // Emit events đến từng member
-      // memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-      //   this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-      //   this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-      // });
-      // return { ok: true, data: result };
+      const result = (await Utils.dispatchGrpcRequest(
+        this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayResponse;
+      const msg = result.metadata.msg;
+      const memberIds = result.metadata.members.map(
+        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
+      );
+      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
+      return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MARK_READ] Error marking message as read:', error);
       client.emit('error', {
@@ -411,67 +377,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.ChatGrpcService.HandleReact.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
-
-      const { msgId, roomId, members } = result.metadata;
-      // Lấy danh sách userId của members khác (để gửi notification)
-
-      // [TỐI ƯU] Lấy tin nhắn 1 lần duy nhất
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<RoomGatewayResponse>,
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-          if (member.user_id !== user._id && !roomData?.metadata?.mute) {
-            const title =
-              roomData.metadata.type === RoomType.Private
-                ? `${user.usr_fullname} thả cảm xúc đến bạn`
-                : `${user.usr_fullname} thả  cảm xúc đến tin nhắn của nhóm ${roomData.metadata.name}`;
-            await Utils.dispatchEventKafka(
-              this.notificationClient,
-              'push_notification_users',
-              {
-                title,
-                message:
-                  roomData.metadata.last_message &&
-                  typeof roomData.metadata.last_message === 'object' &&
-                  roomData.metadata.last_message !== null &&
-                  'content' in roomData.metadata.last_message
-                    ? ((roomData.metadata.last_message as { content?: string })
-                        ?.content ?? '')
-                    : '',
-                userIds: [member.user_id],
-                data: {
-                  type: notifyType.noify_new_message,
-                  room: roomData.metadata,
-                  msg: msgData,
-                  push_type: 'message',
-                },
-              },
-            );
-          }
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
+      const msg = result.metadata.msg;
+      const memberIds = result.metadata.members.map(
+        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
       );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-      });
+      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
 
       return { ok: true, data: result };
     } catch (error) {
@@ -512,39 +422,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.ChatGrpcService.HandlePinned.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
-
-      const { msgId, roomId, members } = result.metadata;
-
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          // Gọi song song getRoom và GetOneMsg
-          const [roomData, msgData] = await Promise.all([
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-              { userId: memberUserId, roomId },
-            ) as Promise<ChatGatewayResponse>,
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId },
-            ),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData,
-          };
-        }),
+      const msg = result.metadata.msg;
+      const memberIds = result.metadata.members.map(
+        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
       );
-
-      // Emit events đến từng member
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-      });
+      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
 
       return { ok: true, data: result };
     } catch (error) {
@@ -586,57 +468,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayDeleteResponse;
 
-      // Defensive: metadata may be missing
       const metadata = result?.metadata ?? {};
-      const msgIds: string[] = Array.isArray(metadata.msgIds)
-        ? metadata.msgIds
-        : [];
-      const roomId: string = metadata.roomId;
-      const members: Array<Record<string, any>> = Array.isArray(
-        metadata.members,
-      )
-        ? metadata.members
-        : [];
-
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          const roomDataPromise = Utils.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            { userId: memberUserId, roomId },
-          ) as Promise<ChatGatewayResponse>;
-
-          const msgDataPromises = msgIds.map((mId: string) =>
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId: mId },
-            ),
-          );
-
-          const [roomData, msgDatas] = await Promise.all([
-            roomDataPromise,
-            Promise.all(msgDataPromises),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData: msgDatas ?? [],
-          };
-        }),
+      const memberIds = metadata.members.map((member: Record<string, any>) =>
+        this.key.ROOM_CLIENT(member.id),
       );
-
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        if (Array.isArray(msgData)) {
-          msgData.forEach((m) =>
-            this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, m),
-          );
-        } else {
-          this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-        }
+      const msgs: Array<Record<string, any>> = Array.isArray(metadata.msgs)
+        ? metadata.msgs
+        : [];
+      msgs.forEach((m) => {
+        this.io.to(memberIds).emit(socketEvent.MSGUPSERT, m);
       });
 
       return { ok: true, data: result };
@@ -680,59 +520,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data,
       )) as ChatGatewayDeleteResponse;
 
-      // Defensive: metadata may be missing
       const metadata = result?.metadata ?? {};
-      const msgIds: string[] = Array.isArray(metadata.msgIds)
-        ? metadata.msgIds
-        : [];
-      const roomId: string = metadata.roomId;
-      const members: Array<Record<string, any>> = Array.isArray(
-        metadata.members,
-      )
-        ? metadata.members
-        : [];
-
-      // Batch gọi getRoom và GetOneMsg cho tất cả members song song
-      const memberUpdates = await Promise.all(
-        members.map(async (member) => {
-          const memberUserId = member.user_id as string;
-
-          const roomDataPromise = Utils.dispatchGrpcRequest(
-            this.ChatGrpcService.getRoom.bind(this.ChatGrpcService),
-            { userId: memberUserId, roomId },
-          ) as Promise<ChatGatewayResponse>;
-
-          const msgDataPromises = msgIds.map((mId: string) =>
-            Utils.dispatchGrpcRequest(
-              this.ChatGrpcService.GetOneMsg.bind(this.ChatGrpcService),
-              { userId: memberUserId, msgId: mId },
-            ),
-          );
-
-          const [roomData, msgDatas] = await Promise.all([
-            roomDataPromise,
-            Promise.all(msgDataPromises),
-          ]);
-
-          return {
-            socketRoom: this.key.ROOM_CLIENT(member.id),
-            roomData: roomData.metadata,
-            msgData: msgDatas ?? [],
-          };
-        }),
+      const memberIds = metadata.members.map((member: Record<string, any>) =>
+        this.key.ROOM_CLIENT(member.id),
       );
-
-      memberUpdates.forEach(({ socketRoom, roomData, msgData }) => {
-        this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
-        if (Array.isArray(msgData)) {
-          msgData.forEach((m) =>
-            this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, m),
-          );
-        } else {
-          this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
-        }
+      const msgs: Array<Record<string, any>> = Array.isArray(metadata.msgs)
+        ? metadata.msgs
+        : [];
+      msgs.forEach((m) => {
+        this.io.to(memberIds).emit(socketEvent.MSGUPSERT, m);
       });
-
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error recalling message:', error);
@@ -1230,7 +1027,7 @@ interface ChatGatewayDeleteResponse<T = any> {
   statusCode: number;
   reasonStatusCode: string;
   metadata: {
-    msgIds: string[];
+    msgs: Array<Record<string, any>>;
     members: Array<Record<string, any>>;
     roomId: string;
     // Có thể bổ sung các trường khác nếu cần

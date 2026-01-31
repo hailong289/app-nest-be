@@ -402,7 +402,7 @@ message MessageDeleteOutput{
   MessageDeleteMetadata metadata = 4;
 }
 message MessageDeleteMetadata {
-  repeated string msgIds = 1;
+  repeated MessageCoreMetadata msgs = 1;
   repeated membersTypePrivate members = 2;
   string roomId=3;
 }

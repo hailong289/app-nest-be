@@ -153,7 +153,8 @@ export class AuthMiddleware implements NestMiddleware {
       };
 
       next();
-    } catch {
+    } catch (err) {
+      console.log('🚀 ~ AuthMiddleware ~ use ~ err:', err);
       // Catch lỗi verify (hết hạn, sai chữ ký, format sai...)
 
       return res
