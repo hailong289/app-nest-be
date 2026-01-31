@@ -84,6 +84,13 @@ export class CallHistory {
   })
   call_type: CallType; // Loại cuộc gọi
 
+  @Prop({
+    type: String,
+    enum: ['p2p', 'sfu'],
+    default: 'p2p',
+  })
+  call_mode: 'p2p' | 'sfu'; // P2P (1-1) or SFU (group/channel)
+
   @Prop({ type: Date, default: Date.now, required: true })
   started_at: Date; // Thời gian bắt đầu cuộc gọi
 

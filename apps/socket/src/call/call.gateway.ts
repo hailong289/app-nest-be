@@ -7,31 +7,37 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Inject, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CallHistory, RedisService } from 'libs/db/src';
+import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
 import { REDISKEY, REDIS_TTL } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
+import { UnifiedSignalHandler } from '@app/sfu';
 
 interface JwtPayload {
   _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
   usr_fullname: string; // "Lê Thiên Trí"
   usr_email: string; // "thientrile2003@gmail.com"
   usr_phone?: string;
-  usr_avatar?: string; // "https://avatar.iran.liara.run/public/username?username=lêthiêntrí"
-  usr_gender?: string; // "male"
-  usr_status?: string; // "active"
-  usr_id: string; // "019a258a9540000000ff11"
-  usr_slug: string; // "usr_019a258a9540000001b0e3"
-  usr_dateOfBirth?: string; // "2003-03-04T00:00:00.000Z"
-  createdAt?: string; // "2025-10-27T12:00:30.536Z"
-  updatedAt?: string; // "2025-10-27T12:00:30.536Z"
+  usr_avatar?: string;
+  usr_gender?: string;
+  usr_status?: string;
+  usr_id: string; // User ID
+  usr_slug: string;
+  usr_dateOfBirth?: string;
+  createdAt?: string;
+  updatedAt?: string;
   jti: string;
   [key: string]: any;
 }
@@ -61,19 +67,19 @@ export interface ChatGrpcService {
     origin: '*',
     credentials: true,
   },
-  namespace: '/chat',
+  namespace: '/call',
   // Thêm 2 dòng dưới đây để Server chấp nhận mọi loại kết nối
   transports: ['websocket', 'polling'],
   allowEIO3: true, // Cho phép tương thích ngược với các client đời cũ (nếu có)
 })
-export class ChatGateway
+export class CallGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
 {
   @WebSocketServer() io: Server;
   public get server(): Server {
     return this.io;
   }
-  private readonly logger = new Logger(ChatGateway.name);
+  private readonly logger = new Logger(CallGateway.name);
   private readonly key = REDISKEY;
   private ChatGrpcService: ChatGrpcService;
   constructor(
@@ -81,6 +87,7 @@ export class ChatGateway
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
+    private readonly unifiedSignalHandler: UnifiedSignalHandler,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
@@ -185,7 +192,7 @@ export class ChatGateway
       client.user = payload;
 
       this.logger.log(
-        `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
+        `[CONNECT] User call ${payload.usr_fullname} (${payload._id}) connected.`,
       );
       const roomIds = await this.redis.sMembers(
         this.key.USER_ROOMS(client.userId),
@@ -248,28 +255,11 @@ export class ChatGateway
     }
   }
 
-  @SubscribeMessage('heartbeat')
-  async handleHeartbeat(@ConnectedSocket() client: SocketWithUser) {
-    if (client.userId) {
-      // Update existence of key with new TTL
-      await this.redis.setData(
-        this.key.USER_PRESENCE(client.userId),
-        new Date().toISOString(),
-        REDIS_TTL.ONLINE_STATUS + 15,
-      );
-      // Keep in heartbeat queue
-      await this.redis.zAdd(
-        this.key.USERS_HEARTBEAT,
-        Date.now(),
-        client.userId,
-      );
-    }
-  }
+  // ========================================================
+  //  CALL HANDLERS
+  // ========================================================
 
-  // ========================================================
-  // 💬 CÁC SUBSCRIBE MESSAGE (Giữ nguyên)
-  // ========================================================
-  @SubscribeMessage(socketEvent.JOINROOM)
+  @SubscribeMessage('call:request')
   async join(
     @MessageBody() { roomId }: { roomId: string },
     @ConnectedSocket() client: SocketWithUser,
@@ -292,95 +282,61 @@ export class ChatGateway
     return { ok: true, user };
   }
 
-  @SubscribeMessage(socketEvent.MSGSEND)
-  async onMessage(
+  @SubscribeMessage('call:request')
+  async handleCallRequest(
     @MessageBody()
     data: {
-      userId?: string;
+      actionUserId?: string;
+      membersIds?: string[];
       roomId: string;
-      type: string;
-      content: string;
-      attachments?: Array<string>;
-      replyTo: string;
-      id?: string;
+      callType: 'video' | 'audio';
+      messageId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    let user: JwtPayload;
     try {
-      user = await this.getUser(client);
-    } catch {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      // tạo tin nhắn cuộc gọi
 
-    data.userId = user._id;
-    try {
-      // Tạo message qua gRPC
+      // bắt đầu tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
+        this.ChatGrpcService.RequestCall.bind(this.ChatGrpcService),
         data,
-      )) as ChatGatewayResponse;
+      )) as ChatGatewayCallResponse;
 
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Bắt đầu cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room, callType, msg } = result.metadata;
+
+      // await this.pushMessageToRoom(roomId, msgId, members, history);
+      const otherMembers = room.room_members
+        .filter((m) => m.id !== user.usr_id)
+        .map((m) => this.key.ROOM_CLIENT(m.id));
+      const roomClients = room.room_members.map((m) =>
+        this.key.ROOM_CLIENT(m.id),
       );
 
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
-
-      return { ok: true, data: result };
-    } catch (error) {
-      this.logger.error('[MESSAGE] Error creating message:', error);
-      client.emit(socketEvent.ERRORMSG, {
-        message: 'Gửi tin nhắn thất bại',
-        error: error instanceof Error ? error.message : String(error),
-        data,
-      });
-
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
+      const historyCall = {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: user.usr_id,
+        callType: callType,
+        callId: history.call_id,
       };
-    }
-  }
+      this.io.to(otherMembers).emit('call:request', historyCall);
+      this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-  @SubscribeMessage(socketEvent.MSGMARKREAD)
-  async MarkRead(
-    @MessageBody()
-    data: {
-      userId?: string;
-      roomId: string;
-      lastMessageId: string;
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    let user: JwtPayload;
-    try {
-      user = await this.getUser(client);
-    } catch {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-
-    data.userId = user._id;
-
-    try {
-      // Đánh dấu đã đọc qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayResponse;
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
-      );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
-      return { ok: true, data: result };
+      return { ok: true };
     } catch (error) {
-      this.logger.error('[MARK_READ] Error marking message as read:', error);
+      this.logger.error('[CALL] Error starting call:', error);
       client.emit('error', {
-        message: 'Đánh dấu đã đọc thất bại',
+        message: 'Bắt đầu cuộc gọi thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {
@@ -389,42 +345,88 @@ export class ChatGateway
       };
     }
   }
-  @SubscribeMessage(socketEvent.MSGREACT)
-  async SendEmoji(
+
+  @SubscribeMessage(socketEvent.USERSATUS)
+  async handleCheckUserStatus(
+    @MessageBody() userIds: string[],
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) return;
+
+    // Optimized: Check presence keys using MGET
+    const keys = userIds.map((uid) => this.key.USER_PRESENCE(uid));
+    const results = await this.redis.mget(keys);
+
+    results.forEach((val, index) => {
+      if (val) {
+        // val is the ISO string we stored
+        const date = new Date(JSON.parse(val));
+        if (!isNaN(date.getTime())) {
+          client.emit(socketEvent.STATUS, {
+            id: userIds[index],
+            isOnline: true,
+            onlineAt: date,
+          });
+        }
+      }
+    });
+  }
+
+  @SubscribeMessage('call:accepted')
+  async handleAccept(
     @MessageBody()
     data: {
-      userId?: string;
+      actionUserId?: string;
+      membersIds?: string[];
       roomId: string;
-      msgId: string;
-      emoji: string;
+      offer: string;
+      targetUserId: string;
+      callId: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    let user: JwtPayload;
     try {
-      user = await this.getUser(client);
-    } catch {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-    data.userId = user._id;
-    try {
-      // Tạo message qua gRPC
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandleReact.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayResponse;
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
-      );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
+        this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
+        {
+          actionUserId: data.actionUserId,
+          membersIds: data.membersIds,
+          roomId: data.roomId,
+          callId: data.callId,
+        },
+      )) as ChatGatewayCallResponse;
+      console.log('🚀 ~ ChatGateway ~ handleAccept ~ result:', result);
 
-      return { ok: true, data: result };
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Trả lời cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room, msg } = result.metadata;
+      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+      this.io.to(targetSocketId).emit('call:accepted', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+        offer: data.offer,
+        history: history,
+        callId: data.callId,
+      });
+      const roomClients = room.room_members.map((m) =>
+        this.key.ROOM_CLIENT(m.id),
+      );
+      this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
+
+      return { ok: true };
     } catch (error) {
-      this.logger.error('[MESSAGE] Error creating message:', error);
+      this.logger.error('[CALL] Error accept call:', error);
       client.emit('error', {
-        message: 'Gửi tin nhắn thất bại',
+        message: 'Trả lời cuộc gọi thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {
@@ -433,145 +435,29 @@ export class ChatGateway
       };
     }
   }
-  @SubscribeMessage(socketEvent.MSGPINNED)
-  async MessagePinned(
+
+  @SubscribeMessage('call:answer')
+  async handleAnswer(
     @MessageBody()
     data: {
-      userId?: string;
+      actionUserId?: string;
+      targetUserId: string;
       roomId: string;
-      msgId: string;
+      answer: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
-    let user: JwtPayload;
     try {
-      user = await this.getUser(client);
-    } catch {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-
-    data.userId = user._id;
-
-    try {
-      // Tạo message qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandlePinned.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayResponse;
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
-      );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
-
-      return { ok: true, data: result };
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+      // this.io.to(data.roomId).except(client.id).emit('call:answer', data);
+      this.io.to(targetSocketId).emit('call:answer', data);
+      return { ok: true };
     } catch (error) {
-      this.logger.error('[MESSAGE] Error creating message:', error);
+      this.logger.error('[CALL] Error answering call:', error);
       client.emit('error', {
-        message: 'Gửi tin nhắn thất bại',
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-  @SubscribeMessage(socketEvent.MSGDELETE)
-  async MessageDelete(
-    @MessageBody()
-    data: {
-      userId?: string;
-      roomId: string;
-      msgId: string;
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    let user: JwtPayload;
-    try {
-      user = await this.getUser(client);
-    } catch {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-
-    data.userId = user._id;
-
-    try {
-      // Tạo message qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandleDeleteForUser.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayDeleteResponse;
-
-      const metadata = result?.metadata ?? {};
-      const memberIds = metadata.members.map((member: Record<string, any>) =>
-        this.key.ROOM_CLIENT(member.id),
-      );
-      const msgs: Array<Record<string, any>> = Array.isArray(metadata.msgs)
-        ? metadata.msgs
-        : [];
-      msgs.forEach((m) => {
-        this.io.to(memberIds).emit(socketEvent.MSGUPSERT, m);
-      });
-
-      return { ok: true, data: result };
-    } catch (error) {
-      this.logger.error('[MESSAGE] Error deleting message for users:', error);
-      client.emit('error', {
-        message: 'Xóa tin nhắn thất bại',
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-  @SubscribeMessage(socketEvent.MSGRECALL)
-  async MessageReCall(
-    @MessageBody()
-    data: {
-      userId?: string;
-      roomId: string;
-      msgId: string;
-      placeholder: string;
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    let user: JwtPayload;
-    try {
-      user = await this.getUser(client);
-    } catch {
-      client.emit('error', { message: 'Unauthorized' });
-      return { ok: false };
-    }
-
-    data.userId = user._id;
-
-    try {
-      // Gọi đúng hàm HandleDelete (recall) thay vì HandleDeleteForUser
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandleDelete.bind(this.ChatGrpcService),
-        data,
-      )) as ChatGatewayDeleteResponse;
-
-      const metadata = result?.metadata ?? {};
-      const memberIds = metadata.members.map((member: Record<string, any>) =>
-        this.key.ROOM_CLIENT(member.id),
-      );
-      const msgs: Array<Record<string, any>> = Array.isArray(metadata.msgs)
-        ? metadata.msgs
-        : [];
-      msgs.forEach((m) => {
-        this.io.to(memberIds).emit(socketEvent.MSGUPSERT, m);
-      });
-      return { ok: true, data: result };
-    } catch (error) {
-      this.logger.error('[MESSAGE] Error recalling message:', error);
-      client.emit('error', {
-        message: 'Thu hồi tin nhắn thất bại',
+        message: 'Trả lời cuộc gọi thất bại',
         error: error instanceof Error ? error.message : String(error),
       });
       return {
@@ -582,11 +468,150 @@ export class ChatGateway
   }
 
   // ========================================================
-  // 🔔 SYSTEM EMITTER
+  // 🔥 UNIFIED SIGNAL HANDLER (P2P + SFU)
   // ========================================================
-  public emitRoomRefresh(roomId: string) {
-    this.logger.log(`[ROOM_REFRESH] Emitting signal for room ${roomId}`);
-    this.io.to(roomId).emit(socketEvent.ROOM_REFRESH, { roomId });
+  @SubscribeMessage('signal')
+  async handleSignal(
+    @MessageBody() payload: any,
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      // Delegate to UnifiedSignalHandler with server instance
+      return await this.unifiedSignalHandler.handleSignal(
+        payload,
+        client,
+        this.server,
+      );
+    } catch (error) {
+      this.logger.error(`[SIGNAL] Error:`, error);
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ========================================================
+  // 🟢 LEGACY CALL HANDLERS (P2P)
+  // ========================================================
+  @SubscribeMessage('call:end')
+  async handleEnd(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      status: CallStatus;
+      callId: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
+      const result = (await Utils.dispatchGrpcRequest(
+        this.ChatGrpcService.EndCall.bind(this.ChatGrpcService),
+        data,
+      )) as ChatGatewayCallResponse;
+
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Kết thúc cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room, msg } = result.metadata;
+
+      this.io.to(data.roomId).emit('call:end', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+        status: data.status,
+        history: history,
+        callId: data.callId,
+      });
+      const roomClients = room.room_members.map((m) =>
+        this.key.ROOM_CLIENT(m.id),
+      );
+      this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
+
+      // await this.pushMessageToRoom(
+      //   room.room_id,
+      //   history.message_id?.toString() ?? '',
+      //   history.members,
+      //   history,
+      // );
+
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error ending call:', error);
+      client.emit('error', {
+        message: 'Kết thúc cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  @SubscribeMessage('call:share-screen')
+  async handleShareScreen(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isSharing: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error sharing screen:', error);
+      client.emit('error', {
+        message: 'Chia sẻ màn hình thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ==== candidate
+  @SubscribeMessage('call:candidate')
+  async handleCandidate(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      candidate: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:candidate', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error sending candidate:', error);
+      client.emit('error', {
+        message: 'Gửi candidate thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   private async getUser(@ConnectedSocket() client: SocketWithUser) {
@@ -640,116 +665,17 @@ export class ChatGateway
     }
     return user;
   }
-
-  @SubscribeMessage(socketEvent.USERSATUS)
-  async CheckUserOnline(
-    @MessageBody()
-    data: {
-      ids?: unknown;
-    },
-  ) {
-    // 1️⃣ Normalize input (bắt client gửi bậy)
-    // 1️⃣ Normalize input (bắt client gửi bậy logic)
-    // Client might send array directly OR object { ids: [] }
-    let rawIds: unknown[] = [];
-    if (Array.isArray(data)) {
-      rawIds = data;
-    } else if (
-      data &&
-      typeof data === 'object' &&
-      'ids' in data &&
-      Array.isArray((data as Record<string, any>).ids)
-    ) {
-      rawIds = (data as Record<string, any>).ids as unknown[];
-    }
-
-    const ids: string[] = rawIds.filter(
-      (id): id is string => typeof id === 'string',
-    );
-
-    if (ids.length === 0) {
-      return;
-    }
-
-    // 2️⃣ Gọi Redis an toàn (sử dụng MGET trên các key PRESENCE)
-    const keys = ids.map((uid) => this.key.USER_PRESENCE(uid));
-    let presenceValues: (string | null)[] = [];
-
-    try {
-      presenceValues = await this.redis.mget(keys);
-    } catch (err) {
-      console.error('❌ Redis mget failed:', err);
-      return;
-    }
-
-    // 3️⃣ Map dữ liệu thành kết quả boolean
-    // userId at ids[i] has presence if presenceValues[i] is truthy
-    const socketResult = ids.map((userId, index) => ({
-      id: userId,
-      isOnline: !!presenceValues[index],
-      onlineAt: new Date(),
-    }));
-
-    // 4️⃣ Emit 1 phát (KHÔNG spam)
-    this.io.to('system').emit('status:online:bulk', {
-      users: socketResult,
-    });
-  }
-
-  @SubscribeMessage(socketEvent.USERTYPING)
-  async onTypingIndicator(
-    @MessageBody()
-    data: {
-      roomId: string;
-      typing: boolean;
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    let userPayload: JwtPayload;
-    try {
-      userPayload = await this.getUser(client);
-    } catch {
-      return;
-    }
-
-    const user = {
-      id: userPayload.usr_id,
-      name: userPayload.usr_fullname,
-      avatar: userPayload.usr_avatar,
-    };
-
-    this.io.to(data.roomId).emit(socketEvent.STATUSTYPING, {
-      user,
-      typing: data.typing,
-      roomId: data.roomId,
-    });
-  }
 }
 
-interface ChatGatewayResponse<T = any> {
+interface ChatGatewayCallResponse<T = any> {
   data: T;
   message: string;
   statusCode: number;
   reasonStatusCode: string;
   metadata: {
-    msgId: string;
-    members: Array<Record<string, any>>;
-    roomId: string;
+    history: CallHistory;
+    room: Room;
+    callType: string;
     msg: Record<string, any>;
-    call_history?: CallHistory;
-    // Có thể bổ sung các trường khác nếu cần
-  };
-}
-
-interface ChatGatewayDeleteResponse<T = any> {
-  data: T;
-  message: string;
-  statusCode: number;
-  reasonStatusCode: string;
-  metadata: {
-    msgs: Array<Record<string, any>>;
-    members: Array<Record<string, any>>;
-    roomId: string;
-    // Có thể bổ sung các trường khác nếu cần
   };
 }

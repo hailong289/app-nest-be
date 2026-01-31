@@ -1071,7 +1071,7 @@ export class RoomsService {
   ): boolean {
     // ioredis thường trả 0/1; một số wrapper có thể trả boolean
     // cũng xử lý luôn trường hợp string "0"/"1"
-    // eslint-disable-next-line eqeqeq
+
     return v == 1 || v === true || v === '1';
   }
 

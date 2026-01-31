@@ -60,7 +60,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.CreateDoc.bind(this.documentService),
       {
         owerId: req.user._id,
@@ -84,7 +83,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.ListDocs.bind(this.documentService),
       {
         userId: req.user._id,
@@ -106,7 +104,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.GetDoc.bind(this.documentService),
       {
         docId,
@@ -133,7 +130,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.UpdateDoc.bind(this.documentService),
       {
         docId,
@@ -157,7 +153,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.DeleteDoc.bind(this.documentService),
       {
         docId,
@@ -180,7 +175,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.ShareDocument.bind(this.documentService),
       {
         docId,
@@ -205,7 +199,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.UnshareDocument.bind(this.documentService),
       {
         docId,
@@ -229,7 +222,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.UpdateTitle.bind(this.documentService),
       {
         docId,
@@ -253,7 +245,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.UpdateVisibility.bind(this.documentService),
       {
         docId,
@@ -276,7 +267,6 @@ export class GatewayDocumentController implements OnModuleInit {
     }
 
     return await this.gatewayService.dispatchGrpcRequest(
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       this.documentService.DuplicateDoc.bind(this.documentService),
       {
         docId,

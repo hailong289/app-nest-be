@@ -52,6 +52,18 @@
       "@app/database": [
         "libs/database/mongodb/src"
       ],
+      "@app/sfu": [
+        "libs/sfu/src"
+      ],
+      "@app/sfu/*": [
+        "libs/sfu/src/*"
+      ],
+      "libs/sfu": [
+        "libs/sfu/src"
+      ],
+      "libs/sfu/*": [
+        "libs/sfu/src/*"
+      ]
     }
   }
 }

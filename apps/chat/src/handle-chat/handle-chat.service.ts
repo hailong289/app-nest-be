@@ -882,6 +882,7 @@ export class HandleChatService {
       if (!actionUser) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
+      console.log('cuộc gọi kết nối thành công');
 
       const msg = await this.messageModel.create({
         msg_roomId: room._id,
@@ -912,10 +913,15 @@ export class HandleChatService {
           m.usr_id === actionUserId ? 'started' : ('pending' as MemberStatus),
       }));
 
+      // Determine call mode based on room type
+      // private rooms use P2P, group/channel use SFU
+      const callMode = room.room_type === 'private' ? 'p2p' : 'sfu';
+
       const callHistory = await this.callHistoryModel.create({
         members: membersData,
         room_id: room._id,
         call_type: callType,
+        call_mode: callMode,
         started_at: new Date(),
         message_id: msg._id,
       });
@@ -930,8 +936,8 @@ export class HandleChatService {
         {
           history: callHistory,
           room: room,
-
           callType: callType,
+          callMode: callMode,
           msg: message[0] as Record<string, any>,
         },
         'Cuộc gọi đã được tạo',
@@ -1018,12 +1024,26 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const callHistory = await this.callHistoryModel.findOne({
+      let callHistory = await this.callHistoryModel.findOne({
         room_id: room._id,
         call_id: callId,
       });
 
+      if (!callHistory && !callId) {
+        // Trường hợp không có callId, tìm cuộc gọi gần nhất đang diễn ra trong phòng này
+        callHistory = await this.callHistoryModel
+          .findOne({
+            room_id: room._id,
+            ended_at: null,
+          })
+          .sort({ createdAt: -1 });
+      }
+
       if (!callHistory) {
+        // Nếu vẫn không tìm thấy và status là cancelled, có thể bỏ qua lỗi này
+        if (status === 'cancelled' || status === 'ended') {
+          return Response.success(null, 'Không tìm thấy cuộc gọi để kết thúc');
+        }
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
