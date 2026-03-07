@@ -6,6 +6,7 @@ import {
   DeleteQuizzDto,
   GetQuizzDto,
   ListQuizzesDto,
+  SubmitQuizzDto,
   UpdateQuizzDto,
 } from './dto/quizz.dto';
 
@@ -40,5 +41,15 @@ export class QuizzController {
   @GrpcMethod('QuizzService', 'DeleteQuizz')
   async deleteQuizz(data: DeleteQuizzDto & { quiz_id: string }) {
     return await this.quizzService.deleteQuizzById(data.quiz_id);
+  }
+
+  @GrpcMethod('QuizzService', 'SubmitQuizz')
+  async submitQuizz(data: SubmitQuizzDto) {
+    return await this.quizzService.submitQuizz(data.quiz_id, data.answer);
+  }
+
+  @GrpcMethod('QuizzService', 'GetQuizzResults')
+  async getQuizzResults(data: { quiz_id: string }) {
+    return await this.quizzService.getQuizzResults(data.quiz_id);
   }
 }

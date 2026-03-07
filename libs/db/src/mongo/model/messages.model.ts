@@ -10,8 +10,8 @@ export type MsgType =
   | 'video'
   | 'audio'
   | 'gif'
-  | 'document';
-
+  | 'document'
+  | 'quizz';
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {
   @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })
@@ -43,6 +43,9 @@ export class Message {
 
   @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
   reply_to: Types.ObjectId | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'Quiz', default: null })
+  quiz_id: Types.ObjectId | null; // Link to Quiz collection
 
   @Prop({ type: Boolean, default: false })
   pinned: boolean;

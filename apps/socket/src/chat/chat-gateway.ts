@@ -266,6 +266,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       attachments?: Array<string>;
       replyTo: string;
       id?: string;
+      quizId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -1003,6 +1004,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.io.to(socketRoom).emit(socketEvent.ROOMUPSERT, roomData);
       this.io.to(socketRoom).emit(socketEvent.MSGUPSERT, msgData);
     });
+  }
+
+  @SubscribeMessage(socketEvent.QUIZZANSWER)
+  async handleQuizzAnswer(
+    @MessageBody()
+    data: {
+      quizId: string;
+      answer: {};
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+    } catch (error) {
+      this.logger.error('[QUIZZ] Error answering quizz:', error);
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }
 

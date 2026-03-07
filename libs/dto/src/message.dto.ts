@@ -41,6 +41,7 @@ export class CreateMessage {
   attachments?: string[]; // ✅ Optional array of strings
   replyTo: string | null;
   documentId?: string;
+  quizId?: string;
   // pinned?: boolean;
 }
 

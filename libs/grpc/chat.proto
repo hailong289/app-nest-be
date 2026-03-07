@@ -367,6 +367,7 @@ message MessageCore {
   CallHistory call_history = 20;             // Call history
   string documentId=21;
   repeated string hiddenBy = 22;
+  QuizCore quiz = 23;                        // Quiz data (nullable)
 
 }
 
@@ -387,6 +388,7 @@ message InputCreateMsg{
   string userId=7;
   string id=8;
   string documentId=9;
+  string quizId=10;
 }
 
 message CreateMessageOutput{
@@ -534,4 +536,68 @@ message CallHistory {
   string started_at = 7;
   string ended_at = 8;
   int64 duration = 9;
+}
+
+// ===================== Quiz Messages =====================
+
+message QuizAnswer {
+  string answer_text = 1;
+  bool   is_correct  = 2;
+  int32  points      = 3;
+}
+
+message QuizQuestion {
+  string               question_text = 1;
+  string               question_type = 2; // "single_choice" | "multiple_choice" | "true_false" | "text"
+  repeated QuizAnswer  answers       = 3;
+  int32                points        = 4;
+  int32                order         = 5;
+  string               explanation   = 6;
+  string               image_url     = 7;
+}
+
+message QuizUserAnswer {
+  int32          question_index           = 1;
+  repeated int32 selected_answer_indices  = 2;
+  string         text_answer              = 3;
+  bool           is_correct               = 4;
+  int32          points_earned            = 5;
+  string         answered_at              = 6;
+}
+
+message QuizResultItem {
+  string                  user_id         = 1;
+  repeated QuizUserAnswer user_answers    = 2;
+  int32                   total_score     = 3;
+  int32                   max_score       = 4;
+  int32                   correct_count   = 5;
+  int32                   total_questions = 6;
+  string                  started_at      = 7;
+  string                  completed_at    = 8;
+  int32                   time_taken      = 9;
+  bool                    is_completed    = 10;
+  bool                    is_submitted    = 11;
+}
+
+message QuizCore {
+  string                  id                    = 1;
+  string                  quiz_id               = 2;
+  string                  quiz_title            = 3;
+  string                  quiz_description      = 4;
+  string                  quiz_roomId           = 5;
+  string                  quiz_createdBy        = 6;
+  repeated QuizQuestion   quiz_questions        = 7;
+  string                  quiz_status           = 8;  // "draft" | "active" | "completed" | "cancelled"
+  int32                   quiz_timeLimit        = 9;
+  string                  quiz_startTime        = 10;
+  string                  quiz_endTime          = 11;
+  bool                    quiz_showResults      = 12;
+  bool                    quiz_allowRetake      = 13;
+  int32                   quiz_maxAttempts      = 14;
+  repeated QuizResultItem quiz_results          = 15;
+  int64                   quiz_totalParticipants = 16;
+  int64                   quiz_totalSubmissions  = 17;
+  string                  quiz_image            = 18;
+  string                  createdAt             = 19;
+  string                  updatedAt             = 20;
 }
