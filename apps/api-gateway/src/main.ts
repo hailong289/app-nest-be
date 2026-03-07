@@ -1,8 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from '../interceptors/response.interceptor';
-import { ValidationPipe, BadRequestException } from '@nestjs/common';
-import { useSharedRedisAdapter } from 'libs/ws/src';
+import {
+  ValidationPipe,
+  BadRequestException,
+  ValidationError,
+} from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
@@ -17,11 +20,14 @@ async function bootstrap() {
       whitelist: true, // loại bỏ field không khai báo trong DTO
       forbidNonWhitelisted: true, // ném lỗi nếu có field lạ
       transform: true,
-      exceptionFactory: (errors) => {
+      exceptionFactory: (errors: ValidationError[]) => {
         // Hàm recursive để thu thập tất cả lỗi từ children
-        const mapErrors = (error: any, path = ''): any[] => {
+        const mapErrors = (
+          error: ValidationError,
+          path = '',
+        ): { field: string; errors: string[] }[] => {
           const fieldPath = path ? `${path}.${error.property}` : error.property;
-          const result: any[] = [];
+          const result: { field: string; errors: string[] }[] = [];
 
           // Thêm lỗi của chính field này
           if (error.constraints && Object.keys(error.constraints).length > 0) {
@@ -33,7 +39,7 @@ async function bootstrap() {
 
           // Xử lý children (nested errors)
           if (error.children && error.children.length > 0) {
-            error.children.forEach((child: any) => {
+            error.children.forEach((child: ValidationError) => {
               result.push(...mapErrors(child, fieldPath));
             });
           }
@@ -51,7 +57,6 @@ async function bootstrap() {
       },
     }),
   );
-  await useSharedRedisAdapter(app);
   app.useGlobalInterceptors(new ResponseInterceptor());
   // Global prefix
   app.setGlobalPrefix('api');

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Injectable } from '@nestjs/common';
 import { ClientKafka, ClientProxy } from '@nestjs/microservices';
 import { Response } from 'libs/helpers/response';
@@ -119,10 +120,11 @@ export class GatewayService {
       return await lastValueFrom(
         grpcMethod(data, metadata).pipe(
           timeout(timeoutMs),
-          catchError((err: any) => {
+          catchError((err: unknown) => {
             // Lấy message chi tiết hơn nếu có
+            const error = err as { details?: string; message?: string };
             const detailedMessage =
-              err.details || err.message || JSON.stringify(err);
+              error.details || error.message || JSON.stringify(err);
 
             return throwError(
               () => new Error(`Service unavailable: ${detailedMessage}`),

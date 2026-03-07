@@ -2,21 +2,16 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { ChatGateway } from './chat-gateway';
-import { GatewayNotificationModule } from '../../notification/gateway-notification.module';
-import { GatewayModule } from '../../gateway/gateway.module';
 import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import notificationConfig from '../../config/notification.config';
 import * as grpc from '@grpc/grpc-js';
-import { SharedKafkaClientModule } from 'libs/kafka';
+import { kafkaConfig, SharedKafkaClientModule } from 'libs/kafka';
 @Module({
   imports: [
     ConfigModule, // WsJwtGuard cần ConfigService
     JwtModule.register({}), // WsJwtGuard cần JwtService
-    GatewayNotificationModule, // Import để có thể inject ClientKafka
-    GatewayModule, // Import để có thể inject GatewayService
-    ConfigModule.forFeature(notificationConfig),
+    ConfigModule.forFeature(kafkaConfig),
     ClientsModule.register([
       {
         name: SERVICES.CHAT,

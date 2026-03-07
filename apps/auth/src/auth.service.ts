@@ -10,7 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
 import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
@@ -63,7 +63,8 @@ export class AuthService {
       { ...userData, jti },
       {
         secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-        expiresIn: '7d', // access token sống 7 ngày
+        expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
+          '15m') as JwtSignOptions['expiresIn'],
       },
     );
 
@@ -71,7 +72,8 @@ export class AuthService {
       { ...userData, jti },
       {
         secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-        expiresIn: '30d', // refresh token sống 30 ngày
+        expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ||
+          '7d') as JwtSignOptions['expiresIn'],
       },
     );
     // Store JTI in Redis
@@ -180,7 +182,8 @@ export class AuthService {
         { ...userData, jti },
         {
           secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-          expiresIn: '7d', // access token sống 7 ngày
+          expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
+            '15m') as JwtSignOptions['expiresIn'],
         },
       );
 
@@ -188,7 +191,8 @@ export class AuthService {
         { ...userData, jti },
         {
           secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-          expiresIn: '30d', // refresh token sống 30 ngày
+          expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ||
+            '7d') as JwtSignOptions['expiresIn'],
         },
       );
 
@@ -500,11 +504,13 @@ export class AuthService {
       const [newAccessToken, newRefreshToken] = await Promise.all([
         this.jwtService.signAsync(payload, {
           secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-          expiresIn: '7d',
+          expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
+            '15m') as JwtSignOptions['expiresIn'],
         }),
         this.jwtService.signAsync(payload, {
           secret: process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-          expiresIn: '30d',
+          expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ||
+            '7d') as JwtSignOptions['expiresIn'],
         }),
       ]);
 

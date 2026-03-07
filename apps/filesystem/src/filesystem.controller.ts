@@ -113,10 +113,6 @@ export class FilesystemController {
 
   @GrpcMethod('FileSystemService', 'UploadSingleFileForUser')
   async uploadSingleFileForUser(@Payload() data: uploadSingleFileByUserDTo) {
-    console.log(
-      '🚀 ~ FilesystemController ~ uploadSingleFileForUser ~ data:',
-      data,
-    );
     try {
       const result = await this.filesystemService.uploadSingleFileByUser(data);
 

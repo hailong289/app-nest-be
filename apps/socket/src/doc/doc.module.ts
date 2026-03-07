@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { DocGateway } from './doc-gateway';
-import { GatewayModule } from '../../gateway/gateway.module';
 import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
@@ -12,7 +11,6 @@ import * as grpc from '@grpc/grpc-js';
   imports: [
     ConfigModule,
     JwtModule.register({}),
-    GatewayModule,
     ClientsModule.registerAsync([
       {
         name: SERVICES.FILESYSTEM,

@@ -3,12 +3,12 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type RoomDocument = HydratedDocument<Room>;
-export enum RoomTypeEnum {
-  Private = 'private',
-  Group = 'group',
-  Channel = 'channel',
-}
-export type roomType = 'private' | 'group' | 'channel';
+type RoomType = 'private' | 'group' | 'channel';
+export const RoomType = {
+  Private: 'private' as RoomType,
+  Group: 'group' as RoomType,
+  Channel: 'channel' as RoomType,
+};
 export type roleMember = 'member' | 'admin' | 'owner' | 'guest';
 export type memberType = {
   user_id: Types.ObjectId;
@@ -49,8 +49,8 @@ export class Room {
   @Prop({ type: String, unique: true, default: () => Utils.randomId() })
   room_id: string;
 
-  @Prop({ type: String, enum: ['private', 'group', 'channel'], required: true })
-  room_type: roomType;
+  @Prop({ type: String, enum: Object.values(RoomType), required: true })
+  room_type: RoomType;
 
   @Prop({ type: String, default: '' })
   room_name: string;
