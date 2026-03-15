@@ -87,10 +87,11 @@ export class GatewayQuizzController {
     @Query('roomId') roomId: string,
     @Query('page') page: number,
     @Query('limit') limit: number,
+    @Req() req: AuthenticatedRequest,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.quizzService.ListQuizzes.bind(this.quizzService),
-      { roomId, page, limit },
+      { roomId, page, limit, createdBy: req.user._id },
     );
   }
 

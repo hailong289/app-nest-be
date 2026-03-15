@@ -49,9 +49,10 @@ message GetQuizzResponse {
 }
 
 message ListQuizzesRequest {
-    string roomId = 1;
-    int32 page = 2;
-    int32 limit = 3;
+    string roomId    = 1;
+    int32  page      = 2;
+    int32  limit     = 3;
+    string createdBy = 4; // optional: MongoDB _id của người tạo
 }
 
 message ListQuizzesResponse {
@@ -203,11 +204,11 @@ message LeaderboardEntry {
 }
 
 message GetQuizzResultsMetadata {
-    string quiz_id              = 1;
-    string quiz_title           = 2;
-    int32  total_participants   = 3;
-    int32  total_submissions    = 4;
-    repeated QuizResultItem results     = 5;
+    string quiz_id                        = 1;
+    string quiz_title                     = 2;
+    int32  total_participants             = 3;
+    int32  submitted_count                = 4;
+    int32  not_submitted_count            = 5;
     repeated LeaderboardEntry leaderboard = 6;
 }
 
@@ -236,5 +237,6 @@ message QuizMetadata {
     repeated Question quiz_questions = 14;
     string createdAt = 15;
     string updatedAt = 16;
+    bool is_send = 18;
 }
 

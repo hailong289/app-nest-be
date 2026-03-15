@@ -149,6 +149,8 @@ export class HandleChatService {
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
 
+    console.log('🚀 ~ HandleChatService ~ quizId:', quizId);
+
     const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
@@ -161,9 +163,7 @@ export class HandleChatService {
       document_id: documentId
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
-      quiz_id: quizId
-        ? this.utils.convertToObjectIdMongoose(quizId)
-        : null,
+      quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
     };
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new
@@ -211,7 +211,7 @@ export class HandleChatService {
         contentSnap = 'Đã gửi file gif';
         break;
       }
-      case 'quizz': {
+      case 'quiz': {
         contentSnap = '[Bài kiểm tra]';
         break;
       }

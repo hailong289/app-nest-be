@@ -141,12 +141,18 @@ export class ListQuizzesDto {
   @IsNotEmpty({ message: 'ID phòng không để trống' })
   @IsString({ message: 'ID phòng phải là chuỗi' })
   roomId: string;
+
+  @IsOptional()
+  @IsString({ message: 'createdBy phải là chuỗi' })
+  createdBy?: string; // MongoDB _id của người tạo
+
   @IsNotEmpty({ message: 'Trang không để trống' })
   @IsNumber(
     { allowNaN: false, allowInfinity: false },
     { message: 'Trang phải là số' },
   )
   page: number = 1;
+
   @IsNotEmpty({ message: 'Số lượng không để trống' })
   @IsNumber(
     { allowNaN: false, allowInfinity: false },

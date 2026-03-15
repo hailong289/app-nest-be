@@ -30,6 +30,7 @@ export class QuizzController {
       data.page,
       data.limit,
       data.roomId,
+      data.createdBy,
     );
   }
 

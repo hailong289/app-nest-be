@@ -281,10 +281,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     data.userId = user._id;
     try {
       // Tạo message qua gRPC
+      console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
       const result = (await Utils.dispatchGrpcRequest(
         this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
+
+      console.log('🚀 ~ ChatGateway ~ onMessage ~ result:', result);
 
       const msg = result.metadata.msg;
       const memberIds = result.metadata.members.map(
@@ -1024,6 +1027,36 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  @SubscribeMessage(socketEvent.UPDATE_QUIZ)
+  async handleUpdateQuiz(
+    @MessageBody()
+    data: {
+      roomId: string;
+      quizId: string;
+      payload: Record<string, any>;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      await this.getUser(client);
+    } catch {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+    const { roomId, quizId, payload } = data;
+    if (!roomId || !quizId) {
+      client.emit('error', {
+        message: 'roomId và quizId là bắt buộc',
+      });
+      return { ok: false };
+    }
+    this.io
+      .to(roomId)
+      .except(client.id)
+      .emit(socketEvent.UPDATE_QUIZ, { roomId, quizId, payload });
+    return { ok: true };
   }
 }
 

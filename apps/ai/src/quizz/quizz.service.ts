@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Quiz } from 'libs/db/src/mongo/model/quiz.model';
 import { User } from 'libs/db/src/mongo/model/user.model';
+import { Message } from 'libs/db/src/mongo/model/messages.model';
 import { Model, Types } from 'mongoose';
 import {
   AnswerSubmitDto,
@@ -15,6 +16,7 @@ export class QuizzService {
   constructor(
     @InjectModel(Quiz.name) private readonly quizModel: Model<Quiz>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
   ) {}
 
   async createQuizz(data: CreateQuizzDto) {
@@ -40,23 +42,50 @@ export class QuizzService {
     return Response.success(quiz);
   }
 
-  async listQuizzes(page: number, limit: number, roomId: string) {
-    const quizzes = await this.quizModel
-      .find({ quiz_roomId: new Types.ObjectId(roomId) })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .sort({ createdAt: -1 });
-
-    const total = await this.quizModel.countDocuments({
+  async listQuizzes(
+    page: number,
+    limit: number,
+    roomId: string,
+    createdBy?: string,
+  ) {
+    const filter: Record<string, any> = {
       quiz_roomId: new Types.ObjectId(roomId),
-    });
-    const totalPage = Math.ceil(total / limit);
+    };
+    if (createdBy && Types.ObjectId.isValid(createdBy)) {
+      filter.quiz_createdBy = new Types.ObjectId(createdBy);
+    }
+
+    const [quizzes, total] = await Promise.all([
+      this.quizModel
+        .find(filter)
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .lean(),
+      this.quizModel.countDocuments(filter),
+    ]);
+
+    // Lấy tất cả _id của quizzes trong trang hiện tại
+    const quizObjectIds = quizzes.map((q) => q._id);
+
+    // 1 query duy nhất: tìm tất cả message có quiz_id thuộc danh sách trên
+    const sentMessages = await this.messageModel
+      .find({ quiz_id: { $in: quizObjectIds } })
+      .select('quiz_id')
+      .lean();
+
+    const sentSet = new Set(sentMessages.map((m) => m.quiz_id?.toString()));
+
+    const data = quizzes.map((q) => ({
+      ...q,
+      is_send: sentSet.has(q._id.toString()),
+    }));
 
     return Response.success({
-      data: quizzes,
+      data,
       total_item: total,
-      total_page: totalPage,
-      page: page,
+      total_page: Math.ceil(total / limit),
+      page,
     });
   }
 
@@ -83,12 +112,19 @@ export class QuizzService {
   }
 
   async getQuizzResults(quiz_id: string) {
-    const quiz = await this.quizModel.findOne({ quiz_id }).lean();
+    // Hỗ trợ cả MongoDB _id (24-char hex) lẫn business quiz_id (ULID)
+    const isObjectId = Types.ObjectId.isValid(quiz_id) && quiz_id.length === 24;
+    const filter = isObjectId ? { _id: new Types.ObjectId(quiz_id) } : { quiz_id };
+    const quiz = await this.quizModel.findOne(filter).lean();
     if (!quiz) {
       return Response.error('Quiz not found', 404, 'NOT_FOUND');
     }
 
     const rawResults = quiz.quiz_results ?? [];
+
+    const total_participants = rawResults.length;
+    const submitted_count = rawResults.filter((r) => r.is_submitted).length;
+    const not_submitted_count = total_participants - submitted_count;
 
     // Lấy thông tin user cho tất cả kết quả
     const userIds = rawResults
@@ -97,57 +133,30 @@ export class QuizzService {
 
     const users = await this.userModel
       .find({ _id: { $in: userIds } })
-      .select('_id usr_id usr_fullname usr_avatar')
+      .select('_id usr_fullname usr_avatar')
       .lean();
 
     const userMap = new Map(users.map((u) => [u._id.toString(), u]));
 
-    const results = rawResults.map((r) => ({
-      user_id: r.user_id?.toString() ?? '',
-      total_score: r.total_score,
-      max_score: r.max_score,
-      correct_count: r.correct_count,
-      total_questions: r.total_questions,
-      started_at: r.started_at?.toISOString() ?? '',
-      completed_at: r.completed_at?.toISOString() ?? '',
-      time_taken: r.time_taken,
-      is_completed: r.is_completed,
-      is_submitted: r.is_submitted,
-      user_answers: (r.user_answers ?? []).map((ua) => ({
-        question_index: ua.question_index,
-        selected_answer_indices: ua.selected_answer_indices ?? [],
-        text_answer: ua.text_answer ?? '',
-        is_correct: ua.is_correct,
-        points_earned: ua.points_earned,
-        answered_at:
-          ua.answered_at instanceof Date
-            ? ua.answered_at.toISOString()
-            : String(ua.answered_at ?? ''),
-      })),
-    }));
-
-    // Bảng xếp hạng: sắp xếp theo correct_count giảm dần, time_taken tăng dần
+    // Bảng xếp hạng: chỉ user đã nộp, sắp xếp theo correct_count giảm dần, time_taken tăng dần
     const leaderboard = rawResults
       .filter((r) => r.is_submitted)
-      .map((r, idx) => {
+      .map((r) => {
         const user = userMap.get(r.user_id?.toString() ?? '');
         return {
-          rank: 0, // sẽ gán sau
+          rank: 0,
           user_id: r.user_id?.toString() ?? '',
           user_name: user?.usr_fullname ?? '',
           user_avatar: user?.usr_avatar ?? '',
           correct_count: r.correct_count,
           total_score: r.total_score,
           max_score: r.max_score,
-          time_taken: r.time_taken, // giây
-          is_completed: r.is_completed,
+          time_taken: r.time_taken,
         };
       })
       .sort((a, b) => {
-        // 1. Nhiều câu đúng hơn → xếp trên
         if (b.correct_count !== a.correct_count)
           return b.correct_count - a.correct_count;
-        // 2. Thời gian nhanh hơn → xếp trên
         return a.time_taken - b.time_taken;
       })
       .map((entry, idx) => ({ ...entry, rank: idx + 1 }));
@@ -155,9 +164,9 @@ export class QuizzService {
     return Response.success({
       quiz_id: quiz.quiz_id,
       quiz_title: quiz.quiz_title,
-      total_participants: quiz.quiz_totalParticipants,
-      total_submissions: quiz.quiz_totalSubmissions,
-      results,
+      total_participants,
+      submitted_count,
+      not_submitted_count,
       leaderboard,
     });
   }
