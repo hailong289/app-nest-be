@@ -110,6 +110,15 @@ export class FlashcardService {
         deck_userId: new Types.ObjectId(data.deck_userId),
       };
       const deck = await this.flashcardDeckModel.create(deckData);
+      if (data.flashcards) {
+        const flashcards = await this.flashcardModel.insertMany(
+          data.flashcards.map((flashcard) => ({
+            ...flashcard,
+            card_userId: new Types.ObjectId(flashcard.card_userId),
+            card_deckId: new Types.ObjectId(deck.deck_id),
+          })),
+        );
+      }
       return Response.success(deck);
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');

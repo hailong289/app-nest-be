@@ -65,6 +65,55 @@ export const translationPrompt = (text: string, from: string, to: string) => {
   `;
 };
 
+export const generateFlashcardPrompt = (
+  topic: string,
+  type: 'text' | 'document',
+  card_count: number,
+  difficulty: number,
+  language: string,
+) => {
+  return `
+Role: Bạn là một chuyên gia giáo dục và thiết kế thẻ học (flashcard) thông minh.
+Nhiệm vụ: Dựa vào nội dung đầu vào, tạo ra ${card_count} flashcard chất lượng cao và trả về kết quả dưới định dạng **Raw JSON**.
+
+**1. Thông số kỹ thuật:**
+- Số lượng flashcard cần tạo: ${card_count} thẻ.
+- Độ khó mong muốn (card_difficulty): ${difficulty} (thang 1–5, 1 = dễ nhất, 5 = khó nhất).
+- Ngôn ngữ đầu ra: ${language}.
+
+**2. Quy tắc tạo flashcard:**
+- Mỗi flashcard phải có nội dung súc tích, rõ ràng và chính xác.
+- "card_front": Câu hỏi, thuật ngữ hoặc khái niệm cần ghi nhớ (≤ 1000 ký tự).
+- "card_back": Câu trả lời, định nghĩa hoặc giải thích chi tiết (≤ 2000 ký tự).
+- "card_hint": Gợi ý nhỏ giúp người dùng nhớ ra đáp án mà không tiết lộ hoàn toàn (≤ 500 ký tự, optional).
+- "card_tags": Mảng các từ khóa liên quan đến nội dung thẻ (2–5 tags, lowercase).
+- "card_difficulty": Số nguyên từ 1 đến 5, phản ánh mức độ phức tạp của thẻ.
+
+**3. Cấu trúc JSON bắt buộc (Strict Schema):**
+Chỉ trả về JSON, không Markdown, không giải thích thêm.
+
+{
+  "deck_name": "Tên bộ thẻ học phù hợp với chủ đề",
+  "deck_description": "Mô tả ngắn gọn về bộ thẻ học",
+  "deck_level": "beginner | intermediate | advanced | expert",
+  "deck_language": "${language}",
+  "deck_tags": ["tag1", "tag2"],
+  "flashcards": [
+    {
+      "card_front": "Nội dung mặt trước (câu hỏi / thuật ngữ)",
+      "card_back": "Nội dung mặt sau (câu trả lời / định nghĩa)",
+      "card_hint": "Gợi ý nhỏ (tùy chọn)",
+      "card_tags": ["tag1", "tag2"],
+      "card_difficulty": ${difficulty}
+    }
+  ]
+}
+
+**4. Dữ liệu đầu vào để phân tích:**
+${type === 'text' ? `"""\n${topic}\n"""` : '[Hệ thống sẽ cung cấp file đính kèm, hãy phân tích file đó để tạo flashcard]'}
+  `;
+};
+
 export const generateQuizzPrompt = (
   text: string,
   type: 'text' | 'document',

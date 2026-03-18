@@ -154,4 +154,29 @@ export class AIController {
       data.question_max_points,
     );
   }
+
+  @GrpcMethod('AIService', 'GenerateFlashcard')
+  async generateFlashcard(data: {
+    /** Chủ đề hoặc nội dung văn bản để tạo flashcard (dùng khi type = 'text') */
+    topic: string;
+    /** Nguồn dữ liệu: 'text' hoặc 'document' (file đính kèm) */
+    type: 'text' | 'document';
+    /** Số lượng flashcard cần tạo */
+    card_count: number;
+    /** Độ khó (1 = dễ nhất, 5 = khó nhất) */
+    difficulty: number;
+    /** Ngôn ngữ đầu ra, ví dụ: 'vi', 'en' */
+    language: string;
+    /** File đính kèm (chỉ dùng khi type = 'document') */
+    file?: MulterFile;
+  }) {
+    return await this.service.generateFlashcard(
+      data.topic,
+      data.type,
+      data.card_count ?? 10,
+      data.difficulty ?? 3,
+      data.language ?? 'vi',
+      data.file,
+    );
+  }
 }

@@ -17,6 +17,7 @@ import {
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
 import {
+  GenerateFlashcardDto,
   ModerationDto,
   SearchMessagesDto,
   SummaryDocumentDto,
@@ -44,6 +45,14 @@ interface AiGrpcService {
   summaryDocument(data: SummaryDocumentDto): Observable<unknown>;
   translation(data: TranslationDto): Observable<unknown>;
   quizz(data: QuizzDto): Observable<unknown>;
+  generateFlashcard(data: {
+    topic: string;
+    type: 'text' | 'document';
+    card_count: number;
+    difficulty: number;
+    language: string;
+    file?: unknown;
+  }): Observable<unknown>;
 }
 
 @Controller('ai')
@@ -142,6 +151,39 @@ export class GatewayAiController {
         question_max_points: body.question_max_points,
       },
       100000, // 1 minute timeout
+    );
+  }
+
+  /**
+   * POST /ai/generate-flashcard
+   * Tạo flashcard tự động bằng AI từ văn bản hoặc tài liệu đính kèm.
+   * Body (multipart/form-data):
+   *   - topic      : string  — nội dung / chủ đề (khi type='text')
+   *   - type       : 'text' | 'document'
+   *   - card_count : number  — số lượng thẻ (1–50, default: 10)
+   *   - difficulty : number  — độ khó 1–5 (default: 3)
+   *   - language   : string  — ngôn ngữ đầu ra (default: 'vi')
+   *   - file       : File    — file đính kèm (khi type='document')
+   */
+  @Post('generate-flashcard')
+  @UseInterceptors(FileInterceptor('file'))
+  async generateFlashcard(
+    @UploadedFile() file: MulterFile,
+    @Body() body: any,
+  ) {
+    console.log('GenerateFlashcard request:', { file, body });
+    return this.gatewayService.dispatchGrpcRequest(
+      (data: GenerateFlashcardDto & { file?: MulterFile }) =>
+        this.aiService.generateFlashcard({
+          topic: data.topic ?? '',
+          type: data.type,
+          card_count: Number(data.card_count) || 10,
+          difficulty: Number(data.difficulty) || 3,
+          language: data.language || 'vi',
+          file: data.file,
+        }),
+      { ...body, file },
+      180000, // 3 minutes timeout (AI cần thời gian tạo nhiều thẻ)
     );
   }
 }

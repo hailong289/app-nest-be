@@ -9,8 +9,10 @@ import {
   IsUrl,
   Min,
   Max,
+  ValidateNested,
 } from 'class-validator';
 import { MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
 
 class FlashcardProgressDto {
   @IsNotEmpty({ message: 'ID người dùng không để trống' })
@@ -228,6 +230,12 @@ export class CreateFlashcardDeckDto {
   @IsOptional()
   @IsString({ message: 'Ngôn ngữ phải là chuỗi' })
   deck_language?: string;
+
+  @IsOptional()
+  @IsArray({ message: 'Danh sách thẻ phải là mảng' })
+  @ValidateNested({ each: true })
+  @Type(() => CreateFlashcardDto)
+  flashcards?: CreateFlashcardDto[];
 }
 
 export class UpdateFlashcardDeckDto {

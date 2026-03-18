@@ -123,6 +123,7 @@ message CreateFlashcardDeckRequest {
     bool deck_isPublic = 6;
     string deck_level = 7; // beginner, intermediate, advanced, expert
     string deck_language = 8;
+    repeated CreateFlashcardRequest flashcards = 9;
 }
 
 message CreateFlashcardDeckResponse {
