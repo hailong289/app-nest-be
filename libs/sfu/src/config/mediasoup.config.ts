@@ -63,7 +63,9 @@ export const mediasoupConfig = {
     listenIps: [
       {
         ip: process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0',
-        announcedIp: process.env.MEDIASOUP_ANNOUNCED_IP,
+        // announcedIp is required when behind NAT/Docker so ICE candidates are routable.
+        // Falls back to 127.0.0.1 for local development when env var is not set.
+        announcedIp: process.env.MEDIASOUP_ANNOUNCED_IP || '127.0.0.1',
       },
     ],
     enableUdp: true,

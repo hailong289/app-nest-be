@@ -8,7 +8,8 @@ import * as MediasoupTypes from 'mediasoup/types';
  * Socket with user info (after auth)
  */
 interface SocketWithUser extends Socket {
-  userId?: string;
+  userId?: string; // MongoDB _id (ObjectId)
+  user?: any; // JWT payload — has usr_id (ULID) used for member IDs on FE
 }
 
 /**
@@ -27,7 +28,8 @@ interface SignalPayload {
     | 'consume'
     | 'pause'
     | 'resume'
-    | 'leave';
+    | 'leave'
+    | 'getProducers';
   target: 'sfu' | (string & {}); // 'sfu' for server, userId for P2P
 
   // P2P data
@@ -42,6 +44,8 @@ interface SignalPayload {
   dtlsParameters?: MediasoupTypes.DtlsParameters;
   producerId?: string;
   direction?: 'send' | 'recv';
+  appData?: Record<string, unknown>; // echoed back in produce:me for callback matching
+  userId?: string; // producer's userId, echoed back in consume response
 }
 
 /**
@@ -90,8 +94,30 @@ export class UnifiedSignalHandler {
     payload: SignalPayload,
     client: SocketWithUser,
   ) {
-    const { type, roomId } = payload;
-    const userId = client.userId || 'unknown';
+    const { type, roomId: rawRoomId } = payload;
+    // Use usr_id (ULID) so it matches the member.id used on the FE side.
+    // client.userId holds the MongoDB ObjectId (_id); client.user?.usr_id is the custom ULID.
+    const userId = client.user?.usr_id || client.userId || 'unknown';
+
+    // Normalize roomId: the FE join URL uses msg.roomId (MongoDB ObjectId), while the socket
+    // room and SFU room are keyed by room.room_id (custom string). If the provided roomId has
+    // no SFU room yet, find a socket room the client already joined that DOES have an SFU room.
+    // This is reliable because call:join always does client.join(room.room_id) before signal:join.
+    let roomId = rawRoomId;
+    if (!this.sfuRoomService.getRoom(rawRoomId)) {
+      for (const socketRoom of client.rooms) {
+        if (
+          socketRoom !== client.id &&
+          this.sfuRoomService.getRoom(socketRoom)
+        ) {
+          this.logger.log(
+            `[SFU] Normalized roomId: ${rawRoomId} → ${socketRoom} (ObjectId→room_id)`,
+          );
+          roomId = socketRoom;
+          break;
+        }
+      }
+    }
 
     try {
       switch (type) {
@@ -171,6 +197,7 @@ export class UnifiedSignalHandler {
             type: 'produce',
             sender: 'sfu',
             target: 'broadcast',
+            ok: true,
             producerId: producer.id,
             userId: userId,
             kind: payload.kind,
@@ -182,6 +209,7 @@ export class UnifiedSignalHandler {
             target: 'me',
             ok: true,
             producerId: producer.id,
+            appData: payload.appData || {}, // echo back so FE callback can resolve
           });
           break;
         }
@@ -203,6 +231,19 @@ export class UnifiedSignalHandler {
             payload.rtpCapabilities,
           );
 
+          // Find the userId who owns this producer so FE can map stream to user
+          let producerUserId = payload.userId;
+          if (!producerUserId) {
+            const room = this.sfuRoomService.getRoom(roomId);
+            if (room) {
+              room.participants.forEach((participant, pUserId) => {
+                if (participant.producers.has(payload.producerId!)) {
+                  producerUserId = pUserId;
+                }
+              });
+            }
+          }
+
           client.emit('signal', {
             type: 'consume',
             sender: 'sfu',
@@ -212,6 +253,7 @@ export class UnifiedSignalHandler {
             producerId: consumer.producerId,
             kind: consumer.kind,
             rtpParameters: consumer.rtpParameters,
+            userId: producerUserId, // so FE can key the stream by userId
           });
           break;
         }
@@ -259,6 +301,39 @@ export class UnifiedSignalHandler {
             sender: 'sfu',
             target: 'me',
             ok: true,
+          });
+          break;
+        }
+
+        case 'getProducers': {
+          // Return all active producers in the room except the requesting user's own
+          const room = this.sfuRoomService.getRoom(roomId);
+          const producers: Array<{
+            producerId: string;
+            userId: string;
+            kind: string;
+          }> = [];
+          if (room) {
+            room.participants.forEach((participant, pUserId) => {
+              if (pUserId !== userId) {
+                participant.producers.forEach((producer) => {
+                  if (!producer.closed) {
+                    producers.push({
+                      producerId: producer.id,
+                      userId: pUserId,
+                      kind: producer.kind,
+                    });
+                  }
+                });
+              }
+            });
+          }
+          client.emit('signal', {
+            type: 'getProducers',
+            sender: 'sfu',
+            target: 'me',
+            ok: true,
+            producers,
           });
           break;
         }

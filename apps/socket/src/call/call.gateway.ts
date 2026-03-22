@@ -23,7 +23,7 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
-import { UnifiedSignalHandler } from '@app/sfu';
+import { SfuRoomService, UnifiedSignalHandler } from '@app/sfu';
 
 interface JwtPayload {
   _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
@@ -88,6 +88,7 @@ export class CallGateway
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly unifiedSignalHandler: UnifiedSignalHandler,
+    private readonly sfuRoomService: SfuRoomService,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
@@ -240,6 +241,23 @@ export class CallGateway
       await this.redis.sRem(this.key.USER_ONLINE(userId), client.id);
       const checkOnline = await this.redis.sCard(this.key.USER_ONLINE(userId));
 
+      // Clean up SFU participant for all rooms this socket was in.
+      // Without this, the server-side transports/producers linger until ICE timeout.
+      const userUlid = client.user?.usr_id;
+      if (userUlid) {
+        for (const socketRoom of client.rooms) {
+          if (
+            socketRoom !== client.id &&
+            this.sfuRoomService.getRoom(socketRoom)
+          ) {
+            this.sfuRoomService.leaveRoom(socketRoom, userUlid);
+            this.logger.log(
+              `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+            );
+          }
+        }
+      }
+
       // Nếu không còn socket nào của user này connected -> Remove presence
       if (checkOnline == 0) {
         await this.redis.delKey(this.key.USER_PRESENCE(userId));
@@ -260,29 +278,6 @@ export class CallGateway
   // ========================================================
 
   @SubscribeMessage('call:request')
-  async join(
-    @MessageBody() { roomId }: { roomId: string },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    let user: JwtPayload;
-    try {
-      user = await this.getUser(client);
-    } catch {
-      return { ok: false, message: 'Unauthorized' };
-    }
-
-    await client.join(roomId);
-    this.logger.log(`${user.usr_fullname} joined room ${roomId}`); // Broadcast đến mọi người trong room
-
-    this.io.to(roomId).emit(socketEvent.USERJOIN, {
-      name: user.usr_fullname,
-      roomId,
-      joinDated: new Date(),
-    });
-    return { ok: true, user };
-  }
-
-  @SubscribeMessage('call:request')
   async handleCallRequest(
     @MessageBody()
     data: {
@@ -297,7 +292,6 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-      // tạo tin nhắn cuộc gọi
 
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
@@ -312,7 +306,14 @@ export class CallGateway
         throw new BadRequestException(String(errorMessage));
       }
 
-      const { history, room, callType, msg } = result.metadata;
+      const { history, room, callType, callMode, msg } = result.metadata;
+
+      // Join the canonical socket room (room.room_id) so SFU normalization works correctly.
+      // data.roomId may be a MongoDB ObjectId while room.room_id is the custom ULID.
+      await client.join(room.room_id);
+      if (data.roomId !== room.room_id) {
+        client.leave(data.roomId);
+      }
 
       // await this.pushMessageToRoom(roomId, msgId, members, history);
       const otherMembers = room.room_members
@@ -327,12 +328,13 @@ export class CallGateway
         roomId: room.room_id,
         actionUserId: user.usr_id,
         callType: callType,
+        callMode: callMode,
         callId: history.call_id,
       };
       this.io.to(otherMembers).emit('call:request', historyCall);
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-      return { ok: true };
+      return { ok: true, room: { room_id: room.room_id } };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
       client.emit('error', {
@@ -352,24 +354,27 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) return;
+    try {
+      // Optimized: Check presence keys using MGET
+      const keys = userIds.map((uid) => this.key.USER_PRESENCE(uid));
+      const results = await this.redis.mget(keys);
 
-    // Optimized: Check presence keys using MGET
-    const keys = userIds.map((uid) => this.key.USER_PRESENCE(uid));
-    const results = await this.redis.mget(keys);
-
-    results.forEach((val, index) => {
-      if (val) {
-        // val is the ISO string we stored
-        const date = new Date(JSON.parse(val));
-        if (!isNaN(date.getTime())) {
-          client.emit(socketEvent.STATUS, {
-            id: userIds[index],
-            isOnline: true,
-            onlineAt: date,
-          });
+      results.forEach((val, index) => {
+        if (val) {
+          // val is the ISO string we stored
+          const date = new Date(JSON.parse(val));
+          if (!isNaN(date.getTime())) {
+            client.emit(socketEvent.STATUS, {
+              id: userIds[index],
+              isOnline: true,
+              onlineAt: date,
+            });
+          }
         }
-      }
-    });
+      });
+    } catch (error) {
+      this.logger.error('[CALL] Error checking user status:', error);
+    }
   }
 
   @SubscribeMessage('call:accepted')
@@ -388,6 +393,8 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
+      // Người nhận tham gia socket room để nhận các sự kiện call:end, call:share-screen, v.v.
+      await client.join(data.roomId);
       // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
         this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
@@ -407,16 +414,31 @@ export class CallGateway
         throw new BadRequestException(String(errorMessage));
       }
 
-      const { history, room, msg } = result.metadata;
-      const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
-      this.io.to(targetSocketId).emit('call:accepted', {
-        members: history.members,
-        roomId: room.room_id,
-        actionUserId: data.actionUserId,
-        offer: data.offer,
-        history: history,
-        callId: data.callId,
-      });
+      const { history, room, msg, callMode } = result.metadata;
+
+      if (callMode === 'sfu') {
+        // SFU calls: the callee should be routing through call:join which already emits
+        // call:member-joined.  But if the callee sent call:accepted first (e.g. due to a
+        // race condition where callMode wasn't set yet on FE), handle it gracefully here
+        // by emitting call:member-joined so the caller transitions from "calling" → "accepted".
+        this.io.to(room.room_id).except(client.id).emit('call:member-joined', {
+          members: history.members,
+          roomId: room.room_id,
+          actionUserId: data.actionUserId,
+          callId: data.callId,
+        });
+      } else {
+        // P2P calls: forward the offer to the caller.
+        const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+        this.io.to(targetSocketId).emit('call:accepted', {
+          members: history.members,
+          roomId: room.room_id,
+          actionUserId: data.actionUserId,
+          offer: data.offer,
+          history: history,
+          callId: data.callId,
+        });
+      }
       const roomClients = room.room_members.map((m) =>
         this.key.ROOM_CLIENT(m.id),
       );
@@ -468,7 +490,78 @@ export class CallGateway
   }
 
   // ========================================================
-  // 🔥 UNIFIED SIGNAL HANDLER (P2P + SFU)
+  // � JOIN LATER HANDLER (tham gia cuộc gọi đang diễn ra)
+  // ========================================================
+  @SubscribeMessage('call:join')
+  async handleJoinCall(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      callId: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+
+      // Cập nhật trạng thái thành viên sang 'started' qua gRPC
+      const result = (await Utils.dispatchGrpcRequest(
+        this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
+        {
+          actionUserId: data.actionUserId,
+          roomId: data.roomId,
+          callId: data.callId,
+        },
+      )) as ChatGatewayCallResponse;
+
+      if (!result || result.statusCode !== 200) {
+        const errorMessage = Array.isArray(result?.message)
+          ? result.message.join(', ')
+          : result?.message || 'Tham gia cuộc gọi thất bại';
+        throw new BadRequestException(String(errorMessage));
+      }
+
+      const { history, room, msg } = result.metadata;
+
+      // Tham gia socket room bằng canonical room_id (room.room_id) để đồng bộ với các client khác.
+      // data.roomId có thể là MongoDB ObjectId (từ msg.roomId ở FE), còn room.room_id là custom string.
+      await client.join(room.room_id);
+      if (data.roomId !== room.room_id) {
+        client.leave(data.roomId);
+      }
+
+      // Thông báo cho tất cả thành viên trong phòng về thành viên mới tham gia
+      this.io.to(room.room_id).except(client.id).emit('call:member-joined', {
+        members: history.members,
+        roomId: room.room_id,
+        actionUserId: data.actionUserId,
+        callId: data.callId,
+      });
+
+      // Cập nhật tin nhắn cuộc gọi cho tất cả thành viên
+      const roomClients = room.room_members.map((m) =>
+        this.key.ROOM_CLIENT(m.id),
+      );
+      this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
+
+      return { ok: true, history, room };
+    } catch (error) {
+      this.logger.error('[CALL] Error joining call:', error);
+      client.emit('error', {
+        message: 'Tham gia cuộc gọi thất bại',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ========================================================
+  // �🔥 UNIFIED SIGNAL HANDLER (P2P + SFU)
   // ========================================================
   @SubscribeMessage('signal')
   async handleSignal(
@@ -523,7 +616,10 @@ export class CallGateway
 
       const { history, room, msg } = result.metadata;
 
-      this.io.to(data.roomId).emit('call:end', {
+      // Use client.to() (not this.io.to()) so the broadcast excludes the sender.
+      // this.io.to() would echo call:end back to the caller, causing their
+      // beforeunload handler to fire and re-emit call:end again.
+      client.to(data.roomId).emit('call:end', {
         members: history.members,
         roomId: room.room_id,
         actionUserId: data.actionUserId,
@@ -676,6 +772,7 @@ interface ChatGatewayCallResponse<T = any> {
     history: CallHistory;
     room: Room;
     callType: string;
+    callMode?: string;
     msg: Record<string, any>;
   };
 }

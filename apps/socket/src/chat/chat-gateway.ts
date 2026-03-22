@@ -326,6 +326,7 @@ export class ChatGateway
       const memberIds = result.metadata.members.map(
         (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
       );
+      console.log('🚀 ~ ChatGateway ~ onMessage ~ memberIds:', memberIds);
 
       this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
 

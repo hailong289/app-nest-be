@@ -52,16 +52,36 @@ export class SfuRoomService {
       room = await this.createRoom(roomId);
     }
 
-    if (!room.participants.has(userId)) {
-      const participant: SFUParticipant = {
-        userId,
-        transports: new Map(),
-        producers: new Map(),
-        consumers: new Map(),
-      };
-      room.participants.set(userId, participant);
-      this.logger.log(`User ${userId} joined SFU room ${roomId}`);
+    // Always create a fresh participant entry. If the user is re-joining (e.g. they
+    // ended the call and clicked "Tham gia" again), their old transports/producers are
+    // already closed on the client side but the server-side objects may linger until
+    // the DTLS/ICE disconnect timeout fires. Cleaning them up eagerly ensures
+    // getProducers returns only live producers and createTransport has a clean slate.
+    const existing = room.participants.get(userId);
+    if (existing) {
+      existing.transports.forEach((t) => {
+        if (!t.closed) t.close();
+      });
+      existing.producers.forEach((p) => {
+        if (!p.closed) p.close();
+      });
+      existing.consumers.forEach((c) => {
+        if (!c.closed) c.close();
+      });
+      room.participants.delete(userId);
+      this.logger.log(
+        `User ${userId} re-joining SFU room ${roomId}, old state cleaned up`,
+      );
     }
+
+    const participant: SFUParticipant = {
+      userId,
+      transports: new Map(),
+      producers: new Map(),
+      consumers: new Map(),
+    };
+    room.participants.set(userId, participant);
+    this.logger.log(`User ${userId} joined SFU room ${roomId}`);
 
     return room;
   }
@@ -101,9 +121,23 @@ export class SfuRoomService {
     transportId: string,
     transport: Transport,
   ): void {
-    const participant = this.getParticipant(roomId, userId);
+    const room = this.rooms.get(roomId);
+    if (!room) {
+      throw new NotFoundException(`Room ${roomId} not found`);
+    }
+    let participant = room.participants.get(userId);
     if (!participant) {
-      throw new NotFoundException(`Participant ${userId} not found`);
+      // Auto-register: participant may have missed the joinRoom step due to timing
+      this.logger.warn(
+        `[SFU] Auto-registering participant ${userId} in room ${roomId}`,
+      );
+      participant = {
+        userId,
+        transports: new Map(),
+        producers: new Map(),
+        consumers: new Map(),
+      };
+      room.participants.set(userId, participant);
     }
     participant.transports.set(transportId, transport);
   }

@@ -356,7 +356,6 @@ export class HandleChatService {
           : clearTs
         : lastAt || clearTs || null;
 
-    // 2) Đếm unread (exclude self, not deleted, > baseTs)
     const match: Record<string, unknown> = {
       msg_roomId: rid,
       msg_sender: { $ne: uid },
@@ -364,10 +363,6 @@ export class HandleChatService {
     };
     if (baseTs) match.createdAt = { $gt: baseTs };
 
-    // (A) BẢN NHANH:
-    // const unread = await this.messageModel.countDocuments(match);
-
-    // (B) BẢN CHUẨN: Trừ đi tin user đã Hide
     const agg: { cnt: number }[] = await this.messageModel.aggregate([
       { $match: match },
       {
@@ -944,7 +939,7 @@ export class HandleChatService {
       );
     } catch (error) {
       console.log('🚀 ~ HandleChatService ~ startCall ~ error:', error);
-      throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
+      return Response.badRequest('Không tạo được lịch sử cuộc gọi');
     }
   }
 
@@ -957,7 +952,16 @@ export class HandleChatService {
         throw new NotFoundException('Người dùng không tồn tại');
       }
 
-      const room = await this.roomModel.findOne({ room_id: roomId });
+      // roomId may be the custom room_id string OR the MongoDB _id (ObjectId string)
+      // from buildMessageDetailPipeline which projects roomId as msg_roomId (ObjectId)
+      const room = await this.roomModel.findOne({
+        $or: [
+          { room_id: roomId },
+          ...(Types.ObjectId.isValid(roomId)
+            ? [{ _id: new Types.ObjectId(roomId) }]
+            : []),
+        ],
+      });
       if (!room) {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
@@ -1007,7 +1011,7 @@ export class HandleChatService {
       );
     } catch (error) {
       console.log('🚀 ~ HandleChatService ~ acceptCall ~ error:', error);
-      throw new BadRequestException('Không trả lời được cuộc gọi');
+      return Response.badRequest('Không trả lời được cuộc gọi');
     }
   }
 
@@ -1019,7 +1023,15 @@ export class HandleChatService {
         throw new NotFoundException('Người dùng không tồn tại');
       }
 
-      const room = await this.roomModel.findOne({ room_id: roomId });
+      // roomId may be custom room_id string OR MongoDB _id (ObjectId string)
+      const room = await this.roomModel.findOne({
+        $or: [
+          { room_id: roomId },
+          ...(Types.ObjectId.isValid(roomId)
+            ? [{ _id: new Types.ObjectId(roomId) }]
+            : []),
+        ],
+      });
       if (!room) {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
@@ -1099,7 +1111,7 @@ export class HandleChatService {
       );
     } catch (error) {
       console.log('🚀 ~ HandleChatService ~ endCall ~ error:', error);
-      throw new BadRequestException('Không kết thúc được cuộc gọi');
+      return Response.badRequest('Không kết thúc được cuộc gọi');
     }
   }
 
