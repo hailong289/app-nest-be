@@ -908,8 +908,7 @@ export class HandleChatService {
           m.usr_id === actionUserId ? 'started' : ('pending' as MemberStatus),
       }));
 
-      // Determine call mode based on room type
-      // private rooms use P2P, group/channel use SFU
+      // Group rooms always use SFU; private rooms use P2P
       const callMode = room.room_type === 'private' ? 'p2p' : 'sfu';
 
       const callHistory = await this.callHistoryModel.create({
@@ -975,25 +974,23 @@ export class HandleChatService {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
-      // Cập nhật status cho members
-      callHistory.members = callHistory.members.map((m) => {
-        // So sánh ObjectId đúng cách
-        const isMatch = m.id.toString() === actionUser.usr_id.toString();
-        const shouldStart = isMatch || (m.is_caller && m.status === 'started');
-        return {
-          ...m,
-          status: shouldStart ? ('started' as MemberStatus) : m.status,
-        };
-      });
-
-      // Cập nhật started_at nếu chưa có
+      // Dùng findOneAndUpdate thay vì save() để tránh Mongoose VersionError khi
+      // nhiều request đồng thời cùng cập nhật document (optimistic locking conflict).
+      const updateFields: Record<string, any> = {
+        'members.$[member].status': 'started',
+      };
       if (!callHistory.started_at) {
-        callHistory.started_at = new Date();
+        updateFields.started_at = new Date();
       }
 
-      // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
-      callHistory.markModified('members');
-      const refreshedHistory = await callHistory.save();
+      const refreshedHistory = await this.callHistoryModel.findOneAndUpdate(
+        { room_id: room._id, call_id: callId },
+        { $set: updateFields },
+        {
+          new: true,
+          arrayFilters: [{ 'member.id': actionUser.usr_id.toString() }],
+        },
+      );
 
       if (!refreshedHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');

@@ -135,17 +135,21 @@ export class SfuTransportService {
     if (!producerExists) {
       this.logger.error(
         `[SFU] Producer ${producerId} not found in room ${roomId}. ` +
-        `Participants: [${[...room.participants.keys()].join(', ')}]. ` +
-        `All producer IDs: [${[...room.participants.values()].flatMap(p => [...p.producers.keys()]).join(', ')}]`,
+          `Participants: [${[...room.participants.keys()].join(', ')}]. ` +
+          `All producer IDs: [${[...room.participants.values()].flatMap((p) => [...p.producers.keys()]).join(', ')}]`,
       );
-      throw new BadRequestException(`Producer ${producerId} not found in room ${roomId}`);
+      throw new BadRequestException(
+        `Producer ${producerId} not found in room ${roomId}`,
+      );
     }
 
     if (!room.router.canConsume({ producerId, rtpCapabilities })) {
       this.logger.error(
         `[SFU] canConsume failed for producer ${producerId} in room ${roomId}. Codec incompatibility.`,
       );
-      throw new BadRequestException('Cannot consume this producer: codec incompatibility');
+      throw new BadRequestException(
+        'Cannot consume this producer: codec incompatibility',
+      );
     }
 
     const consumer = await transport.consume({

@@ -293,9 +293,28 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      // Pre-check: for 1-on-1 calls, check if the single target is busy.
+      // This avoids creating a call history record and gives instant feedback.
+      if (data.membersIds && data.membersIds.length === 2) {
+        const targetUserId = data.membersIds.find((id) => id !== user.usr_id);
+        if (targetUserId) {
+          const busyCallId = await this.redis.getData<string>(
+            this.key.USER_IN_CALL(targetUserId),
+          );
+          if (busyCallId) {
+            client.emit('call:busy', {
+              targetUserId,
+              callId: busyCallId,
+              reason: 'busy',
+            });
+            return { ok: false, reason: 'busy' };
+          }
+        }
+      }
+
       // bắt đầu tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.RequestCall.bind(this.ChatGrpcService),
+        (d) => this.ChatGrpcService.RequestCall(d),
         data,
       )) as ChatGatewayCallResponse;
 
@@ -315,7 +334,13 @@ export class CallGateway
         client.leave(data.roomId);
       }
 
-      // await this.pushMessageToRoom(roomId, msgId, members, history);
+      // Mark caller as in-call in Redis (TTL = max call duration safety net)
+      await this.redis.setData(
+        this.key.USER_IN_CALL(user.usr_id),
+        history.call_id,
+        REDIS_TTL.CALL_ACTIVE,
+      );
+
       const otherMembers = room.room_members
         .filter((m) => m.id !== user.usr_id)
         .map((m) => this.key.ROOM_CLIENT(m.id));
@@ -345,6 +370,31 @@ export class CallGateway
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  @SubscribeMessage('call:busy')
+  async handleCallBusy(
+    @MessageBody()
+    data: {
+      callId: string;
+      callerUserId: string; // who to notify
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      // Forward the busy notification to the caller
+      const callerRoom = this.key.ROOM_CLIENT(data.callerUserId);
+      this.io.to(callerRoom).emit('call:busy', {
+        targetUserId: user.usr_id,
+        callId: data.callId,
+        reason: 'busy',
+      });
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error forwarding busy:', error);
+      return { ok: false };
     }
   }
 
@@ -393,11 +443,21 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
+
+      // Deduplicate: ignore duplicate call:accepted from same user for same call
+      // (caused by socket reconnects re-triggering the frontend useEffect)
+      const acceptLockKey = `call:accept:lock:${data.callId}:${data.actionUserId}`;
+      const alreadyAccepted: string | null = await this.redis.getData(acceptLockKey);
+      if (alreadyAccepted) {
+        return { ok: true };
+      }
+      await this.redis.setData(acceptLockKey, '1', REDIS_TTL.CALL_ACTIVE);
+
       // Người nhận tham gia socket room để nhận các sự kiện call:end, call:share-screen, v.v.
       await client.join(data.roomId);
       // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
+        (d) => this.ChatGrpcService.AcceptCall(d),
         {
           actionUserId: data.actionUserId,
           membersIds: data.membersIds,
@@ -415,6 +475,17 @@ export class CallGateway
       }
 
       const { history, room, msg, callMode } = result.metadata;
+
+      // Mark callee as in-call
+      if (!data.actionUserId) {
+        throw new Error('actionUserId is required');
+      }
+      const actionUserId = String(data.actionUserId);
+      await this.redis.setData(
+        this.key.USER_IN_CALL(actionUserId),
+        data.callId,
+        REDIS_TTL.CALL_ACTIVE,
+      );
 
       if (callMode === 'sfu') {
         // SFU calls: the callee should be routing through call:join which already emits
@@ -508,7 +579,7 @@ export class CallGateway
 
       // Cập nhật trạng thái thành viên sang 'started' qua gRPC
       const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.AcceptCall.bind(this.ChatGrpcService),
+        (d) => this.ChatGrpcService.AcceptCall(d),
         {
           actionUserId: data.actionUserId,
           roomId: data.roomId,
@@ -531,6 +602,13 @@ export class CallGateway
       if (data.roomId !== room.room_id) {
         client.leave(data.roomId);
       }
+
+      // Mark joiner as in-call
+      await this.redis.setData(
+        this.key.USER_IN_CALL(data.actionUserId),
+        data.callId,
+        REDIS_TTL.CALL_ACTIVE,
+      );
 
       // Thông báo cho tất cả thành viên trong phòng về thành viên mới tham gia
       this.io.to(room.room_id).except(client.id).emit('call:member-joined', {
@@ -603,7 +681,7 @@ export class CallGateway
       data.actionUserId = user.usr_id;
       // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.EndCall.bind(this.ChatGrpcService),
+        (d) => this.ChatGrpcService.EndCall(d),
         data,
       )) as ChatGatewayCallResponse;
 
@@ -615,6 +693,15 @@ export class CallGateway
       }
 
       const { history, room, msg } = result.metadata;
+
+      // Clear in-call status for all members when call ends
+      if (history?.members) {
+        await Promise.all(
+          history.members.map((m: { id: string }) =>
+            this.redis.delKey(this.key.USER_IN_CALL(m.id)),
+          ),
+        );
+      }
 
       // Use client.to() (not this.io.to()) so the broadcast excludes the sender.
       // this.io.to() would echo call:end back to the caller, causing their

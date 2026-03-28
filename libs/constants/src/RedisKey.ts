@@ -199,6 +199,19 @@ export const REDISKEY = {
   RATE_LIMIT_MESSAGE: (userId: string) => `chat:rate_limit:message:${userId}`,
 
   // ==========================================
+  // 📞 CALL KEYS
+  // ==========================================
+
+  /**
+   * Tracks whether a user is currently in an active call (String)
+   * Format: chat:user:{userId}:in_call
+   * Type: STRING
+   * Value: callId
+   * TTL: 3600s (max call duration safety net)
+   */
+  USER_IN_CALL: (userId: string) => `chat:user:${userId}:in_call`,
+
+  // ==========================================
   // 📢 PUBSUB CHANNELS
   // ==========================================
   PUBSUB_ROOM_UPDATE: 'events:room:update',
@@ -214,6 +227,7 @@ export const REDIS_TTL = {
   RATE_LIMIT_CONNECT: 60, // 1 minute
   RATE_LIMIT_MESSAGE: 10, // 10 seconds
   SESSION: 86400, // 24 hours
+  CALL_ACTIVE: 3600, // 1 hour max call duration (safety net TTL)
 } as const;
 
 /**
