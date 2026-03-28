@@ -20,7 +20,7 @@ export class FlashcardController {
 
   // Flashcard methods
   @GrpcMethod('FlashcardService', 'CreateFlashcard')
-  async createFlashcard(data: CreateFlashcardDto) {
+  async createFlashcard(data: CreateFlashcardDto & { card_userId: string }) {
     return await this.flashcardService.createFlashcard(data);
   }
 
@@ -53,7 +53,7 @@ export class FlashcardController {
 
   // Flashcard Deck methods
   @GrpcMethod('FlashcardService', 'CreateFlashcardDeck')
-  async createFlashcardDeck(data: CreateFlashcardDeckDto) {
+  async createFlashcardDeck(data: CreateFlashcardDeckDto & { user_id: string }) {
     return await this.flashcardService.createFlashcardDeck(data);
   }
 

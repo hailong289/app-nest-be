@@ -56,10 +56,6 @@ class FlashcardProgressDto {
 }
 
 export class CreateFlashcardDto {
-  @IsNotEmpty({ message: 'ID người dùng không để trống' })
-  @IsString({ message: 'ID người dùng phải là chuỗi' })
-  card_userId: string;
-
   @IsOptional()
   @IsString({ message: 'ID bộ thẻ phải là chuỗi' })
   card_deckId?: string;
@@ -106,6 +102,10 @@ export class CreateFlashcardDto {
 }
 
 export class UpdateFlashcardDto {
+  @IsOptional()
+  @IsString({ message: 'ID flashcard không để trống' })
+  card_id: string;
+
   @IsOptional()
   @IsString({ message: 'ID bộ thẻ phải là chuỗi' })
   card_deckId?: string;
@@ -191,11 +191,10 @@ export class DeleteFlashcardDto {
   card_id: string;
 }
 
-// Flashcard Deck DTOs
 export class CreateFlashcardDeckDto {
-  @IsNotEmpty({ message: 'ID người dùng không để trống' })
+  @IsOptional()
   @IsString({ message: 'ID người dùng phải là chuỗi' })
-  deck_userId: string;
+  deck_userId?: string;
 
   @IsNotEmpty({ message: 'Tên bộ thẻ không để trống' })
   @IsString({ message: 'Tên bộ thẻ phải là chuỗi' })
@@ -278,9 +277,10 @@ export class UpdateFlashcardDeckDto {
   deck_language?: string;
 
   @IsOptional()
-  @IsArray({ message: 'Danh sách ID thẻ phải là mảng' })
-  @IsString({ each: true, message: 'Mỗi ID thẻ phải là chuỗi' })
-  deck_cardIds?: string[];
+  @IsArray({ message: 'Danh sách thẻ phải là mảng' })
+  @ValidateNested({ each: true })
+  @Type(() => UpdateFlashcardDto)
+  flashcards?: UpdateFlashcardDto[];
 }
 
 export class GetFlashcardDeckDto {

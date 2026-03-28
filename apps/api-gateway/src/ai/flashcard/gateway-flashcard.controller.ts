@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
+import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import {
   CreateFlashcardDto,
   DeleteFlashcardDto,
@@ -60,10 +62,13 @@ export class GatewayFlashcardController {
 
   // Flashcard endpoints
   @Post('create')
-  async createFlashcard(@Body() body: CreateFlashcardDto) {
+  async createFlashcard(
+    @Body() body: CreateFlashcardDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.CreateFlashcard.bind(this.flashcardService),
-      body,
+      { ...body, card_userId: req.user._id },
     );
   }
 
@@ -79,19 +84,19 @@ export class GatewayFlashcardController {
   async listFlashcards(
     @Query('page') page: number,
     @Query('limit') limit: number,
-    @Query('userId') userId?: string,
+    @Req() req: AuthenticatedRequest,
     @Query('deckId') deckId?: string,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.ListFlashcards.bind(this.flashcardService),
-      { page, limit, userId, deckId },
+      { page, limit, userId: req.user._id, deckId },
     );
   }
 
   @Patch('update/:card_id')
   async updateFlashcard(
     @Param('card_id') card_id: string,
-    @Body() body: UpdateFlashcardDto,
+    @Body() body: Omit<UpdateFlashcardDto, 'card_id'>,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.UpdateFlashcard.bind(this.flashcardService),
@@ -109,10 +114,13 @@ export class GatewayFlashcardController {
 
   // Flashcard Deck endpoints
   @Post('deck/create')
-  async createFlashcardDeck(@Body() body: CreateFlashcardDeckDto) {
+  async createFlashcardDeck(
+    @Body() body: CreateFlashcardDeckDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.CreateFlashcardDeck.bind(this.flashcardService),
-      body,
+      { ...body, deck_userId: req.user._id },
     );
   }
 
@@ -128,11 +136,11 @@ export class GatewayFlashcardController {
   async listFlashcardDecks(
     @Query('page') page: number,
     @Query('limit') limit: number,
-    @Query('userId') userId?: string,
+    @Req() req: AuthenticatedRequest,
   ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.ListFlashcardDecks.bind(this.flashcardService),
-      { page, limit, userId },
+      { page, limit, userId: req.user._id },
     );
   }
 
