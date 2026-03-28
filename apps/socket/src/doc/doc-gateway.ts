@@ -12,7 +12,7 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src';
-import { REDISKEY } from '@app/constants/RedisKey';
+import { REDISKEY, REDIS_TTL } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from '@app/dto/enum.type';
@@ -170,7 +170,20 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
 
-      await this.redis.sAdd(this.key.USERS_ONLINE, client.userId);
+      await this.redis.sAdd(this.key.USER_ONLINE(client.userId), client.id);
+
+      // Track user online status (String with TTL)
+      await this.redis.setData(
+        this.key.USER_PRESENCE(client.userId),
+        new Date().toISOString(),
+        REDIS_TTL.ONLINE_STATUS + 15,
+      );
+      // Heartbeat Queue
+      await this.redis.zAdd(
+        this.key.USERS_HEARTBEAT,
+        Date.now(),
+        client.userId,
+      );
       // Gắn user info vào socket
       client.user = payload;
 
@@ -215,6 +228,21 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `[DOC-DISCONNECT] User ${client.user?.usr_fullname} (${client.userId}) disconnected`,
       );
       await this.redis.sRem(this.key.USER_ONLINE(client.userId), client.id);
+
+      const checkOnline = await this.redis.sCard(
+        this.key.USER_ONLINE(client.userId),
+      );
+      if (checkOnline == 0) {
+        await this.redis.delKey(this.key.USER_PRESENCE(client.userId));
+        await this.redis.zRem(this.key.USERS_HEARTBEAT, client.userId);
+
+        // Notify system (optional, as ChatGateway usually handles this, but good for completeness)
+        this.io.to('system').emit(socketEvent.STATUS, {
+          id: client.userId,
+          isOnline: false,
+          lastSeen: new Date(),
+        });
+      }
     }
   }
   private async getUser(@ConnectedSocket() client: SocketWithUser) {

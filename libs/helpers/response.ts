@@ -8,11 +8,11 @@ class Response {
     if (typeof value === 'object') {
       return Object.keys(value).reduce((acc: any, key: string) => {
         const safeKey = key.includes('-') ? key.replace(/-/g, '_') : key;
-        acc[safeKey] = this.sanitizeKeys((value as any)[key]);
+        acc[safeKey] = this.sanitizeKeys(value[key]);
         if (safeKey !== key) {
           // Minimal log for debugging — avoids bringing in logger dependency
           // in this small helper.
-          // eslint-disable-next-line no-console
+
           console.warn(
             `Response.sanitizeKeys: renamed metadata key '${key}' -> '${safeKey}'`,
           );

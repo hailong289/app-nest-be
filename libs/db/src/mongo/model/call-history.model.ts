@@ -67,8 +67,8 @@ export class CallHistory {
   room_id: Types.ObjectId; // ID phòng gọi
 
   // tin nhắn cuộc gọi
-  @Prop({ type: Types.ObjectId, ref: 'Message', default: null })
-  message_id: Types.ObjectId | null; // ID tin nhắn cuộc gọi
+  @Prop({ type: Types.ObjectId, ref: 'Message', required: true })
+  message_id: Types.ObjectId;
 
   @Prop({
     type: [Member],
@@ -83,6 +83,13 @@ export class CallHistory {
     required: true,
   })
   call_type: CallType; // Loại cuộc gọi
+
+  @Prop({
+    type: String,
+    enum: ['p2p', 'sfu'],
+    default: 'p2p',
+  })
+  call_mode: 'p2p' | 'sfu'; // P2P (1-1) or SFU (group/channel)
 
   @Prop({ type: Date, default: Date.now, required: true })
   started_at: Date; // Thời gian bắt đầu cuộc gọi

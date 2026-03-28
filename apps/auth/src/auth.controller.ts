@@ -26,9 +26,9 @@ export class AuthController {
   }
 
   @GrpcMethod('AuthService', 'Logout')
-  async logout(data: { userId: string; jti: string }) {
+  async logout(data: { userId: string; jti: string; fcmToken?: string }) {
     console.log('Logout gRPC data:', data);
-    return await this.authService.logout(data.userId, data.jti);
+    return await this.authService.logout(data.userId, data.jti, data.fcmToken);
   }
 
   @GrpcMethod('AuthService', 'RefreshToken')

@@ -14,8 +14,6 @@ async function bootstrap() {
 
   const HOST = configService.get<string>('HOST') || '0.0.0.0';
   const PORT = configService.get<number>('PORT') || 5004;
-  const PROTO_PATH =
-    configService.get<string>('PROTO_URL') || 'libs/grpc/ai.proto';
 
   app.useGlobalFilters(new HttpExceptionsFilter());
 
@@ -30,6 +28,13 @@ async function bootstrap() {
       loader: {
         keepCase: true, // 👈 BẮT BUỘC PHẢI CÓ Ở ĐÂY NỮA!
         includeDirs: [join(process.cwd(), 'libs/grpc')],
+      },
+      channelOptions: {
+        'grpc.keepalive_time_ms': 10000,
+        'grpc.keepalive_timeout_ms': 5000,
+        'grpc.keepalive_permit_without_calls': 1,
+        'grpc.http2.min_time_between_pings_ms': 10000,
+        'grpc.http2.min_ping_interval_without_data_ms': 5000,
       },
     },
   });

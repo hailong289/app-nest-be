@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { DocWebSocketModule } from './doc/doc.module';
 import { ChatWebSocketModule } from './chat/chat.module';
+import { CallWebSocketModule } from './call/call.module';
 import { WsSharedModule } from 'libs/ws/src/ws.module';
 import { ConfigModule } from '@nestjs/config';
 import redisConfig from 'libs/db/src/config/redis.config';
 import path from 'path';
 import { JwtModule } from '@nestjs/jwt';
+import { SharedBullModule } from 'libs/db/src';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -18,8 +21,11 @@ import { JwtModule } from '@nestjs/jwt';
       load: [redisConfig],
     }),
     JwtModule.register({}),
+    SharedBullModule.registerAsync(),
+    ScheduleModule.forRoot(),
     WsSharedModule,
     ChatWebSocketModule,
+    CallWebSocketModule,
     DocWebSocketModule,
   ],
 })

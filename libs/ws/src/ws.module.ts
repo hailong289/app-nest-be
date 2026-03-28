@@ -11,7 +11,7 @@ import { JwtModule } from '@nestjs/jwt';
 @Module({
   imports: [ConfigModule, RedisModule, JwtModule],
   providers: [Logger, WsJwtGuard],
-  exports: [RedisModule, WsJwtGuard],
+  exports: [RedisModule, WsJwtGuard, ConfigModule, JwtModule],
 })
 export class WsSharedModule {}
 

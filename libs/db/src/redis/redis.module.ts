@@ -17,6 +17,9 @@ import { RedisService } from './redis.service';
         if (!redisOptions) {
           throw new Error('Redis configuration "redis" is missing');
         }
+        logger.log(
+          `Connecting to Redis at ${redisOptions.host}:${redisOptions.port}`,
+        );
         const client = new Redis({
           host: redisOptions.host,
           port: redisOptions.port,
