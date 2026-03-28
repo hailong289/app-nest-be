@@ -27,7 +27,7 @@ import { QuizzService } from './quizz/quizz.service';
 import { FlashcardController } from './flashcard/flashcard.controller';
 import { FlashcardService } from './flashcard/flashcard.service';
 import FlashcardSchema from 'libs/db/src/mongo/model/flashcard.model';
-import { flashcardDeckModel } from 'libs/db/src/mongo/model/flashcard.model';
+import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/model/flashcard.model';
 
 @Module({
   imports: [
@@ -50,6 +50,7 @@ import { flashcardDeckModel } from 'libs/db/src/mongo/model/flashcard.model';
       MessageSchema,
       FlashcardSchema,
       flashcardDeckModel,
+      flashcardProgressModel,
     ]),
   ],
   controllers: [AIController, QuizzController, FlashcardController],

@@ -314,3 +314,54 @@ export class DeleteFlashcardDeckDto {
   @IsString({ message: 'ID bộ thẻ phải là chuỗi' })
   deck_id: string;
 }
+
+export class UpdateFlashcardProgressDto {
+  @IsOptional()
+  @IsNumber({}, { message: 'Mức độ thành thạo phải là số' })
+  @Min(0)
+  @Max(100)
+  mastery_level?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lần ôn tập phải là số' })
+  @Min(0)
+  review_count?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lần trả lời đúng phải là số' })
+  @Min(0)
+  correct_count?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lần trả lời sai phải là số' })
+  @Min(0)
+  incorrect_count?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'Đã thành thạo phải là boolean' })
+  is_mastered?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: 'Đã đánh dấu yêu thích phải là boolean' })
+  is_favorite?: boolean;
+
+  @IsOptional()
+  @IsEnum(['new', 'learning', 'review', 'mastered'], {
+    message: 'Trạng thái không hợp lệ',
+  })
+  status?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Ngày ôn tập tiếp theo phải là chuỗi' })
+  next_review?: string;
+}
+
+export class GetFlashcardProgressDto {
+  @IsNotEmpty({ message: 'ID flashcard không để trống' })
+  @IsString({ message: 'ID flashcard phải là chuỗi' })
+  card_id: string;
+
+  @IsNotEmpty({ message: 'ID người dùng không để trống' })
+  @IsString({ message: 'ID người dùng phải là chuỗi' })
+  user_id: string;
+}

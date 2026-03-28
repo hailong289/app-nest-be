@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import {
   Flashcard,
   FlashcardDeck,
+  FlashcardProgress,
 } from 'libs/db/src/mongo/model/flashcard.model';
 import { Model, Types } from 'mongoose';
 import {
@@ -20,6 +21,8 @@ export class FlashcardService {
     private readonly flashcardModel: Model<Flashcard>,
     @InjectModel(FlashcardDeck.name)
     private readonly flashcardDeckModel: Model<FlashcardDeck>,
+    @InjectModel(FlashcardProgress.name)
+    private readonly flashcardProgressModel: Model<FlashcardProgress>,
   ) {}
 
   // Flashcard methods
@@ -139,12 +142,73 @@ export class FlashcardService {
     }
   }
 
-  async getFlashcardDeckById(deck_id: string) {
-    const deck = await this.flashcardDeckModel.findOne({ deck_id });
+  async getFlashcardDeckById(deck_id: string, userId?: string) {
+    const deck = await this.flashcardDeckModel.findOne({ deck_id }).lean();
     if (!deck) {
       return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
     }
-    return Response.success(deck);
+
+    const { total_cards, progress } = await this.getDeckProgressStats(
+      deck._id,
+      userId,
+    );
+
+    return Response.success({
+      ...deck,
+      total_cards,
+      progress,
+    });
+  }
+
+  private async getDeckProgressStats(deckObjectId: Types.ObjectId, userId?: string) {
+    const flashcards = await this.flashcardModel
+      .find({ card_deckId: deckObjectId })
+      .lean();
+
+    const total_cards = flashcards.length;
+    let new_cards = 0;
+    let learning_cards = 0;
+    let review_cards = 0;
+    let mastered_cards = 0;
+
+    if (userId) {
+      const cardIds = flashcards.map((c: any) => c.card_id);
+      const progresses = await this.flashcardProgressModel
+        .find({ user_id: userId, card_id: { $in: cardIds } })
+        .lean();
+
+      const progressMap = new Map(
+        progresses.map((p: any) => [p.card_id, p]),
+      );
+
+      flashcards.forEach((card: any) => {
+        const progress = progressMap.get(card.card_id);
+        if (!progress || progress.status === 'new') {
+          new_cards++;
+        } else if (progress.status === 'mastered' || progress.is_mastered) {
+          mastered_cards++;
+        } else if (progress.status === 'review') {
+          review_cards++;
+        } else if (progress.status === 'learning') {
+          learning_cards++;
+        } else {
+          new_cards++;
+        }
+      });
+    } else {
+      new_cards = total_cards;
+    }
+
+    return {
+      total_cards,
+      progress: {
+        new_cards,
+        learning_cards,
+        review_cards,
+        mastered_cards,
+        total_cards,
+      },
+    };
   }
 
   async listFlashcardDecks(page: number, limit: number, userId?: string) {
@@ -163,46 +227,15 @@ export class FlashcardService {
 
       const enhancedDecks = await Promise.all(
         decks.map(async (deck) => {
-          const flashcards = await this.flashcardModel
-            .find({ card_deckId: deck._id })
-            .lean();
-
-          const total_cards = flashcards.length;
-          let new_cards = total_cards;
-          let learning_cards = 0;
-          let review_cards = 0;
-          let mastered_cards = 0;
-
-          if (userId) {
-            flashcards.forEach((card: any) => {
-              const progress = card.card_progress?.find(
-                (p: any) => p.user_id.toString() === userId,
-              );
-              if (progress) {
-                new_cards--;
-                if (progress.status === 'mastered' || progress.is_mastered) {
-                  mastered_cards++;
-                } else if (progress.status === 'review') {
-                  review_cards++;
-                } else if (progress.status === 'learning') {
-                  learning_cards++;
-                } else {
-                  new_cards++;
-                }
-              }
-            });
-          }
+          const { total_cards, progress } = await this.getDeckProgressStats(
+            deck._id,
+            userId,
+          );
 
           return {
             ...deck,
             total_cards,
-            progress: {
-              new_cards,
-              learning_cards,
-              review_cards,
-              mastered_cards,
-              total_cards,
-            },
+            progress,
           };
         }),
       );
@@ -283,5 +316,61 @@ export class FlashcardService {
       return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
     }
     return Response.success(deck);
+  }
+
+  // FlashcardProgress methods
+  async updateFlashcardProgress(
+    card_id: string,
+    user_id: string,
+    data: Record<string, any>,
+  ) {
+    try {
+      const updateData: Record<string, any> = {};
+      const allowedFields = [
+        'mastery_level', 'review_count', 'correct_count', 'incorrect_count',
+        'is_mastered', 'is_favorite', 'status', 'next_review',
+      ];
+      for (const field of allowedFields) {
+        if (data[field] !== undefined) {
+          updateData[field] = data[field];
+        }
+      }
+      updateData.last_reviewed = new Date();
+
+      const progress = await this.flashcardProgressModel.findOneAndUpdate(
+        { card_id, user_id },
+        { $set: updateData },
+        { new: true, upsert: true },
+      );
+      return Response.success(progress);
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
+  }
+
+  async getFlashcardProgress(card_id: string, user_id: string) {
+    try {
+      const progress = await this.flashcardProgressModel.findOne({
+        card_id,
+        user_id,
+      });
+      if (!progress) {
+        // Return default "new" state if no record yet
+        return Response.success({
+          card_id,
+          user_id,
+          status: 'new',
+          mastery_level: 0,
+          review_count: 0,
+          correct_count: 0,
+          incorrect_count: 0,
+          is_mastered: false,
+          is_favorite: false,
+        });
+      }
+      return Response.success(progress);
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
   }
 }

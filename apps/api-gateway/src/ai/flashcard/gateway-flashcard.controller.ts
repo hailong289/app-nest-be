@@ -24,6 +24,7 @@ import {
   GetFlashcardDeckDto,
   ListFlashcardDecksDto,
   UpdateFlashcardDeckDto,
+  UpdateFlashcardProgressDto,
 } from 'apps/ai/src/flashcard/dto/flashcard.dto';
 import { Observable } from 'rxjs';
 import { GatewayService } from '../../gateway/gateway.service';
@@ -39,13 +40,19 @@ interface FlashcardGrpcService {
     data: DeleteFlashcardDto & { card_id: string },
   ): Observable<any>;
   CreateFlashcardDeck(data: CreateFlashcardDeckDto): Observable<any>;
-  GetFlashcardDeck(data: GetFlashcardDeckDto): Observable<any>;
+  GetFlashcardDeck(data: GetFlashcardDeckDto & { userId?: string }): Observable<any>;
   ListFlashcardDecks(data: ListFlashcardDecksDto): Observable<any>;
   UpdateFlashcardDeck(
     data: UpdateFlashcardDeckDto & { deck_id: string },
   ): Observable<any>;
   DeleteFlashcardDeck(
     data: DeleteFlashcardDeckDto & { deck_id: string },
+  ): Observable<any>;
+  UpdateFlashcardProgress(
+    data: UpdateFlashcardProgressDto & { card_id: string; user_id: string },
+  ): Observable<any>;
+  GetFlashcardProgress(
+    data: { card_id: string; user_id: string },
   ): Observable<any>;
 }
 
@@ -125,10 +132,13 @@ export class GatewayFlashcardController {
   }
 
   @Get('deck/get/:deck_id')
-  async getFlashcardDeck(@Param('deck_id') deck_id: string) {
+  async getFlashcardDeck(
+    @Param('deck_id') deck_id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.GetFlashcardDeck.bind(this.flashcardService),
-      { deck_id },
+      { deck_id, userId: req.user?._id },
     );
   }
 
@@ -160,6 +170,30 @@ export class GatewayFlashcardController {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.DeleteFlashcardDeck.bind(this.flashcardService),
       { deck_id },
+    );
+  }
+
+  // FlashcardProgress endpoints
+  @Patch('progress/:card_id')
+  async updateFlashcardProgress(
+    @Param('card_id') card_id: string,
+    @Body() body: UpdateFlashcardProgressDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.flashcardService.UpdateFlashcardProgress.bind(this.flashcardService),
+      { card_id, user_id: req.user._id, ...body },
+    );
+  }
+
+  @Get('progress/:card_id')
+  async getFlashcardProgress(
+    @Param('card_id') card_id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.flashcardService.GetFlashcardProgress.bind(this.flashcardService),
+      { card_id, user_id: req.user._id },
     );
   }
 }
