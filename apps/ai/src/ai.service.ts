@@ -78,7 +78,7 @@ export class AIService {
 
   async generateFlashcard(
     topic: string,
-    type: 'text' | 'document',
+    type: 'text' | 'document' | 'file_url',
     card_count: number,
     difficulty: number,
     language: string,

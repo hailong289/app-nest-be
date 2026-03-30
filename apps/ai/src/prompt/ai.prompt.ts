@@ -67,11 +67,17 @@ export const translationPrompt = (text: string, from: string, to: string) => {
 
 export const generateFlashcardPrompt = (
   topic: string,
-  type: 'text' | 'document',
+  type: 'text' | 'document' | 'file_url',
   card_count: number,
   difficulty: number,
   language: string,
 ) => {
+  const inputData =
+    type === 'text'
+      ? `"""\n${topic}\n"""`
+      : type === 'file_url'
+        ? `Trang web hoặc tài liệu: ${topic}. Hãy phân tích nội dung trang web hoặc tài liệu đó để tạo flashcard.`
+        : '[Hệ thống sẽ cung cấp file đính kèm, hãy phân tích file đó để tạo flashcard]';
   return `
 Role: Bạn là một chuyên gia giáo dục và thiết kế thẻ học (flashcard) thông minh.
 Nhiệm vụ: Dựa vào nội dung đầu vào, tạo ra ${card_count} flashcard chất lượng cao và trả về kết quả dưới định dạng **Raw JSON**.
@@ -110,7 +116,7 @@ Chỉ trả về JSON, không Markdown, không giải thích thêm.
 }
 
 **4. Dữ liệu đầu vào để phân tích:**
-${type === 'text' ? `"""\n${topic}\n"""` : '[Hệ thống sẽ cung cấp file đính kèm, hãy phân tích file đó để tạo flashcard]'}
+${inputData}
   `;
 };
 

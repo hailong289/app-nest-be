@@ -159,8 +159,8 @@ export class AIController {
   async generateFlashcard(data: {
     /** Chủ đề hoặc nội dung văn bản để tạo flashcard (dùng khi type = 'text') */
     topic: string;
-    /** Nguồn dữ liệu: 'text' hoặc 'document' (file đính kèm) */
-    type: 'text' | 'document';
+    /** Nguồn dữ liệu: 'text', 'document' (file đính kèm), hoặc 'file_url' */
+    type: 'text' | 'document' | 'file_url';
     /** Số lượng flashcard cần tạo */
     card_count: number;
     /** Độ khó (1 = dễ nhất, 5 = khó nhất) */

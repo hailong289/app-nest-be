@@ -169,9 +169,8 @@ export class GatewayAiController {
   @UseInterceptors(FileInterceptor('file'))
   async generateFlashcard(
     @UploadedFile() file: MulterFile,
-    @Body() body: any,
+    @Body() body: GenerateFlashcardDto,
   ) {
-    console.log('GenerateFlashcard request:', { file, body });
     return this.gatewayService.dispatchGrpcRequest(
       (data: GenerateFlashcardDto & { file?: MulterFile }) =>
         this.aiService.generateFlashcard({
