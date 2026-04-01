@@ -7,7 +7,7 @@ jobs:
   deploy:
     name: Deploy AI to Cloud Run
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: AI_SERVICE
     steps:
       - uses: actions/checkout@v3
@@ -32,7 +32,7 @@ jobs:
           service: ai-service
           image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest
           region: asia-southeast1
-          flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=512Mi --port=8080 --timeout=60s --use-http2'
+          flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=1Gi --port=8080 --timeout=60s --use-http2'
           env_vars: |-
             NODE_ENV=${{ secrets.NODE_ENV }}
             HOST=${{ secrets.HOST }}
