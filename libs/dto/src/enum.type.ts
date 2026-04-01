@@ -18,6 +18,7 @@ export enum socketEvent {
   MSGMARKREAD = 'mark:read',
   QUIZZANSWER = 'quizz:answer',
   UPDATE_QUIZ = 'update:quiz',
+  ROOM_REFRESH = 'room:refresh',
 }
 
 export enum notifyType {
@@ -25,6 +26,7 @@ export enum notifyType {
 }
 
 export enum KafkaEvent {
+  ROOM_UPDATED = 'room.updated',
   // File System
   UPLOAD_SINGLE = 'upload_single_file',
   UPLOAD_SINGLE_REPLY = 'upload_single_file.reply',

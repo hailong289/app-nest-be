@@ -94,7 +94,6 @@ export class RequestCallDto {
   membersIds: string[];
   roomId: string;
   callType: CallType;
-  messageId: string;
 }
 
 export class AcceptCallDto {

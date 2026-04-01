@@ -5,7 +5,13 @@ import {
   UpdateProfileDto,
   SearchUserDto,
 } from '@app/dto';
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  UnauthorizedException,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Response } from 'libs/helpers/response';
@@ -20,9 +26,11 @@ import { RedisService } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly gatewayUrl = process.env.GATEWAY_URL;
   private readonly key = REDISKEY;
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectModel(Userschema.name) private readonly userModel: Model<User>,
     @InjectModel('Key') private readonly keyModel: Model<Key>,
@@ -30,6 +38,37 @@ export class AuthService {
     private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
   ) {}
+
+  async onModuleInit() {
+    this.logger.log('Syncing FCM tokens to Redis...');
+    try {
+      const keysWithTokens = await this.keyModel
+        .find({
+          tkn_fcmToken: { $exists: true, $not: { $size: 0 } },
+        })
+        .exec();
+
+      let count = 0;
+      for (const keyDoc of keysWithTokens) {
+        if (
+          keyDoc.tkn_userId &&
+          keyDoc.tkn_fcmToken &&
+          keyDoc.tkn_fcmToken.length > 0
+        ) {
+          const userId = keyDoc.tkn_userId.toString();
+          // Store tokens in Redis Set
+          await this.redis.sAdd(
+            this.key.USER_FCM_TOKENS(userId),
+            ...keyDoc.tkn_fcmToken,
+          );
+          count++;
+        }
+      }
+      this.logger.log(`Synced FCM tokens for ${count} users.`);
+    } catch (error) {
+      this.logger.error('Failed to sync FCM tokens:', error);
+    }
+  }
 
   async login(loginDto: LoginDto) {
     const user = await this.userModel
@@ -408,7 +447,7 @@ export class AuthService {
     return Response.success(null, 'Cập nhật thông tin thành công');
   }
 
-  async logout(userId: string, jti: string) {
+  async logout(userId: string, jti: string, fcmToken?: string) {
     try {
       if (jti) {
         // Remove from Redis
@@ -419,6 +458,17 @@ export class AuthService {
           { tkn_userId: Utils.convertToObjectIdMongoose(userId) },
           { $addToSet: { tkn_jit: jti } },
           { upsert: true },
+        );
+      }
+
+      if (fcmToken) {
+        // Remove FCM token from Redis
+        await this.redis.sRem(this.key.USER_FCM_TOKENS(userId), fcmToken);
+
+        // Remove FCM token from DB
+        await this.keyModel.findOneAndUpdate(
+          { tkn_userId: Utils.convertToObjectIdMongoose(userId) },
+          { $pull: { tkn_fcmToken: fcmToken } },
         );
       }
 

@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { Response } from '@app/helpers/response';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, PipelineStage } from 'mongoose';
+import { Model, PipelineStage, Types } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
@@ -37,6 +37,8 @@ import {
   EventRoomType,
   RoomsUsersState,
 } from 'libs/db/src';
+import type { Queue } from 'bull';
+import { InjectQueue } from '@nestjs/bull';
 
 @Injectable()
 export class RoomsService {
@@ -50,7 +52,68 @@ export class RoomsService {
     private readonly redis: RedisService,
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
+    @InjectQueue('room_updates') private readonly queue: Queue,
   ) {}
+
+  async onModuleInit() {
+    await this.syncAllUserRoomsToRedis();
+  }
+
+  /**
+   * Đồng bộ lại tất cả các phòng của user vào Redis khi khởi động service.
+   * Điều này đảm bảo tính nhất quán dữ liệu cho tính năng 'tham gia phòng mặc định'.
+   */
+  async syncAllUserRoomsToRedis() {
+    this.log.log('🔄 Bắt đầu đồng bộ User Rooms từ DB sang Redis...');
+    try {
+      interface UserRoomsAgg {
+        _id: Types.ObjectId;
+        rooms: string[];
+      }
+
+      // 1. Group tất cả Rooms theo thành viên để lấy danh sách room_id (custom string)
+      const cursor = this.roomModel
+        .aggregate<UserRoomsAgg>([
+          { $unwind: '$room_members' },
+          {
+            $group: {
+              _id: '$room_members.user_id',
+              rooms: { $push: '$room_id' },
+            },
+          },
+        ])
+        .cursor();
+
+      let count = 0;
+      // 2. Duyệt qua từng user và push vào Redis
+      for await (const uDoc of cursor) {
+        const doc = uDoc as UserRoomsAgg;
+        if (doc._id && doc.rooms && doc.rooms.length > 0) {
+          const userId = doc._id.toString();
+          // doc.rooms lúc này là mảng các room_id (string)
+          const roomIds: string[] = doc.rooms;
+          const key = this.key.USER_ROOMS(userId);
+
+          // Xóa set cũ để đảm bảo sạch sẽ
+          await this.redis.delKey(key);
+          await this.redis.sAdd(key, ...roomIds);
+          count++;
+        }
+      }
+      this.log.log(`✅ Đồng bộ hoàn tất: Đã update rooms cho ${count} users.`);
+    } catch (error) {
+      this.log.error('❌ Lỗi khi đồng bộ User Rooms:', error);
+    }
+  }
+
+  async emitRoomUpdate(roomId: string) {
+    try {
+      await this.queue.add('refresh', { roomId });
+      this.log.log(`[BULL] Added refresh job for room ${roomId}`);
+    } catch (error) {
+      this.log.error(`Failed to add job to queue: ${error}`);
+    }
+  }
   // handlog not public api
   async writeLogRoom(CreateRoomEvent: CreateRoomEvent) {
     return this.roomEvent.create(CreateRoomEvent);
@@ -1008,7 +1071,7 @@ export class RoomsService {
   ): boolean {
     // ioredis thường trả 0/1; một số wrapper có thể trả boolean
     // cũng xử lý luôn trường hợp string "0"/"1"
-    // eslint-disable-next-line eqeqeq
+
     return v == 1 || v === true || v === '1';
   }
 
@@ -1131,6 +1194,7 @@ export class RoomsService {
         } as CreateRoomEvent);
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        this.emitRoomUpdate(roomId);
         return Response.success('', 'Đã rời khỏi nhóm');
       }
 
@@ -1156,6 +1220,7 @@ export class RoomsService {
         } as CreateRoomEvent);
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        this.emitRoomUpdate(roomId);
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const candidates = members
@@ -1216,6 +1281,8 @@ export class RoomsService {
           userId: promoteTarget.user_id,
         },
       } as CreateRoomEvent);
+
+      this.emitRoomUpdate(roomId);
       return Response.success({ members: members, roomId }, 'Đã rời khỏi nhóm');
     } catch (err) {
       this.log.error(err);
@@ -1306,6 +1373,7 @@ export class RoomsService {
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
+    this.emitRoomUpdate(roomId);
     return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
@@ -1402,6 +1470,7 @@ export class RoomsService {
     );
     await Promise.all([...PromiseAll, ...addmb, ...addroom, ...newlog]);
 
+    this.emitRoomUpdate(roomId);
     return Response.success(
       { members: roomMember, roomId },
       'Đã thêm thành công',
@@ -1498,6 +1567,7 @@ export class RoomsService {
       targets: roominfo?.room_members.map((m) => m.user_id),
       placeholder: `${userinfor.name} đã cập nhật ảnh đại diện`,
     } as CreateRoomEvent);
+    this.emitRoomUpdate(roomId);
     return Response.success(
       { members: roominfo?.room_members, roomId },
       'đã thay đổi ảnh thành công',
@@ -1547,6 +1617,8 @@ export class RoomsService {
       placeholder: `${userinfo?.name} đã đổi tên nhóm`,
       targets: room.room_members.map((m) => m.user_id),
     } as CreateRoomEvent);
+
+    this.emitRoomUpdate(roomId);
     return Response.success(
       { members: room.room_members, roomId },
       'Đổi tên thành công',
@@ -1672,6 +1744,7 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     } as CreateRoomEvent);
+    this.emitRoomUpdate(roomUpdate.room_id);
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi tên thành công',
@@ -1750,6 +1823,7 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     } as CreateRoomEvent);
+    this.emitRoomUpdate(roomUpdate.room_id);
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi quyền thành công',

@@ -81,10 +81,9 @@ message RoomResponse {
   string name = 2;
   string avatar = 3;
   string type = 4;
-  repeated members members = 5;
+  repeated members room_members = 5;
   string lastMessage = 6;
   string room_id = 7;
-  
 }
 
 message members {
@@ -482,7 +481,6 @@ message RequestCallInput{
   repeated string membersIds = 2;
   string roomId = 3;
   string callType = 4;
-  string messageId = 5;
 }
 
 message AcceptCallInput{
@@ -510,12 +508,14 @@ message outputCall {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   CallMetadata metadata = 4;
+  
 }
 
 message CallMetadata {
   CallHistory history = 1;      
   RoomResponse room = 2;         
-  string callType = 3;     
+  string callType = 3;  
+  MessageCore msg=4;   
 }
 
 message Member {

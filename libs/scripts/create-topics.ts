@@ -1,5 +1,5 @@
 // scripts/create-topics.ts
-import { topic } from 'libs/kafka/kafka.topic';
+import { topics } from 'libs/kafka/kafka.topic';
 import { Kafka } from 'kafkajs';
 
 async function main() {
@@ -31,7 +31,7 @@ async function main() {
 
     const admin = kafka.admin();
 
-    const topicsToCreate = topic;
+    const topicsToCreate = topics;
 
     await admin.createTopics({ topics: topicsToCreate });
     console.log('✅ Kafka topics provisioned successfully');

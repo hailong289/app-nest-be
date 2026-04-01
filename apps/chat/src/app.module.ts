@@ -5,7 +5,12 @@ import { HandleChatModule } from './handle-chat/handle-chat.module';
 import path from 'node:path';
 import { SocialModule } from './social/social.module';
 import redisConfig from 'libs/db/src/config/redis.config';
-import { mongoConfig, MongodbModule, RedisModule } from 'libs/db/src';
+import {
+  mongoConfig,
+  MongodbModule,
+  RedisModule,
+  SharedBullModule,
+} from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 
@@ -22,6 +27,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
     KafkaAdminModule,
     MongodbModule,
     RedisModule,
+    SharedBullModule.registerAsync(),
     RoomsModule,
     HandleChatModule,
     forwardRef(() => SocialModule),

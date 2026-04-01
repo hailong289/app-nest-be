@@ -11,7 +11,9 @@ export type MsgType =
   | 'audio'
   | 'gif'
   | 'document'
-  | 'quiz';
+  | 'quiz'
+  | 'call';
+
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {
   @Prop({ type: Types.ObjectId, ref: 'Room', required: true, index: true })

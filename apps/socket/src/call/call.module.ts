@@ -1,17 +1,16 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule } from '@nestjs/config';
-import { ChatGateway } from './chat-gateway';
-import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { SERVICES } from '@app/constants';
+import { join } from 'node:path';
 import * as grpc from '@grpc/grpc-js';
-import { ChatConsumer } from './chat.consumer';
-import { SharedBullModule } from 'libs/db/src';
-import { OnlineStatusTask } from '../tasks/online-status.task';
+import { SERVICES } from '@app/constants';
+import { CallGateway } from './call.gateway';
+import { SfuModule } from '@app/sfu';
+import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
+    SfuModule,
     ConfigModule, // WsJwtGuard cần ConfigService
     JwtModule.register({}), // WsJwtGuard cần JwtService
     ClientsModule.register([
@@ -47,10 +46,8 @@ import { OnlineStatusTask } from '../tasks/online-status.task';
         },
       },
     ]),
-    SharedBullModule.registerQueue('room_updates'),
   ],
-  controllers: [],
-  providers: [ChatGateway, ChatConsumer, OnlineStatusTask],
-  exports: [ChatGateway],
+  providers: [CallGateway],
+  exports: [CallGateway],
 })
-export class ChatWebSocketModule {}
+export class CallWebSocketModule {}

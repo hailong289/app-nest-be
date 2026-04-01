@@ -45,8 +45,6 @@ interface FileSystemService {
 export class GatewayFilesystemController implements OnModuleInit {
   private filesystemService: FileSystemService;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-
   constructor(
     @Inject(SERVICES.FILESYSTEM) private readonly filesystemClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
