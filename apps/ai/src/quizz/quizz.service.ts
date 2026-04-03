@@ -114,7 +114,9 @@ export class QuizzService {
   async getQuizzResults(quiz_id: string) {
     // Hỗ trợ cả MongoDB _id (24-char hex) lẫn business quiz_id (ULID)
     const isObjectId = Types.ObjectId.isValid(quiz_id) && quiz_id.length === 24;
-    const filter = isObjectId ? { _id: new Types.ObjectId(quiz_id) } : { quiz_id };
+    const filter = isObjectId
+      ? { _id: new Types.ObjectId(quiz_id) }
+      : { quiz_id };
     const quiz = await this.quizModel.findOne(filter).lean();
     if (!quiz) {
       return Response.error('Quiz not found', 404, 'NOT_FOUND');
@@ -178,7 +180,7 @@ export class QuizzService {
         return Response.error('Quiz not found', 404, 'NOT_FOUND');
       }
       if (quiz.quiz_status !== 'active') {
-        return Response.error('Quiz is not active', 400, 'BAD_REQUEST');
+        return Response.error('Quiz chưa được kích hoạt', 400, 'BAD_REQUEST');
       }
 
       const userId = new Types.ObjectId(answer.userId);
@@ -256,7 +258,9 @@ export class QuizzService {
         max_score: maxScore,
         correct_count: correctCount,
         total_questions: totalQuestions,
-        started_at: answer.started_at ? new Date(answer.started_at) : new Date(),
+        started_at: answer.started_at
+          ? new Date(answer.started_at)
+          : new Date(),
         completed_at: new Date(),
         time_taken: answer.time_taken ?? 0,
         is_completed: true,
