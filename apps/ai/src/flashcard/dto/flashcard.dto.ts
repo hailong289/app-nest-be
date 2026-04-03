@@ -9,8 +9,10 @@ import {
   IsUrl,
   Min,
   Max,
+  ValidateNested,
 } from 'class-validator';
 import { MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
 
 class FlashcardProgressDto {
   @IsNotEmpty({ message: 'ID người dùng không để trống' })
@@ -54,10 +56,6 @@ class FlashcardProgressDto {
 }
 
 export class CreateFlashcardDto {
-  @IsNotEmpty({ message: 'ID người dùng không để trống' })
-  @IsString({ message: 'ID người dùng phải là chuỗi' })
-  card_userId: string;
-
   @IsOptional()
   @IsString({ message: 'ID bộ thẻ phải là chuỗi' })
   card_deckId?: string;
@@ -104,6 +102,10 @@ export class CreateFlashcardDto {
 }
 
 export class UpdateFlashcardDto {
+  @IsOptional()
+  @IsString({ message: 'ID flashcard không để trống' })
+  card_id: string;
+
   @IsOptional()
   @IsString({ message: 'ID bộ thẻ phải là chuỗi' })
   card_deckId?: string;
@@ -189,11 +191,10 @@ export class DeleteFlashcardDto {
   card_id: string;
 }
 
-// Flashcard Deck DTOs
 export class CreateFlashcardDeckDto {
-  @IsNotEmpty({ message: 'ID người dùng không để trống' })
+  @IsOptional()
   @IsString({ message: 'ID người dùng phải là chuỗi' })
-  deck_userId: string;
+  deck_userId?: string;
 
   @IsNotEmpty({ message: 'Tên bộ thẻ không để trống' })
   @IsString({ message: 'Tên bộ thẻ phải là chuỗi' })
@@ -228,6 +229,12 @@ export class CreateFlashcardDeckDto {
   @IsOptional()
   @IsString({ message: 'Ngôn ngữ phải là chuỗi' })
   deck_language?: string;
+
+  @IsOptional()
+  @IsArray({ message: 'Danh sách thẻ phải là mảng' })
+  @ValidateNested({ each: true })
+  @Type(() => CreateFlashcardDto)
+  flashcards?: CreateFlashcardDto[];
 }
 
 export class UpdateFlashcardDeckDto {
@@ -270,9 +277,10 @@ export class UpdateFlashcardDeckDto {
   deck_language?: string;
 
   @IsOptional()
-  @IsArray({ message: 'Danh sách ID thẻ phải là mảng' })
-  @IsString({ each: true, message: 'Mỗi ID thẻ phải là chuỗi' })
-  deck_cardIds?: string[];
+  @IsArray({ message: 'Danh sách thẻ phải là mảng' })
+  @ValidateNested({ each: true })
+  @Type(() => UpdateFlashcardDto)
+  flashcards?: UpdateFlashcardDto[];
 }
 
 export class GetFlashcardDeckDto {
@@ -305,4 +313,55 @@ export class DeleteFlashcardDeckDto {
   @IsNotEmpty({ message: 'ID bộ thẻ không để trống' })
   @IsString({ message: 'ID bộ thẻ phải là chuỗi' })
   deck_id: string;
+}
+
+export class UpdateFlashcardProgressDto {
+  @IsOptional()
+  @IsNumber({}, { message: 'Mức độ thành thạo phải là số' })
+  @Min(0)
+  @Max(100)
+  mastery_level?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lần ôn tập phải là số' })
+  @Min(0)
+  review_count?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lần trả lời đúng phải là số' })
+  @Min(0)
+  correct_count?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lần trả lời sai phải là số' })
+  @Min(0)
+  incorrect_count?: number;
+
+  @IsOptional()
+  @IsBoolean({ message: 'Đã thành thạo phải là boolean' })
+  is_mastered?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: 'Đã đánh dấu yêu thích phải là boolean' })
+  is_favorite?: boolean;
+
+  @IsOptional()
+  @IsEnum(['new', 'learning', 'review', 'mastered'], {
+    message: 'Trạng thái không hợp lệ',
+  })
+  status?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Ngày ôn tập tiếp theo phải là chuỗi' })
+  next_review?: string;
+}
+
+export class GetFlashcardProgressDto {
+  @IsNotEmpty({ message: 'ID flashcard không để trống' })
+  @IsString({ message: 'ID flashcard phải là chuỗi' })
+  card_id: string;
+
+  @IsNotEmpty({ message: 'ID người dùng không để trống' })
+  @IsString({ message: 'ID người dùng phải là chuỗi' })
+  user_id: string;
 }

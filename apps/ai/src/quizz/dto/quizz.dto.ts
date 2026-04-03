@@ -141,12 +141,18 @@ export class ListQuizzesDto {
   @IsNotEmpty({ message: 'ID phòng không để trống' })
   @IsString({ message: 'ID phòng phải là chuỗi' })
   roomId: string;
+
+  @IsOptional()
+  @IsString({ message: 'createdBy phải là chuỗi' })
+  createdBy?: string; // MongoDB _id của người tạo
+
   @IsNotEmpty({ message: 'Trang không để trống' })
   @IsNumber(
     { allowNaN: false, allowInfinity: false },
     { message: 'Trang phải là số' },
   )
   page: number = 1;
+
   @IsNotEmpty({ message: 'Số lượng không để trống' })
   @IsNumber(
     { allowNaN: false, allowInfinity: false },
@@ -214,4 +220,89 @@ export class DeleteQuizzDto {
   @IsNotEmpty({ message: 'ID quiz không để trống' })
   @IsString({ message: 'ID quiz phải là chuỗi' })
   quiz_id: string;
+}
+
+export class UserAnswerInputDto {
+  @IsNotEmpty()
+  @IsNumber()
+  question_index: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsNumber({}, { each: true })
+  selected_answer_indices?: number[];
+
+  @IsOptional()
+  @IsString()
+  text_answer?: string;
+
+  // Các field FE gửi lên nhưng server tự tính lại
+  @IsOptional()
+  @IsBoolean()
+  is_correct?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  points_earned?: number;
+
+  @IsOptional()
+  @IsString()
+  answered_at?: string;
+}
+
+export class AnswerSubmitDto {
+  @IsNotEmpty({ message: 'userId không để trống' })
+  @IsString()
+  userId: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UserAnswerInputDto)
+  answers: UserAnswerInputDto[];
+
+  @IsOptional()
+  @IsNumber()
+  time_taken?: number;
+
+  @IsOptional()
+  @IsString()
+  started_at?: string;
+
+  @IsOptional()
+  @IsNumber()
+  total_score?: number;
+
+  @IsOptional()
+  @IsNumber()
+  max_score?: number;
+
+  @IsOptional()
+  @IsNumber()
+  correct_count?: number;
+
+  @IsOptional()
+  @IsNumber()
+  total_questions?: number;
+
+  @IsOptional()
+  @IsString()
+  completed_at?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_completed?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  is_submitted?: boolean;
+}
+
+export class SubmitQuizzDto {
+  @IsNotEmpty({ message: 'ID quiz không để trống' })
+  @IsString()
+  quiz_id: string;
+
+  @ValidateNested()
+  @Type(() => AnswerSubmitDto)
+  answer: AnswerSubmitDto;
 }

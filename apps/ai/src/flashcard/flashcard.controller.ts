@@ -12,6 +12,8 @@ import {
   GetFlashcardDeckDto,
   ListFlashcardDecksDto,
   UpdateFlashcardDeckDto,
+  UpdateFlashcardProgressDto,
+  GetFlashcardProgressDto,
 } from './dto/flashcard.dto';
 
 @Controller()
@@ -20,7 +22,7 @@ export class FlashcardController {
 
   // Flashcard methods
   @GrpcMethod('FlashcardService', 'CreateFlashcard')
-  async createFlashcard(data: CreateFlashcardDto) {
+  async createFlashcard(data: CreateFlashcardDto & { card_userId: string }) {
     return await this.flashcardService.createFlashcard(data);
   }
 
@@ -53,13 +55,13 @@ export class FlashcardController {
 
   // Flashcard Deck methods
   @GrpcMethod('FlashcardService', 'CreateFlashcardDeck')
-  async createFlashcardDeck(data: CreateFlashcardDeckDto) {
+  async createFlashcardDeck(data: CreateFlashcardDeckDto & { user_id: string }) {
     return await this.flashcardService.createFlashcardDeck(data);
   }
 
   @GrpcMethod('FlashcardService', 'GetFlashcardDeck')
-  async getFlashcardDeck(data: GetFlashcardDeckDto) {
-    return await this.flashcardService.getFlashcardDeckById(data.deck_id);
+  async getFlashcardDeck(data: GetFlashcardDeckDto & { userId?: string }) {
+    return await this.flashcardService.getFlashcardDeckById(data.deck_id, data.userId);
   }
 
   @GrpcMethod('FlashcardService', 'ListFlashcardDecks')
@@ -84,5 +86,25 @@ export class FlashcardController {
   @GrpcMethod('FlashcardService', 'DeleteFlashcardDeck')
   async deleteFlashcardDeck(data: DeleteFlashcardDeckDto) {
     return await this.flashcardService.deleteFlashcardDeckById(data.deck_id);
+  }
+
+  // FlashcardProgress methods
+  @GrpcMethod('FlashcardService', 'UpdateFlashcardProgress')
+  async updateFlashcardProgress(
+    data: UpdateFlashcardProgressDto & { card_id: string; user_id: string },
+  ) {
+    return await this.flashcardService.updateFlashcardProgress(
+      data.card_id,
+      data.user_id,
+      data,
+    );
+  }
+
+  @GrpcMethod('FlashcardService', 'GetFlashcardProgress')
+  async getFlashcardProgress(data: GetFlashcardProgressDto) {
+    return await this.flashcardService.getFlashcardProgress(
+      data.card_id,
+      data.user_id,
+    );
   }
 }

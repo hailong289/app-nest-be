@@ -35,6 +35,7 @@ import {
   Attachment,
   User,
   Document,
+  Quiz,
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -85,6 +86,8 @@ export class HandleChatService {
     private readonly userModel: Model<User>,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    @InjectModel(Quiz.name)
+    private readonly quizModel: Model<Quiz>,
   ) {}
 
   async createMessage(payload: CreateMessage) {
@@ -97,6 +100,7 @@ export class HandleChatService {
       replyTo,
       id,
       documentId,
+      quizId,
     } = payload;
 
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
@@ -145,6 +149,8 @@ export class HandleChatService {
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
 
+    console.log('🚀 ~ HandleChatService ~ quizId:', quizId);
+
     const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
@@ -157,6 +163,7 @@ export class HandleChatService {
       document_id: documentId
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
+      quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
     };
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new
@@ -202,6 +209,10 @@ export class HandleChatService {
       }
       case 'gif': {
         contentSnap = 'Đã gửi file gif';
+        break;
+      }
+      case 'quiz': {
+        contentSnap = '[Bài kiểm tra]';
         break;
       }
       default: {

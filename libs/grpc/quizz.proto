@@ -9,6 +9,8 @@ service QuizzService {
     rpc ListQuizzes(ListQuizzesRequest) returns (ListQuizzesResponse);
     rpc UpdateQuizz(UpdateQuizzRequest) returns (UpdateQuizzResponse);
     rpc DeleteQuizz(DeleteQuizzRequest) returns (DeleteQuizzResponse);
+    rpc SubmitQuizz(SubmitQuizzRequest) returns (SubmitQuizzResponse);
+    rpc GetQuizzResults(GetQuizzResultsRequest) returns (GetQuizzResultsResponse);
 }
 
 message CreateQuizzRequest {
@@ -47,16 +49,24 @@ message GetQuizzResponse {
 }
 
 message ListQuizzesRequest {
-    string roomId = 1;
-    int32 page = 2;
-    int32 limit = 3;
+    string roomId    = 1;
+    int32  page      = 2;
+    int32  limit     = 3;
+    string createdBy = 4; // optional: MongoDB _id của người tạo
 }
 
 message ListQuizzesResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    repeated QuizMetadata metadata = 4;
+    ListQuizzesMetadata metadata = 4;
+}
+
+message ListQuizzesMetadata {
+    repeated QuizMetadata data = 1;
+    int64 total_item = 2;
+    int64 total_page = 3;
+    int64 page = 4;
 }
 
 message UpdateQuizzRequest {
@@ -111,7 +121,106 @@ message Answer {
     int32 points = 3;
 }
 
+message UserAnswerInput {
+    int32  question_index           = 1;
+    repeated int32 selected_answer_indices = 2;
+    string text_answer              = 3;
+    bool   is_correct               = 4;
+    int32  points_earned            = 5;
+    string answered_at              = 6; // ISO date string
+}
+
+message AnswerSubmit {
+    string userId          = 1;
+    repeated UserAnswerInput answers = 2;
+    int32  time_taken      = 3;  // giây
+    string started_at      = 4;  // ISO date string
+    int32  total_score     = 5;
+    int32  max_score       = 6;
+    int32  correct_count   = 7;
+    int32  total_questions = 8;
+    string completed_at    = 9;  // ISO date string
+    bool   is_completed    = 10;
+    bool   is_submitted    = 11;
+}
+
+message SubmitQuizzRequest {
+    string quiz_id = 1;
+    AnswerSubmit answer = 2;
+}
+
+message SubmitQuizzMetadata {
+    int32 total_score = 1;
+    int32 max_score = 2;
+    int32 correct_count = 3;
+    int32 total_questions = 4;
+    bool is_completed = 5;
+}
+
+message SubmitQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    SubmitQuizzMetadata metadata = 4;
+}
+
+message GetQuizzResultsRequest {
+    string quiz_id = 1;
+}
+
+message QuizUserAnswerResult {
+    int32  question_index           = 1;
+    repeated int32 selected_answer_indices = 2;
+    string text_answer              = 3;
+    bool   is_correct               = 4;
+    int32  points_earned            = 5;
+    string answered_at              = 6;
+}
+
+message QuizResultItem {
+    string user_id         = 1;
+    int32  total_score     = 2;
+    int32  max_score       = 3;
+    int32  correct_count   = 4;
+    int32  total_questions = 5;
+    string started_at      = 6;
+    string completed_at    = 7;
+    int32  time_taken      = 8;
+    bool   is_completed    = 9;
+    bool   is_submitted    = 10;
+    repeated QuizUserAnswerResult user_answers = 11;
+}
+
+message LeaderboardEntry {
+    int32  rank          = 1;
+    string user_id       = 2;
+    string user_name     = 3;
+    string user_avatar   = 4;
+    int32  correct_count = 5;
+    int32  total_score   = 6;
+    int32  max_score     = 7;
+    int32  time_taken    = 8; // giây
+    bool   is_completed  = 9;
+}
+
+message GetQuizzResultsMetadata {
+    string quiz_id                        = 1;
+    string quiz_title                     = 2;
+    int32  total_participants             = 3;
+    int32  submitted_count                = 4;
+    int32  not_submitted_count            = 5;
+    repeated LeaderboardEntry leaderboard = 6;
+}
+
+message GetQuizzResultsResponse {
+    string message         = 1;
+    int32  statusCode      = 2;
+    string reasonStatusCode = 3;
+    GetQuizzResultsMetadata metadata = 4;
+}
+
 message QuizMetadata {
+    string _id = 17;
     string quiz_id = 1;
     string quiz_title = 2;
     string quiz_description = 3;
@@ -128,5 +237,6 @@ message QuizMetadata {
     repeated Question quiz_questions = 14;
     string createdAt = 15;
     string updatedAt = 16;
+    bool is_send = 18;
 }
 

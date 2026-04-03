@@ -10,7 +10,7 @@ jobs:
   deploy:
     name: Deploy Gateway to Cloud Run
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: GATEWAY_SERVICE
     steps:
       - uses: actions/checkout@v3
@@ -34,7 +34,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --cpu=1 \
-            --memory=512Mi \
+            --memory=1Gi \
             --port=8080 \
             --timeout=60s \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
@@ -59,4 +59,4 @@ jobs:
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
             --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
-            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} 
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}

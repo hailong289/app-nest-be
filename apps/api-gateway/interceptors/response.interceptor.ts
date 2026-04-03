@@ -16,6 +16,7 @@ export class ResponseInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       map((data: { statusCode?: number; [key: string]: any }) => {
+        console.log('data', data);
         if (data?.statusCode) {
           res.status(data.statusCode);
         }

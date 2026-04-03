@@ -12,6 +12,7 @@ service AIService {
   rpc SummaryDocument(SummaryDocumentRequest) returns (SummaryDocumentResponse);
   rpc Translation(TranslationRequest) returns (TranslationResponse);
   rpc Quizz(QuizzRequest) returns (QuizzResponse);
+  rpc GenerateFlashcard(GenerateFlashcardRequest) returns (GenerateFlashcardResponse);
 }
 
 message FileRequest {
@@ -141,5 +142,38 @@ message QuizzAnswer {
   string answer_text = 1;
   bool is_correct = 2;
   int32 points = 3;
+}
+
+message GenerateFlashcardRequest {
+  string topic = 1;
+  string type = 2; // text, document, file_url
+  int32 card_count = 3;
+  int32 difficulty = 4;
+  string language = 5;
+  FileRequest file = 6;
+}
+
+message GeneratedFlashcard {
+  string card_front = 1;
+  string card_back = 2;
+  string card_hint = 3;
+  repeated string card_tags = 4;
+  int32 card_difficulty = 5;
+}
+
+message GenerateFlashcardMetadata {
+  string deck_name = 1;
+  string deck_description = 2;
+  string deck_level = 3;
+  string deck_language = 4;
+  repeated string deck_tags = 5;
+  repeated GeneratedFlashcard flashcards = 6;
+}
+
+message GenerateFlashcardResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GenerateFlashcardMetadata metadata = 4;
 }
 

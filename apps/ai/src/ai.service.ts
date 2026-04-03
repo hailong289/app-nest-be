@@ -75,4 +75,22 @@ export class AIService {
     );
     return result;
   }
+
+  async generateFlashcard(
+    topic: string,
+    type: 'text' | 'document' | 'file_url',
+    card_count: number,
+    difficulty: number,
+    language: string,
+    file?: MulterFile,
+  ) {
+    return await this.googleProvider.generateFlashcard(
+      topic,
+      type,
+      card_count,
+      difficulty,
+      language,
+      file,
+    );
+  }
 }

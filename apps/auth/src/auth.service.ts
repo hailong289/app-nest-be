@@ -103,7 +103,7 @@ export class AuthService implements OnModuleInit {
       {
         secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
         expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
-          '15m') as JwtSignOptions['expiresIn'],
+          '1d') as JwtSignOptions['expiresIn'],
       },
     );
 
@@ -222,7 +222,7 @@ export class AuthService implements OnModuleInit {
         {
           secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
           expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
-            '15m') as JwtSignOptions['expiresIn'],
+            '1d') as JwtSignOptions['expiresIn'],
         },
       );
 

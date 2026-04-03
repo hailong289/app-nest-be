@@ -6,14 +6,17 @@ export type FlashcardDocument = HydratedDocument<Flashcard>;
 export type FlashcardDeckDocument = HydratedDocument<FlashcardDeck>;
 export type FlashcardProgressDocument = HydratedDocument<FlashcardProgress>;
 
-// Subdocument: Tiến độ học của một flashcard
-@Schema({ _id: false })
+// Standalone collection: Tiến độ học của một flashcard theo từng user
+@Schema({ timestamps: true, collection: 'FlashcardProgresses' })
 export class FlashcardProgress {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  user_id: Types.ObjectId; // User đang học
+  @Prop({ type: String, required: true, index: true })
+  card_id: string; // Tham chiếu Flashcard.card_id
+
+  @Prop({ type: String, required: true, index: true })
+  user_id: string; // ID của user đang học
 
   @Prop({ type: Number, default: 0 })
-  mastery_level: number; // Mức độ thành thạo (0-5 hoặc 0-100)
+  mastery_level: number; // Mức độ thành thạo (0-100)
 
   @Prop({ type: Number, default: 0 })
   review_count: number; // Số lần đã ôn tập
@@ -28,7 +31,7 @@ export class FlashcardProgress {
   last_reviewed: Date; // Lần cuối ôn tập
 
   @Prop({ type: Date, default: null })
-  next_review: Date | null; // Lần ôn tập tiếp theo (theo spaced repetition)
+  next_review: Date | null; // Lần ôn tập tiếp theo (spaced repetition)
 
   @Prop({ type: Boolean, default: false })
   is_mastered: boolean; // Đã thành thạo chưa
@@ -42,10 +45,16 @@ export class FlashcardProgress {
     default: 'new',
   })
   status: string; // Trạng thái học
+
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export const FlashcardProgressSchema =
   SchemaFactory.createForClass(FlashcardProgress);
+
+// Unique compound index: mỗi user chỉ có 1 progress record cho 1 card
+FlashcardProgressSchema.index({ card_id: 1, user_id: 1 }, { unique: true });
 
 // Main Flashcard Schema
 @Schema({ timestamps: true, collection: 'Flashcards' })
@@ -95,9 +104,6 @@ export class Flashcard {
 
   @Prop({ type: Number, default: 0 })
   card_difficulty: number; // Độ khó (1-5)
-
-  @Prop({ type: [FlashcardProgressSchema], default: [] })
-  card_progress: FlashcardProgress[]; // Tiến độ học của các user
 
   @Prop({ type: Number, default: 0 })
   card_totalViews: number; // Tổng số lần xem
@@ -182,7 +188,6 @@ FlashcardSchema.index({ card_userId: 1, card_isArchived: 1, createdAt: -1 });
 FlashcardSchema.index({ card_deckId: 1, createdAt: -1 });
 FlashcardSchema.index({ card_tags: 1 });
 FlashcardSchema.index({ card_front_norm: 1, card_back_norm: 1 });
-FlashcardSchema.index({ 'card_progress.user_id': 1 });
 
 /** Indexes for FlashcardDeck */
 FlashcardDeckSchema.index({
@@ -235,4 +240,9 @@ export default {
 export const flashcardDeckModel = {
   name: 'FlashcardDeck',
   schema: FlashcardDeckSchema,
+};
+
+export const flashcardProgressModel = {
+  name: FlashcardProgress.name,
+  schema: FlashcardProgressSchema,
 };

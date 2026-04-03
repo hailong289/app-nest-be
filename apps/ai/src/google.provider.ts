@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Response } from '@app/helpers/response';
 import type { MulterFile } from '@app/dto';
 import {
+  generateFlashcardPrompt,
   generateQuizzPrompt,
   suggestPrompt,
   summaryDocumentPrompt,
@@ -338,5 +339,83 @@ export class GoogleModerationProvider {
       400,
       'Bad input',
     );
+  }
+
+  async generateFlashcard(
+    topic: string,
+    type: 'text' | 'document' | 'file_url',
+    card_count: number,
+    difficulty: number,
+    language: string,
+    file?: MulterFile,
+  ) {
+    const prompt = generateFlashcardPrompt(topic, type, card_count, difficulty, language);
+
+    try {
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> =
+        [{ text: prompt }];
+
+      if (type === 'document' && file) {
+        parts.push({
+          inlineData: {
+            mimeType: file.mimetype,
+            data: Buffer.from(file.buffer).toString('base64'),
+          },
+        });
+      }
+
+
+      const result = await this.generateContent(
+        {
+          contents: [{ role: 'user', parts }],
+          generationConfig: { responseMimeType: 'application/json' },
+        },
+        'system',
+        'generate-flashcard',
+      );
+
+      const parsed = result as {
+        deck_name?: unknown;
+        deck_description?: unknown;
+        deck_level?: unknown;
+        deck_language?: unknown;
+        deck_tags?: unknown;
+        flashcards?: unknown;
+      };
+
+      const flashcards = Array.isArray(parsed.flashcards)
+        ? (parsed.flashcards as Array<{
+            card_front: string;
+            card_back: string;
+            card_hint?: string;
+            card_tags?: string[];
+            card_difficulty?: number;
+          }>)
+        : [];
+
+      return Response.success(
+        {
+          deck_name: typeof parsed.deck_name === 'string' ? parsed.deck_name : '',
+          deck_description:
+            typeof parsed.deck_description === 'string' ? parsed.deck_description : '',
+          deck_level: typeof parsed.deck_level === 'string' ? parsed.deck_level : 'beginner',
+          deck_language: typeof parsed.deck_language === 'string' ? parsed.deck_language : language,
+          deck_tags: Array.isArray(parsed.deck_tags) ? (parsed.deck_tags as string[]) : [],
+          flashcards: flashcards.map((card) => ({
+            card_front: card.card_front ?? '',
+            card_back: card.card_back ?? '',
+            card_hint: card.card_hint ?? '',
+            card_tags: Array.isArray(card.card_tags) ? card.card_tags : [],
+            card_difficulty: card.card_difficulty ?? difficulty,
+          })),
+        },
+        'Tạo flashcard thành công',
+        200,
+        'OK',
+      );
+    } catch (err) {
+      this.logger.error('Lỗi generate flashcard:', (err as Error).message);
+      return Response.error('Không thể tạo flashcard lúc này', 400, 'Bad input');
+    }
   }
 }

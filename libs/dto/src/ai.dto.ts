@@ -3,6 +3,8 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsString,
+  Max,
   Min,
   ValidateIf,
   ValidateNested,
@@ -70,4 +72,42 @@ export class QuizzDto {
   @IsNumber({}, { message: 'Tổng điểm số phải là số' })
   @Min(1, { message: 'Tổng điểm số phải lớn hơn 0' })
   question_max_points: number;
+}
+
+export class GenerateFlashcardDto {
+  /** File đính kèm — bắt buộc khi type = 'document' */
+  @ValidateIf((o) => o.type === 'document')
+  @ValidateNested()
+  @Type(() => FileUploadData)
+  file?: FileUploadData;
+
+  /** Nội dung văn bản để tạo flashcard — bắt buộc khi type = 'text' */
+  @ValidateIf((o) => o.type === 'text')
+  @IsNotEmpty({ message: 'Chủ đề / nội dung không để trống' })
+  @IsString({ message: 'Chủ đề phải là chuỗi' })
+  topic: string;
+
+  /** Nguồn dữ liệu đầu vào */
+  @IsNotEmpty({ message: 'Loại không để trống' })
+  @IsIn(['text', 'document'], { message: 'Loại phải là text hoặc document' })
+  type: 'text' | 'document';
+
+  /** Số lượng flashcard cần tạo (mặc định: 10) */
+  @IsOptional()
+  @IsNumber({}, { message: 'Số lượng thẻ phải là số' })
+  @Min(1, { message: 'Số lượng thẻ phải ≥ 1' })
+  @Max(50, { message: 'Số lượng thẻ tối đa là 50' })
+  card_count?: number;
+
+  /** Độ khó 1–5 (mặc định: 3) */
+  @IsOptional()
+  @IsNumber({}, { message: 'Độ khó phải là số' })
+  @Min(1, { message: 'Độ khó tối thiểu là 1' })
+  @Max(5, { message: 'Độ khó tối đa là 5' })
+  difficulty?: number;
+
+  /** Ngôn ngữ đầu ra, ví dụ: 'vi', 'en' (mặc định: 'vi') */
+  @IsOptional()
+  @IsString({ message: 'Ngôn ngữ phải là chuỗi' })
+  language?: string;
 }

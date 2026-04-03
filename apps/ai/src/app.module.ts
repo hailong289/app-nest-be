@@ -16,6 +16,8 @@ import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
 import QuizSchema from 'libs/db/src/mongo/model/quiz.model';
+import Userschema from 'libs/db/src/mongo/model/user.model';
+import MessageSchema from 'libs/db/src/mongo/model/messages.model';
 import { mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
@@ -25,7 +27,7 @@ import { QuizzService } from './quizz/quizz.service';
 import { FlashcardController } from './flashcard/flashcard.controller';
 import { FlashcardService } from './flashcard/flashcard.service';
 import FlashcardSchema from 'libs/db/src/mongo/model/flashcard.model';
-import { flashcardDeckModel } from 'libs/db/src/mongo/model/flashcard.model';
+import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/model/flashcard.model';
 
 @Module({
   imports: [
@@ -44,8 +46,11 @@ import { flashcardDeckModel } from 'libs/db/src/mongo/model/flashcard.model';
       AIUsageLogSchema,
       AIEmbeddingSchema,
       QuizSchema,
+      Userschema,
+      MessageSchema,
       FlashcardSchema,
       flashcardDeckModel,
+      flashcardProgressModel,
     ]),
   ],
   controllers: [AIController, QuizzController, FlashcardController],

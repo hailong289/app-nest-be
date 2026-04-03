@@ -14,6 +14,9 @@ service FlashcardService {
     rpc ListFlashcardDecks(ListFlashcardDecksRequest) returns (ListFlashcardDecksResponse);
     rpc UpdateFlashcardDeck(UpdateFlashcardDeckRequest) returns (UpdateFlashcardDeckResponse);
     rpc DeleteFlashcardDeck(DeleteFlashcardDeckRequest) returns (DeleteFlashcardDeckResponse);
+
+    rpc UpdateFlashcardProgress(UpdateFlashcardProgressRequest) returns (UpdateFlashcardProgressResponse);
+    rpc GetFlashcardProgress(GetFlashcardProgressRequest) returns (GetFlashcardProgressResponse);
 }
 
 // Flashcard messages
@@ -59,7 +62,7 @@ message ListFlashcardsResponse {
     string message = 1;
     int32 statusCode = 2;
     string reasonStatusCode = 3;
-    repeated FlashcardMetadata metadata = 4;
+    ListFlashcardsMetadata metadata = 4;
 }
 
 message UpdateFlashcardRequest {
@@ -94,6 +97,13 @@ message DeleteFlashcardResponse {
     string metadata = 4;
 }
 
+message ListFlashcardsMetadata {
+    repeated FlashcardMetadata data = 1;
+    int64 total_item = 2;
+    int64 total_page = 3;
+    int64 page = 4;
+}
+
 message FlashcardMetadata {
     string card_id = 1;
     string card_userId = 2;
@@ -123,6 +133,7 @@ message CreateFlashcardDeckRequest {
     bool deck_isPublic = 6;
     string deck_level = 7; // beginner, intermediate, advanced, expert
     string deck_language = 8;
+    repeated CreateFlashcardRequest flashcards = 9;
 }
 
 message CreateFlashcardDeckResponse {
@@ -134,6 +145,7 @@ message CreateFlashcardDeckResponse {
 
 message GetFlashcardDeckRequest {
     string deck_id = 1;
+    string userId = 2;
 }
 
 message GetFlashcardDeckResponse {
@@ -166,7 +178,7 @@ message UpdateFlashcardDeckRequest {
     bool deck_isArchived = 7;
     string deck_level = 8; // beginner, intermediate, advanced, expert
     string deck_language = 9;
-    repeated string deck_cardIds = 10;
+    repeated UpdateFlashcardRequest flashcards = 10;
 }
 
 message UpdateFlashcardDeckResponse {
@@ -187,6 +199,14 @@ message DeleteFlashcardDeckResponse {
     string metadata = 4;
 }
 
+message FlashcardDeckProgress {
+    int32 new_cards = 1;
+    int32 learning_cards = 2;
+    int32 review_cards = 3;
+    int32 mastered_cards = 4;
+    int32 total_cards = 5;
+}
+
 message FlashcardDeckMetadata {
     string deck_id = 1;
     string deck_userId = 2;
@@ -203,5 +223,56 @@ message FlashcardDeckMetadata {
     string deck_language = 13;
     string createdAt = 14;
     string updatedAt = 15;
+    int32 total_cards = 16;
+    FlashcardDeckProgress progress = 17;
 }
 
+
+// FlashcardProgress messages
+message FlashcardProgressMetadata {
+    string card_id = 1;
+    string user_id = 2;
+    int32 mastery_level = 3;
+    int32 review_count = 4;
+    int32 correct_count = 5;
+    int32 incorrect_count = 6;
+    string last_reviewed = 7;
+    string next_review = 8;
+    bool is_mastered = 9;
+    bool is_favorite = 10;
+    string status = 11;
+    string createdAt = 12;
+    string updatedAt = 13;
+}
+
+message UpdateFlashcardProgressRequest {
+    string card_id = 1;
+    string user_id = 2;
+    int32 mastery_level = 3;
+    int32 review_count = 4;
+    int32 correct_count = 5;
+    int32 incorrect_count = 6;
+    bool is_mastered = 7;
+    bool is_favorite = 8;
+    string status = 9; // new, learning, review, mastered
+    string next_review = 10;
+}
+
+message UpdateFlashcardProgressResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardProgressMetadata metadata = 4;
+}
+
+message GetFlashcardProgressRequest {
+    string card_id = 1;
+    string user_id = 2;
+}
+
+message GetFlashcardProgressResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FlashcardProgressMetadata metadata = 4;
+}

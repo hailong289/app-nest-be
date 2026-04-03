@@ -53,6 +53,8 @@ export class AppModule {
         path: 'notifications/:notificationId/read',
         method: RequestMethod.PUT,
       },
+      { path: 'ai/quizz/*path', method: RequestMethod.ALL },
+      { path: 'ai/flashcard/*path', method: RequestMethod.ALL },
     );
   }
 }
