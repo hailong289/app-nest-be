@@ -111,7 +111,7 @@ export class QuizzService {
     return Response.success(quiz);
   }
 
-  async getQuizzResults(quiz_id: string) {
+  async getQuizzResults(quiz_id: string, user_id?: string) {
     // Hỗ trợ cả MongoDB _id (24-char hex) lẫn business quiz_id (ULID)
     const isObjectId = Types.ObjectId.isValid(quiz_id) && quiz_id.length === 24;
     const filter = isObjectId
@@ -154,6 +154,7 @@ export class QuizzService {
           total_score: r.total_score,
           max_score: r.max_score,
           time_taken: r.time_taken,
+          is_completed: r.is_completed,
         };
       })
       .sort((a, b) => {
@@ -163,6 +164,34 @@ export class QuizzService {
       })
       .map((entry, idx) => ({ ...entry, rank: idx + 1 }));
 
+    // Nếu có user_id, tìm kết quả của user đó và trả về my_result kèm user_answers
+    let my_result: Record<string, any> | null = null;
+    if (
+      user_id &&
+      Types.ObjectId.isValid(user_id) &&
+      quiz.quiz_createdBy.toString() !== user_id
+    ) {
+      const userObjectId = new Types.ObjectId(user_id);
+      const found = rawResults.find(
+        (r) => r.user_id?.toString() === userObjectId.toString(),
+      );
+      if (found) {
+        my_result = {
+          user_id: found.user_id?.toString() ?? '',
+          user_answers: found.user_answers ?? [],
+          total_score: found.total_score,
+          max_score: found.max_score,
+          correct_count: found.correct_count,
+          total_questions: found.total_questions,
+          started_at: found.started_at?.toISOString?.() ?? '',
+          completed_at: found.completed_at?.toISOString?.() ?? '',
+          time_taken: found.time_taken,
+          is_completed: found.is_completed,
+          is_submitted: found.is_submitted,
+        };
+      }
+    }
+
     return Response.success({
       quiz_id: quiz.quiz_id,
       quiz_title: quiz.quiz_title,
@@ -170,6 +199,7 @@ export class QuizzService {
       submitted_count,
       not_submitted_count,
       leaderboard,
+      my_result,
     });
   }
 
@@ -267,30 +297,28 @@ export class QuizzService {
         is_submitted: true,
       };
 
-      // Đảm bảo quiz_results không phải null trước khi $push/$set
-      await this.quizModel.updateOne(
-        { quiz_id, quiz_results: null },
-        { $set: { quiz_results: [] } },
-      );
-
       // Nếu đã có kết quả cũ thì thay thế, ngược lại push mới
-      if (existingResult) {
-        await this.quizModel.findOneAndUpdate(
-          { quiz_id, 'quiz_results.user_id': userId },
-          { $set: { 'quiz_results.$': resultEntry } },
-        );
-      } else {
-        await this.quizModel.findOneAndUpdate(
-          { quiz_id },
-          {
-            $push: { quiz_results: resultEntry },
-            $inc: {
-              quiz_totalSubmissions: 1,
-              quiz_totalParticipants: 1,
-            },
-          },
-        );
-      }
+      const updatedQuiz = existingResult
+        ? await this.quizModel
+            .findOneAndUpdate(
+              { quiz_id, 'quiz_results.user_id': userId },
+              { $set: { 'quiz_results.$': resultEntry } },
+              { new: true, lean: true },
+            )
+            .lean()
+        : await this.quizModel
+            .findOneAndUpdate(
+              { quiz_id },
+              {
+                $push: { quiz_results: resultEntry },
+                $inc: {
+                  quiz_totalSubmissions: 1,
+                  quiz_totalParticipants: 1,
+                },
+              },
+              { new: true, lean: true },
+            )
+            .lean();
 
       return Response.success({
         total_score: totalScore,
@@ -298,6 +326,7 @@ export class QuizzService {
         correct_count: correctCount,
         total_questions: totalQuestions,
         is_completed: true,
+        quiz: updatedQuiz,
       });
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');

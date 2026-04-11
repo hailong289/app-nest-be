@@ -50,7 +50,7 @@ export class QuizzController {
   }
 
   @GrpcMethod('QuizzService', 'GetQuizzResults')
-  async getQuizzResults(data: { quiz_id: string }) {
-    return await this.quizzService.getQuizzResults(data.quiz_id);
+  async getQuizzResults(data: { quiz_id: string; user_id?: string }) {
+    return await this.quizzService.getQuizzResults(data.quiz_id, data.user_id);
   }
 }

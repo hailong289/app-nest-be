@@ -155,6 +155,7 @@ message SubmitQuizzMetadata {
     int32 correct_count = 3;
     int32 total_questions = 4;
     bool is_completed = 5;
+    QuizMetadata quiz = 6;
 }
 
 message SubmitQuizzResponse {
@@ -166,6 +167,7 @@ message SubmitQuizzResponse {
 
 message GetQuizzResultsRequest {
     string quiz_id = 1;
+    string user_id = 2; // optional: nếu truyền vào sẽ trả về my_result
 }
 
 message QuizUserAnswerResult {
@@ -210,6 +212,7 @@ message GetQuizzResultsMetadata {
     int32  submitted_count                = 4;
     int32  not_submitted_count            = 5;
     repeated LeaderboardEntry leaderboard = 6;
+    QuizResultItem my_result              = 7; // kết quả của user nếu có user_id
 }
 
 message GetQuizzResultsResponse {
@@ -238,5 +241,5 @@ message QuizMetadata {
     string createdAt = 15;
     string updatedAt = 16;
     bool is_send = 18;
+    repeated QuizResultItem quiz_results = 19;
 }
-
