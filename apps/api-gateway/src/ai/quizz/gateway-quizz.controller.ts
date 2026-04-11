@@ -29,7 +29,7 @@ interface QuizzGrpcService {
   ListQuizzes(data: ListQuizzesDto): Observable<any>;
   UpdateQuizz(data: UpdateQuizzDto & { quiz_id: string }): Observable<any>;
   DeleteQuizz(data: DeleteQuizzDto & { quiz_id: string }): Observable<any>;
-  GetQuizzResults(data: { quiz_id: string }): Observable<any>;
+  GetQuizzResults(data: { quiz_id: string; user_id?: string }): Observable<any>;
   SubmitQuizz(data: {
     quiz_id: string;
     answer: {
@@ -115,10 +115,13 @@ export class GatewayQuizzController {
   }
 
   @Get(':quiz_id/results')
-  async getQuizzResults(@Param('quiz_id') quiz_id: string) {
+  async getQuizzResults(
+    @Param('quiz_id') quiz_id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.quizzService.GetQuizzResults.bind(this.quizzService),
-      { quiz_id },
+      { quiz_id, user_id: req.user._id },
     );
   }
 
