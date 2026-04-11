@@ -28,6 +28,9 @@ import { FlashcardController } from './flashcard/flashcard.controller';
 import { FlashcardService } from './flashcard/flashcard.service';
 import FlashcardSchema from 'libs/db/src/mongo/model/flashcard.model';
 import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/model/flashcard.model';
+import { TodoController } from './todo/todo.controller';
+import { TodoService } from './todo/todo.service';
+import TodoSchema from 'libs/db/src/mongo/model/todo.model';
 
 @Module({
   imports: [
@@ -51,9 +54,10 @@ import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/mo
       FlashcardSchema,
       flashcardDeckModel,
       flashcardProgressModel,
+      TodoSchema,
     ]),
   ],
-  controllers: [AIController, QuizzController, FlashcardController],
+  controllers: [AIController, QuizzController, FlashcardController, TodoController],
   providers: [
     AIService,
     EmbeddingService,
@@ -61,6 +65,7 @@ import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/mo
     AiLogUseService,
     QuizzService,
     FlashcardService,
+    TodoService,
   ],
 })
 export class AppModule {}

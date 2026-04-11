@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package todo;
+
+service TodoService {
+    rpc CreateTodo(CreateTodoRequest) returns (TodoResponse);
+    rpc GetTodo(GetTodoRequest) returns (TodoResponse);
+    rpc ListTodos(ListTodosRequest) returns (ListTodosResponse);
+    rpc UpdateTodo(UpdateTodoRequest) returns (TodoResponse);
+    rpc DeleteTodo(DeleteTodoRequest) returns (DeleteTodoResponse);
+    rpc AssignTodo(AssignTodoRequest) returns (TodoResponse);
+    rpc UpdateTodoStatus(UpdateTodoStatusRequest) returns (TodoResponse);
+}
+
+// ─── Shared messages ───────────────────────────────────────────────────────────
+
+message TodoMetadata {
+    string todo_id       = 1;
+    string todo_title    = 2;
+    string todo_description = 3;
+    string todo_status   = 4; // todo | in_progress | done | cancelled
+    string todo_priority = 5; // low | medium | high
+    string todo_dueDate  = 6; // ISO date string, empty if not set
+    string todo_roomId   = 7; // empty string = todo cá nhân
+    string todo_createdBy = 8;
+    repeated string todo_assignees = 9;
+    string createdAt     = 10;
+    string updatedAt     = 11;
+}
+
+// ─── CreateTodo ────────────────────────────────────────────────────────────────
+
+message CreateTodoRequest {
+    string todo_title       = 1;
+    string todo_description = 2;
+    string todo_status      = 3;
+    string todo_priority    = 4;
+    string todo_dueDate     = 5; // ISO date string, optional
+    string todo_roomId      = 6; // optional
+    string todo_createdBy   = 7;
+    repeated string todo_assignees = 8;
+}
+
+message TodoResponse {
+    string message          = 1;
+    int32  statusCode       = 2;
+    string reasonStatusCode = 3;
+    TodoMetadata metadata   = 4;
+}
+
+// ─── GetTodo ───────────────────────────────────────────────────────────────────
+
+message GetTodoRequest {
+    string todo_id = 1;
+}
+
+// ─── ListTodos ─────────────────────────────────────────────────────────────────
+
+message ListTodosRequest {
+    string userId   = 1;
+    string roomId   = 2; // optional: nếu có thì lấy theo phòng
+    int32  page     = 3;
+    int32  limit    = 4;
+    string status   = 5; // optional: filter theo status
+}
+
+message ListTodosMetadata {
+    repeated TodoMetadata data = 1;
+    int64 total_item  = 2;
+    int64 total_page  = 3;
+    int64 page        = 4;
+}
+
+message ListTodosResponse {
+    string message          = 1;
+    int32  statusCode       = 2;
+    string reasonStatusCode = 3;
+    ListTodosMetadata metadata = 4;
+}
+
+// ─── UpdateTodo ────────────────────────────────────────────────────────────────
+
+message UpdateTodoRequest {
+    string todo_id          = 1;
+    string todo_title       = 2;
+    string todo_description = 3;
+    string todo_status      = 4;
+    string todo_priority    = 5;
+    string todo_dueDate     = 6;
+}
+
+// ─── DeleteTodo ────────────────────────────────────────────────────────────────
+
+message DeleteTodoRequest {
+    string todo_id = 1;
+}
+
+message DeleteTodoResponse {
+    string message          = 1;
+    int32  statusCode       = 2;
+    string reasonStatusCode = 3;
+    string metadata         = 4;
+}
+
+// ─── AssignTodo ────────────────────────────────────────────────────────────────
+
+message AssignTodoRequest {
+    string todo_id                  = 1;
+    repeated string assignee_ids    = 2;
+}
+
+// ─── UpdateTodoStatus ──────────────────────────────────────────────────────────
+
+message UpdateTodoStatusRequest {
+    string todo_id = 1;
+    string status  = 2; // todo | in_progress | done | cancelled
+}

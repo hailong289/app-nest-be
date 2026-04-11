@@ -9,6 +9,7 @@ import { GatewayAiController } from './gateway-ai.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { GatewayQuizzController } from './quizz/gateway-quizz.controller';
 import { GatewayFlashcardController } from './flashcard/gateway-flashcard.controller';
+import { GatewayTodoController } from './todo/gateway-todo.controller';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import aiConfig from '../config/ai.config';
 
@@ -18,13 +19,14 @@ import aiConfig from '../config/ai.config';
     GrpcClientModule.registerAsync({
       name: SERVICES.AI,
       configKey: 'ai',
-      packages: ['ai', 'quizz', 'flashcard'],
+      packages: ['ai', 'quizz', 'flashcard', 'todo'],
     }),
   ],
   controllers: [
     GatewayAiController,
     GatewayQuizzController,
     GatewayFlashcardController,
+    GatewayTodoController,
   ],
   providers: [GatewayService],
 })
