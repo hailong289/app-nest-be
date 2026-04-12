@@ -1,29 +1,143 @@
-import { Body, Controller, Inject, Post, OnModuleInit } from "@nestjs/common";
-import { ClientProxy } from "@nestjs/microservices";
-import { GatewayService } from "../gateway.service";
-import { SERVICES } from "@app/constants/services";
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  OnModuleInit,
+  Post,
+  Put,
+  Req,
+  Param,
+} from '@nestjs/common';
+import { ClientKafka } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
+import { GatewayService } from '../gateway/gateway.service';
+import { SERVICES } from '@app/constants/services';
+import { Request } from 'express';
+import type { Observable } from 'rxjs';
 
+interface AuthenticatedRequest extends Request {
+  user?: {
+    _id: string;
+    [key: string]: unknown;
+  };
+}
+
+interface NotificationServiceGrpc {
+  PushNotificationTest(data: {
+    title: string;
+    message: string;
+    fcmTokens: string[];
+    data?: Record<string, any>;
+  }): Observable<any>;
+  GetNotifications(data: { userId: string }): Observable<any>;
+  MarkNotificationAsRead(data: { notificationId: string }): Observable<any>;
+  MarkAllNotificationsAsRead(data: { userId: string }): Observable<any>;
+}
+
+const NOTIFICATION_GRPC_SERVICE = 'NOTIFICATION_GRPC_SERVICE';
 
 @Controller('notifications')
-export class GatewayNotificationController {
-    public constructor(
-        @Inject(SERVICES.NOTIFICATION) private readonly notificationClient: ClientProxy,
-        private readonly gatewayService: GatewayService,
-    ) { }
+export class GatewayNotificationController implements OnModuleInit {
+  private notificationGrpc: NotificationServiceGrpc;
 
-     // Notification endpoints
-    @Post('notifications/welcome')
-    async sendWelcomeEmail(@Body() user: { email: string; name: string }) {
-        return await this.gatewayService.dispatchServiceRequest(this.notificationClient, 'send_welcome_email', user);
-    }
+  public constructor(
+    @Inject(SERVICES.NOTIFICATION)
+    private readonly notificationClient: ClientKafka,
+    @Inject(NOTIFICATION_GRPC_SERVICE)
+    private readonly notificationGrpcClient: ClientGrpc,
+    private readonly gatewayService: GatewayService,
+  ) {}
 
-    @Post('notifications/push')
-    async sendPushNotification(@Body() notification: {
-        tokens: string[];
-        title: string;
-        body: string;
-        data: Record<string, string>;
-    }) {
-        return await this.gatewayService.dispatchServiceRequest(this.notificationClient, 'send_push_notification', notification);
-    }
+  onModuleInit() {
+    this.notificationGrpc =
+      this.notificationGrpcClient.getService<NotificationServiceGrpc>(
+        'NotificationService',
+      );
+  }
+
+  @Post('send-otp')
+  async sendOtp(
+    @Body() body: { email: string; otp: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return await this.gatewayService.dispatchServiceEvent(
+      this.notificationClient,
+      'send_otp',
+      {
+        ...body,
+        userId: req.user?._id,
+      },
+    );
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string; token: string }) {
+    return await this.gatewayService.dispatchServiceEvent(
+      this.notificationClient,
+      'forgot_password',
+      body,
+    );
+  }
+
+  @Post('push-notification')
+  async pushNotification(
+    @Body()
+    body: {
+      title: string;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, unknown>;
+    },
+  ) {
+    return await this.gatewayService.dispatchServiceEvent(
+      this.notificationClient,
+      'push_notification',
+      body,
+    );
+  }
+
+  @Post('push-notification-test')
+  async pushNotificationTest(
+    @Body()
+    body: {
+      title: string;
+      message: string;
+      fcmTokens: string[];
+      data?: Record<string, unknown>;
+    },
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.PushNotificationTest.bind(this.notificationGrpc),
+      body,
+    );
+  }
+
+  @Get()
+  async getNotifications(@Req() req: AuthenticatedRequest) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.GetNotifications.bind(this.notificationGrpc),
+      { userId: req.user?._id },
+    );
+  }
+
+  @Put('read-all')
+  async markAllNotificationsAsRead(@Req() req: AuthenticatedRequest) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.MarkAllNotificationsAsRead.bind(
+        this.notificationGrpc,
+      ),
+      { userId: req.user?._id },
+    );
+  }
+
+  @Put(':notificationId/read')
+  async markNotificationAsRead(
+    @Param('notificationId') notificationId: string,
+  ) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.MarkNotificationAsRead.bind(this.notificationGrpc),
+      { notificationId },
+    );
+  }
 }

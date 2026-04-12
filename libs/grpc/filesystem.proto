@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package filesystem;
+import "document.proto";
+service FileSystemService {
+    rpc UploadSingleFile(UploadSingleFileRequest) returns (UploadSingleFileResponse);
+    rpc UploadMultipleFiles(UploadMultipleFilesRequest) returns (UploadMultipleFilesResponse);
+    rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+    rpc GetPresignedUrl(GetPresignedUrlRequest) returns (GetPresignedUrlResponse);
+    rpc UploadSingleFileForUser(InputUploadSingleFileForUser)returns (UploadSingleFileForUserResponse);
+    rpc UploadMultipleFilesForUser(InputUploadMultipleFilesForUser) returns (UploadMultipleFilesForUserResponse);
+    rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse);
+}
+
+message FileRequest {
+    string originalname = 1;
+    bytes buffer = 2;
+    string mimetype = 3;
+    string fieldname=4;
+    string encoding=5;
+    int64 size=6;
+}
+
+message UploadSingleFileRequest {
+    FileRequest file = 1;
+    string folder = 2;
+}
+
+message UploadMultipleFilesRequest {
+    repeated FileRequest files = 1;
+    string folder = 2;
+}
+
+message UploadSingleFileResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    FileMetadata metadata = 4;
+}
+
+message UploadMultipleFilesResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    MultipleFilesMetaData metadata = 4;
+}
+
+message DeleteFileRequest {
+    string fileName = 1;
+    string folder = 2;
+}
+
+message DeleteFileResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    DeleteFileMetadata metadata = 4;
+}
+
+message GetPresignedUrlRequest {
+    string fileName = 1;
+}
+
+message GetPresignedUrlResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    PresignedUrlMetadata metadata = 4;
+}
+
+message FileMetadata {
+    string url = 1;
+    string key = 2;
+    string bucket = 3;
+    string location = 4;
+}
+
+message MultipleFilesMetaData {
+    repeated string urls = 1;
+    repeated string messages = 2;
+    int32 totalFiles = 3;
+    int32 successfulUploads = 4;
+    int32 failedUploads = 5;
+}
+
+message DeleteFileMetadata {
+    bool deleted = 1;
+}
+
+message PresignedUrlMetadata {
+    string presignedUrl = 1;
+}
+
+message InputUploadSingleFileForUser{
+    string userId=1;
+    string roomId=2;
+    FileRequest file = 3;
+    string id=4;
+    string messageId=5;
+
+}
+
+message UploadSingleFileForUserCore{
+    string _id=1;
+    string url=2;
+    string kind=3;
+    string name=4;
+    string mimeType=5;
+    int64 size=6;
+    string status=7;
+    optional int32 width=8;
+    optional int32 height=9;
+    optional double duration=10;
+}
+message UploadSingleFileForUserResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    UploadSingleFileForUserCore metadata = 4;
+}
+
+message InputUploadMultipleFilesForUser {
+    string userId = 1;
+    string roomId = 2;
+    repeated FileRequest files = 3;
+    string messageId = 4;
+}
+
+message UploadMultipleFilesForUserResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated UploadSingleFileForUserCore metadata = 4;
+}
+
+message GetAttachmentsRequest {
+    string roomId = 1;
+    string userId = 2;
+    string type = 3; // media, doc, link, or specific kind
+    int32 page = 4;
+    int32 limit = 5;
+}
+
+message GetAttachmentsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated UploadSingleFileForUserCore metadata = 4;
+}
+

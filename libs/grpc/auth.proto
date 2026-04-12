@@ -1,0 +1,234 @@
+syntax = "proto3";
+
+package auth;
+
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
+  rpc VerifyOtp(VerifyOtpRequest) returns (VerifyOtpResponse);
+  rpc ForgotPassword(ForgotPasswordRequest) returns (ForgotPasswordResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc UpdateAvatar(UpdateAvatarRequest) returns (UpdateAvatarResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  rpc SearchUser(SearchUserRequest) returns (SearchUserResponse);
+  rpc RefreshToken(RefreshRequest) returns (RefreshResponse);
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+  string fcmToken = 3; // Thêm trường fcmToken
+}
+
+message LoginResponse {
+  string        message          = 1;
+  int32         statusCode       = 2;
+  string        reasonStatusCode = 3;
+  LoginMetadata metadata         = 4;
+}
+message RefreshResponse {
+  string        message          = 1;
+  int32         statusCode       = 2;
+  string        reasonStatusCode = 3;
+  LoginMetadata metadata         = 4;
+}
+
+message RegisterRequest {
+  string fullname    = 1;
+  string email       = 2;
+  string phone       = 3;
+  string password    = 4;
+  string type        = 5;
+  string gender      = 6;
+  string dateOfBirth = 7;
+  string fcmToken    = 8; // Thêm trường fcmToken
+}
+
+message RegisterResponse {
+  string           message          = 1;
+  int32            statusCode       = 2;
+  string           reasonStatusCode = 3;
+  RegisterMetadata metadata         = 4;
+}
+
+message LogoutRequest {
+  string jti    = 1;
+  string userId = 2;
+}
+message RefreshRequest {
+  string jti    = 1;
+  string userId = 2;
+}
+message LogoutResponse {
+  string         message          = 1;
+  int32          statusCode       = 2;
+  string         reasonStatusCode = 3;
+  LogoutMetadata metadata         = 4;
+}
+
+message GetUserRequest {
+  string userId = 1;
+}
+
+message GetUserResponse {
+  string          message          = 1;
+  int32           statusCode       = 2;
+  string          reasonStatusCode = 3;
+  GetUserMetadata metadata         = 4;
+}
+
+// Metadata messages
+message LoginMetadata {
+  string accessToken  = 1;
+  string refreshToken = 2;
+  int32  expiresIn    = 3;
+  User   user         = 4;
+}
+
+message RegisterMetadata {
+  string accessToken  = 1;
+  string refreshToken = 2;
+  int32  expiresIn    = 3;
+  User   user         = 4;
+}
+
+message RefreshTokenRequest {
+  string refreshToken = 1;
+}
+
+message RefreshTokenResponse {
+  string        message          = 1;
+  int32         statusCode       = 2;
+  string        reasonStatusCode = 3;
+  LoginMetadata metadata         = 4;
+}
+
+message ForgotPasswordRequest {
+  string email    = 1;
+  string username = 2;
+  bool   isMobile = 3; // Mặc định là false nếu không gửi
+}
+
+message ForgotPasswordResponse {
+  string           message          = 1;
+  int32            statusCode       = 2;
+  string           reasonStatusCode = 3;
+  RegisterMetadata metadata         = 4;
+}
+
+message LogoutMetadata {
+  // Empty for now, can add fields if needed
+}
+
+message GetUserMetadata {
+  User user = 1;
+}
+
+message User {
+  string _id         = 1;
+  string id          = 2;
+  string fullname    = 3;
+  string slug        = 4;
+  string email       = 5;
+  string phone       = 6;
+  string avatar      = 7;
+  string gender      = 8;
+  string dateOfBirth = 9;
+  string createdAt   = 10;
+  string updatedAt   = 11;
+}
+
+message VerifyOtpRequest {
+  string indicator = 1;
+  string otp       = 2;
+}
+
+message VerifyOtpResponse {
+  string           message          = 1;
+  int32            statusCode       = 2;
+  string           reasonStatusCode = 3;
+  RegisterMetadata metadata         = 4;
+}
+
+message UpdatePasswordRequest {
+  string oldPassword = 1; // Có thể gửi hoặc không
+  string newPassword = 2;
+  string userId      = 3; // ID người dùng cần thay đổi mật khẩu
+}
+
+message UpdatePasswordResponse {
+  string           message          = 1;
+  int32            statusCode       = 2;
+  string           reasonStatusCode = 3;
+  RegisterMetadata metadata         = 4;
+}
+
+
+message ResetPasswordRequest {
+  string userId      = 1; // ID người dùng cần thay đổi mật khẩu
+  string newPassword = 2;
+}
+
+message ResetPasswordResponse {
+  string           message          = 1;
+  int32            statusCode       = 2;
+  string           reasonStatusCode = 3;
+  RegisterMetadata metadata         = 4;
+}
+
+message FileRequest {
+  // FileRequest is the same as the FileRequest in the filesystem.proto
+  string originalname = 1;
+  bytes  buffer       = 2;
+  string mimetype     = 3;
+}
+
+message UpdateAvatarRequest {
+  string avatarUrl = 1;
+  string userId    = 2;
+}
+
+message UpdateAvatarResponse {
+  string         message          = 1;
+  int32          statusCode       = 2;
+  string         reasonStatusCode = 3;
+  AvatarMetadata metadata         = 4;
+}
+
+message AvatarMetadata {
+  string url      = 1;
+  string key      = 2;
+  string bucket   = 3;
+  string location = 4;
+}
+
+message UpdateProfileRequest {
+  string userId      = 1;
+  string fullname    = 2;
+  string gender      = 3;
+  string dateOfBirth = 4;
+}
+
+message UpdateProfileResponse {
+  string message          = 1;
+  int32  statusCode       = 2;
+  string reasonStatusCode = 3;
+  User   metadata         = 4;
+}
+
+message SearchUserRequest {
+  string keyword = 1;
+  int32  page    = 2;
+  int32  limit   = 3;
+}
+
+message SearchUserResponse {
+  string        message          = 1;
+  int32         statusCode       = 2;
+  string        reasonStatusCode = 3;
+  repeated User metadata         = 4;
+}
+

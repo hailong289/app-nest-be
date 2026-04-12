@@ -1,0 +1,54 @@
+name: Deploy AI Service
+
+on:
+  workflow_call:
+
+jobs:
+  deploy:
+    name: Deploy AI to Cloud Run
+    runs-on: ubuntu-latest
+    environment:
+      name: AI_SERVICE
+    steps:
+      - uses: actions/checkout@v3
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: app-chat-2b616
+      - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+      - name: Build and Push Container
+        run: |
+          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest"
+          docker build -t $IMAGE -f apps/ai/Dockerfile .
+          docker push $IMAGE
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ai-service
+          image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest
+          region: asia-southeast1
+          flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=1Gi --port=8080 --timeout=60s --use-http2'
+          env_vars: |-
+            NODE_ENV=${{ secrets.NODE_ENV }}
+            HOST=${{ secrets.HOST }}
+            PROTO_URL=${{ secrets.PROTO_URL }}
+            GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+            GOOGLE_MODEL=${{ secrets.GOOGLE_MODEL }}
+            DB_CONNECTION=${{ secrets.DB_CONNECTION }}
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            KAFKA_HOST=${{ secrets.KAFKA_HOST }}
+            KAFKA_PORT=${{ secrets.KAFKA_PORT }}
+            KAFKA_CLIENT_ID=${{ secrets.KAFKA_CLIENT_ID }}
+            KAFKA_GROUP_ID=${{ secrets.KAFKA_GROUP_ID }}
+            KAFKA_SASL=${{ secrets.KAFKA_SASL }}
+            KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }}
+            KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }}
+            KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }}

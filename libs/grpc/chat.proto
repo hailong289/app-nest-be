@@ -1,0 +1,603 @@
+syntax = "proto3";
+
+package chat;
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "social.proto";
+// 
+
+service ChatService {
+  rpc CreateRoom(CreateRoomRequest) returns (outputGetRoom);
+  rpc LeavingRoom(inputLeavingRoom) returns (outputChange);
+  rpc RemoveMember(inputRmMbr) returns (outputChange);
+  rpc AddMember(inputRmMbr) returns (outputChange);
+  rpc GetRooms(inputGetRooms)returns (outputGetRooms);
+  rpc ChangeAvatar(inputChangeAvatar) returns (outputChange);
+  rpc ChangeName(inputChangeName) returns (outputChange);
+  rpc ChangeNickName(inputChangeNickName) returns (outputChange);
+  rpc ChangeRole(inputChangeRole) returns (outputChange);
+  rpc GetRoom(inputGetRoom)returns (outputGetRoom);
+  rpc CreateNewMsg(InputCreateMsg)returns (CreateMessageOutput);
+  rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
+  rpc MarkReadUpTo(InputMarkReadUp)returns (CreateMessageOutput);
+  rpc GetMsgFromRoom(GetMsgFromRoomInput)returns(GetMsgs);
+  rpc HandleReact(HandleReactInput)returns(CreateMessageOutput);
+  rpc HandlePinned(HandlePinnedInput)returns(CreateMessageOutput);
+  rpc HandleDeleteForUser(HandleDeleteInput)returns(MessageDeleteOutput);
+  rpc HandleDelete(HandleDeleteAllInput)returns(MessageDeleteOutput);
+  rpc DeletedRoom(inputDeletedRoom) returns (outputGetRoom);
+  // Call
+  rpc RequestCall(RequestCallInput)returns(outputCall);
+  rpc AcceptCall(AcceptCallInput)returns(outputCall);
+  rpc EndCall(EndCallInput)returns(outputCall);
+  rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
+  rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
+  rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
+  rpc MutedRoom(inputMutedRoom) returns (outputGetRoom);
+
+}
+// Requests and Responses
+message inputPinnedRoom {
+  string userId = 1;
+  string roomId = 2;
+  bool pinned = 3;
+}
+
+message inputMutedRoom {
+  string userId = 1;
+  string roomId = 2;
+  bool muted = 3;
+}
+
+message inputDeletedRoom {
+  string userId = 1;
+  string roomId = 2;
+}
+
+message GetDocumentsFromRoomInput {
+  string userId = 1;
+  string roomId = 2;
+  int32 page = 3;
+  int32 limit = 4;
+  string type = 5;
+}
+message CreateRoomRequest {
+  string userId = 1;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated string memberIds = 5;
+}
+
+message CreateRoomResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  RoomResponse metadata = 4;
+}
+
+message RoomResponse {
+  string id = 1;
+  string name = 2;
+  string avatar = 3;
+  string type = 4;
+  repeated members room_members = 5;
+  string lastMessage = 6;
+  string room_id = 7;
+}
+
+message members {
+  string user_id = 1;
+  string role = 2;
+  string joinedAt = 3;
+  string name = 4;
+  string id = 5;  
+}
+
+
+
+message inputLeavingRoom {
+  string userId = 1;
+  string roomId =2;
+}
+message outputLeavingRoom {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+message inputRmMbr {
+  string userId =1 ;
+  string roomId =2;
+  repeated string memberIds =3;
+}
+message outputRmMbr {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  string metadata = 4;
+}
+
+
+message inputGetRooms {  
+  string userId =1; 
+  optionsType options =2;
+}
+
+message inputGetRoom {  
+  string userId =1; 
+  string roomId=2;
+}
+message optionsType {
+  string q = 1;
+  int32 limit =2;
+  int32 offset =3;
+  string type =4;
+}
+
+
+message outputGetRooms {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+ repeated metadataGetRoomsType metadata = 4;
+}
+message outputGetRoom {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  metadataGetRoomsType metadata = 4;
+}
+
+
+message metadataGetRoomsType{
+  string id =1;
+  string roomId=2;
+  string updatedAt =3;
+  string type = 4;
+  last_messageType last_message= 5;
+  string name =6;
+  bool is_read=7;
+  string avatar =8;
+  repeated membersType members=9;
+  int64 unread_count=10;
+  bool pinned=11;
+  bool muted=12;
+  string last_read_id = 13;  
+  repeated pinned_messagesType pinned_messages=14;
+  int64 pinned_count=15;
+  bool isBlocked=16;
+  bool blockByMine=17;
+  repeated roomEventsType roomEvents=18;
+  string _id =19;
+}
+message roomEventsType {
+  string timestamp=1;
+  string title=2;
+  string description=3;
+  string status=4;
+  string id=5;
+}
+message pinned_messagesType{
+  string id=1;
+  string content=2;
+  string type=3;
+}
+message last_messageType{
+  string content =1;
+  string createdAt =2;
+  string id =3;
+  last_messageType_senter sender=4;
+  bool isMine=5;
+}
+message last_messageType_senter{
+  string id=1;
+  string name=2;
+  string avatar=3;
+}
+message membersType {
+  string id =1;
+  string name=2;
+  string role =3;
+  string avatar=4;
+  string joinedAt=5;
+}
+
+
+message inputChangeAvatar{
+  string userId =1;
+  string roomId =2;
+  string link =3;
+}
+
+
+message outputChange {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+ outputChangeMetada metadata = 4;
+}
+message outputChangeMetada{
+  repeated membersTypePrivate members = 1;
+  string roomId=2;
+}
+message inputChangeName{
+  string userId =1;
+  string roomId =2;
+  string name =3;
+}
+message inputChangeNickName{
+  string userId =1;
+  string roomId =2;
+  string name =3;
+  string memberId=4;
+}
+
+message inputChangeRole{
+  string userId =1;
+  string roomId =2;
+  string role =3;
+  string memberId=4;
+}
+
+
+//chat
+
+enum MsgType {
+  MSG_TYPE_UNSPECIFIED = 0;
+  MSG_TYPE_TEXT  = 1;
+  MSG_TYPE_IMAGE = 2;
+  MSG_TYPE_FILE  = 3;
+  MSG_TYPE_SYSTEM = 4;
+  MSG_TYPE_CALL  = 5;
+  MSG_TYPE_VIDEO = 6;
+  MSG_TYPE_AUDIO = 7;
+}
+
+enum AttachmentKind {
+  ATTACHMENT_KIND_UNSPECIFIED = 0;
+  ATTACHMENT_KIND_PHOTO = 1;
+  ATTACHMENT_KIND_VIDEO = 2;
+  ATTACHMENT_KIND_FILE  = 3;
+  ATTACHMENT_KIND_DOC   = 4;
+  ATTACHMENT_KIND_JSON  = 5;
+}
+
+enum AttachmentStatus {
+  ATTACHMENT_STATUS_UNSPECIFIED = 0;
+  ATTACHMENT_UPLOADED   = 1;
+  ATTACHMENT_PROCESSING = 2;
+  ATTACHMENT_FAILED     = 3;
+}
+
+/* ===================== DTOs ===================== */
+message UserSummary {
+  string _id = 1;           // Mongo ObjectId (string)
+  string fullname = 2;      // Users.usr_fullname
+  string avatar = 3;        // Users.usr_avatar
+  string id = 4;            // Users.usr_id (business id)
+}
+
+message MessageSender {
+  string _id = 1;
+  string fullname = 2;
+  string avatar = 3;
+  string id = 4;            // Optional business id
+}
+
+message FilePreview {
+  string _id = 1;
+  string url = 2;
+  string name = 3;
+  int64 size = 4;
+  string mimeType = 5;
+  string thumb_url = 6;
+  int32 width = 7;
+  int32 height = 8;
+  string status=9;
+  string kind=10;
+  string summary=11;
+}
+
+message ReactionUser {
+  string _id = 1;
+  string usr_id = 2;
+  string usr_fullname = 3;
+  string usr_avatar = 4;
+}
+
+message MessageReaction {
+  string emoji = 1;
+  int32 count = 2;
+  repeated ReactionUser users = 3;
+}
+
+message ReplySender {
+  string _id = 1;
+  string name = 2;
+}
+
+message MessageReply {
+  string _id = 1;
+  string type = 2;
+  string content = 3;
+  string createdAt = 4;
+  ReplySender sender = 5;
+  bool isDelete=7;
+  repeated string hiddenBy=8;
+}
+
+message ReadByUser {
+  string _id = 1;
+  string id = 2;
+  string fullname = 3;
+  string avatar = 4;
+}
+
+message MessageReadBy {
+  string readAt = 1;
+  ReadByUser user = 2;
+}
+
+/* ===================== Core output ===================== */
+/** Message structure theo định dạng mới */
+message MessageCore {
+  // ==== Basic fields ====
+  string id = 1;                              // Message ID
+  string roomId = 2;                          // Room ID
+  string type = 3;                            // "text" | "image" | "file" | "video"
+  string content = 4;                         // Message content
+  string createdAt = 5;                       // ISO timestamp
+  string editedAt = 6;                        // ISO timestamp (nullable)
+  string deletedAt = 7;                       // ISO timestamp (nullable)
+  bool pinned = 8;                            // Pinned status
+
+  // ==== Related data ====
+  MessageSender sender = 9;                   // Message sender info
+  repeated FilePreview attachments = 10;      // File attachments
+  repeated MessageReaction reactions = 11;    // Reactions with users
+  MessageReply reply = 12;                    // Reply to message (nullable)
+
+  // ==== User-specific state ====
+  repeated MessageReadBy read_by = 17;        // List of users who read
+  int32 read_by_count = 18;  
+  bool isDeleted=19; 
+  CallHistory call_history = 20;             // Call history
+  string documentId=21;
+  repeated string hiddenBy = 22;
+  QuizCore quiz = 23;                        // Quiz data (nullable)
+
+}
+
+/** Nếu bạn muốn trả list: gói trong wrapper này (optional) */
+message MessageCoreList {
+  repeated MessageCore items = 1;
+}
+
+
+message InputCreateMsg{
+  
+  string roomId=1;
+  string type=2;
+  repeated string attachments=3;
+  string content=4;
+  string replyTo=5;
+  bool pinned =6;
+  string userId=7;
+  string id=8;
+  string documentId=9;
+  string quizId=10;
+}
+
+message CreateMessageOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  MessageCoreMetadata metadata = 4;
+}
+message MessageDeleteOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  MessageDeleteMetadata metadata = 4;
+}
+message MessageDeleteMetadata {
+  repeated MessageCoreMetadata msgs = 1;
+  repeated membersTypePrivate members = 2;
+  string roomId=3;
+}
+message MessageCoreMetadata {
+  string msgId = 1;
+  repeated membersTypePrivate members = 2;
+  string roomId=3;
+  MessageCore msg=4;
+
+}
+message membersTypePrivate {
+  string id =1;
+  string name=2;
+  string role =3;
+  string avatar=4;
+  string user_id=5;
+}
+message InputGetOneMsg {
+  string userId=1;
+  string msgId=2;
+}
+message InputMarkReadUp {
+  string userId=1;
+  string roomId=2;
+  string lastMessageId=3;
+
+}
+
+message GetMsgFromRoomInput {
+  string userId=1;
+  string roomId=2;
+  int64 limit=3;
+  string type=4;
+  string msgId=5;
+
+}
+message GetMsgs {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+ repeated MessageCore metadata = 4;
+}
+
+message HandleReactInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=5;
+  string emoji=6;
+
+}
+message HandlePinnedInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=5;
+  bool pinned=6;
+
+}
+message HandleDeleteInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=3;
+
+}
+message HandleDeleteAllInput{
+  string userId=1;
+  string roomId=2;
+  string msgId=3;
+  string placeholder=4;
+}
+
+
+
+message RequestCallInput{
+  string actionUserId = 1;
+  repeated string membersIds = 2;
+  string roomId = 3;
+  string callType = 4;
+}
+
+message AcceptCallInput{
+  string actionUserId = 1;
+  repeated string membersIds = 2;
+  string roomId = 3;
+  string callId = 4;
+}
+
+message EndCallInput{
+  string actionUserId = 1;
+  string roomId = 2;
+  string status = 3; // 'ended' | 'missed' | 'rejected' | 'cancelled'
+  string callId = 4;
+}
+
+message GetCallHistoryInput{
+  string userId=1;
+  string roomId=2;
+  string type=3;
+}
+
+message outputCall {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  CallMetadata metadata = 4;
+  
+}
+
+message CallMetadata {
+  CallHistory history = 1;      
+  RoomResponse room = 2;         
+  string callType = 3;  
+  MessageCore msg=4;   
+}
+
+message Member {
+  string id = 1;
+  string fullname = 2;
+  string avatar = 3;
+  string status = 4;
+  bool is_caller = 5;
+  string user_id = 6;
+}
+message CallHistory {
+  string _id = 1;         
+  string call_id = 2;
+  string room_id = 3;
+  string call_type = 4;
+  string message_id = 5;
+  repeated Member members = 6;
+  string started_at = 7;
+  string ended_at = 8;
+  int64 duration = 9;
+}
+
+// ===================== Quiz Messages =====================
+
+message QuizAnswer {
+  string answer_text = 1;
+  bool   is_correct  = 2;
+  int32  points      = 3;
+}
+
+message QuizQuestion {
+  string               question_text = 1;
+  string               question_type = 2; // "single_choice" | "multiple_choice" | "true_false" | "text"
+  repeated QuizAnswer  answers       = 3;
+  int32                points        = 4;
+  int32                order         = 5;
+  string               explanation   = 6;
+  string               image_url     = 7;
+}
+
+message QuizUserAnswer {
+  int32          question_index           = 1;
+  repeated int32 selected_answer_indices  = 2;
+  string         text_answer              = 3;
+  bool           is_correct               = 4;
+  int32          points_earned            = 5;
+  string         answered_at              = 6;
+}
+
+message QuizResultItem {
+  string                  user_id         = 1;
+  repeated QuizUserAnswer user_answers    = 2;
+  int32                   total_score     = 3;
+  int32                   max_score       = 4;
+  int32                   correct_count   = 5;
+  int32                   total_questions = 6;
+  string                  started_at      = 7;
+  string                  completed_at    = 8;
+  int32                   time_taken      = 9;
+  bool                    is_completed    = 10;
+  bool                    is_submitted    = 11;
+}
+
+message QuizCore {
+  string                  id                    = 1;
+  string                  quiz_id               = 2;
+  string                  quiz_title            = 3;
+  string                  quiz_description      = 4;
+  string                  quiz_roomId           = 5;
+  string                  quiz_createdBy        = 6;
+  repeated QuizQuestion   quiz_questions        = 7;
+  string                  quiz_status           = 8;  // "draft" | "active" | "completed" | "cancelled"
+  int32                   quiz_timeLimit        = 9;
+  string                  quiz_startTime        = 10;
+  string                  quiz_endTime          = 11;
+  bool                    quiz_showResults      = 12;
+  bool                    quiz_allowRetake      = 13;
+  int32                   quiz_maxAttempts      = 14;
+  repeated QuizResultItem quiz_results          = 15;
+  int64                   quiz_totalParticipants = 16;
+  int64                   quiz_totalSubmissions  = 17;
+  string                  quiz_image            = 18;
+  string                  createdAt             = 19;
+  string                  updatedAt             = 20;
+}

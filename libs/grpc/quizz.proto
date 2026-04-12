@@ -1,0 +1,245 @@
+syntax = "proto3";
+
+package quizz;
+
+
+service QuizzService {
+    rpc CreateQuizz(CreateQuizzRequest) returns (CreateQuizzResponse);
+    rpc GetQuizz(GetQuizzRequest) returns (GetQuizzResponse);
+    rpc ListQuizzes(ListQuizzesRequest) returns (ListQuizzesResponse);
+    rpc UpdateQuizz(UpdateQuizzRequest) returns (UpdateQuizzResponse);
+    rpc DeleteQuizz(DeleteQuizzRequest) returns (DeleteQuizzResponse);
+    rpc SubmitQuizz(SubmitQuizzRequest) returns (SubmitQuizzResponse);
+    rpc GetQuizzResults(GetQuizzResultsRequest) returns (GetQuizzResultsResponse);
+}
+
+message CreateQuizzRequest {
+    string quiz_title = 1;
+    string quiz_description = 2;
+    string quiz_roomId = 3;
+    string quiz_createdBy = 4;
+    string quiz_status = 5; // draft, active, completed, cancelled
+    int32 quiz_timeLimit = 6;
+    string quiz_startTime = 7; // ISO date string
+    string quiz_endTime = 8; // ISO date string
+    bool quiz_showResults = 9;
+    bool quiz_allowRetake = 10;
+    int32 quiz_maxAttempts = 11;
+    string quiz_image = 12;
+    repeated Question quiz_questions = 13;
+}
+
+message CreateQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    QuizMetadata metadata = 4;
+}
+
+message GetQuizzRequest {
+    string quiz_id = 1;
+    string userId = 2;
+}
+
+message GetQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    QuizMetadata metadata = 4;
+}
+
+message ListQuizzesRequest {
+    string roomId    = 1;
+    int32  page      = 2;
+    int32  limit     = 3;
+    string createdBy = 4; // optional: MongoDB _id của người tạo
+}
+
+message ListQuizzesResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    ListQuizzesMetadata metadata = 4;
+}
+
+message ListQuizzesMetadata {
+    repeated QuizMetadata data = 1;
+    int64 total_item = 2;
+    int64 total_page = 3;
+    int64 page = 4;
+}
+
+message UpdateQuizzRequest {
+    string quiz_id = 1;
+    string userId = 2;
+    string quiz_title = 3;
+    string quiz_description = 4;
+    string quiz_status = 5; // draft, active, completed, cancelled
+    int32 quiz_timeLimit = 6;
+    string quiz_startTime = 7; // ISO date string
+    string quiz_endTime = 8; // ISO date string
+    bool quiz_showResults = 9;
+    bool quiz_allowRetake = 10;
+    int32 quiz_maxAttempts = 11;
+    string quiz_image = 12;
+    repeated Question quiz_questions = 13;
+}
+
+message UpdateQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    QuizMetadata metadata = 4;
+}
+
+message DeleteQuizzRequest {
+    string quiz_id = 1;
+    string userId = 2;
+}
+
+message DeleteQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    string metadata = 4;
+}
+
+
+message Question {
+    string question_text = 1;
+    string question_type = 2; // single_choice, multiple_choice, true_false, text
+    repeated Answer answers = 3;
+    int32 points = 4;
+    int32 order = 5;
+    string explanation = 6;
+    string image_url = 7;
+}
+
+message Answer {
+    string answer_text = 1;
+    bool is_correct = 2;
+    int32 points = 3;
+}
+
+message UserAnswerInput {
+    int32  question_index           = 1;
+    repeated int32 selected_answer_indices = 2;
+    string text_answer              = 3;
+    bool   is_correct               = 4;
+    int32  points_earned            = 5;
+    string answered_at              = 6; // ISO date string
+}
+
+message AnswerSubmit {
+    string userId          = 1;
+    repeated UserAnswerInput answers = 2;
+    int32  time_taken      = 3;  // giây
+    string started_at      = 4;  // ISO date string
+    int32  total_score     = 5;
+    int32  max_score       = 6;
+    int32  correct_count   = 7;
+    int32  total_questions = 8;
+    string completed_at    = 9;  // ISO date string
+    bool   is_completed    = 10;
+    bool   is_submitted    = 11;
+}
+
+message SubmitQuizzRequest {
+    string quiz_id = 1;
+    AnswerSubmit answer = 2;
+}
+
+message SubmitQuizzMetadata {
+    int32 total_score = 1;
+    int32 max_score = 2;
+    int32 correct_count = 3;
+    int32 total_questions = 4;
+    bool is_completed = 5;
+    QuizMetadata quiz = 6;
+}
+
+message SubmitQuizzResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    SubmitQuizzMetadata metadata = 4;
+}
+
+message GetQuizzResultsRequest {
+    string quiz_id = 1;
+    string user_id = 2; // optional: nếu truyền vào sẽ trả về my_result
+}
+
+message QuizUserAnswerResult {
+    int32  question_index           = 1;
+    repeated int32 selected_answer_indices = 2;
+    string text_answer              = 3;
+    bool   is_correct               = 4;
+    int32  points_earned            = 5;
+    string answered_at              = 6;
+}
+
+message QuizResultItem {
+    string user_id         = 1;
+    int32  total_score     = 2;
+    int32  max_score       = 3;
+    int32  correct_count   = 4;
+    int32  total_questions = 5;
+    string started_at      = 6;
+    string completed_at    = 7;
+    int32  time_taken      = 8;
+    bool   is_completed    = 9;
+    bool   is_submitted    = 10;
+    repeated QuizUserAnswerResult user_answers = 11;
+}
+
+message LeaderboardEntry {
+    int32  rank          = 1;
+    string user_id       = 2;
+    string user_name     = 3;
+    string user_avatar   = 4;
+    int32  correct_count = 5;
+    int32  total_score   = 6;
+    int32  max_score     = 7;
+    int32  time_taken    = 8; // giây
+    bool   is_completed  = 9;
+}
+
+message GetQuizzResultsMetadata {
+    string quiz_id                        = 1;
+    string quiz_title                     = 2;
+    int32  total_participants             = 3;
+    int32  submitted_count                = 4;
+    int32  not_submitted_count            = 5;
+    repeated LeaderboardEntry leaderboard = 6;
+    QuizResultItem my_result              = 7; // kết quả của user nếu có user_id
+}
+
+message GetQuizzResultsResponse {
+    string message         = 1;
+    int32  statusCode      = 2;
+    string reasonStatusCode = 3;
+    GetQuizzResultsMetadata metadata = 4;
+}
+
+message QuizMetadata {
+    string _id = 17;
+    string quiz_id = 1;
+    string quiz_title = 2;
+    string quiz_description = 3;
+    string quiz_roomId = 4;
+    string quiz_createdBy = 5;
+    string quiz_status = 6; // draft, active, completed, cancelled
+    int32 quiz_timeLimit = 7;
+    string quiz_startTime = 8; // ISO date string
+    string quiz_endTime = 9; // ISO date string
+    bool quiz_showResults = 10;
+    bool quiz_allowRetake = 11;
+    int32 quiz_maxAttempts = 12;
+    string quiz_image = 13;
+    repeated Question quiz_questions = 14;
+    string createdAt = 15;
+    string updatedAt = 16;
+    bool is_send = 18;
+    repeated QuizResultItem quiz_results = 19;
+}
