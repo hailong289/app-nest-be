@@ -6,6 +6,7 @@ WORKDIR /app
 # Cài đặt công cụ build cho Alpine
 RUN apk add --no-cache \
     python3 \
+    py3-pip \
     make \
     g++ \
     gcc \
@@ -32,6 +33,7 @@ WORKDIR /app
 # Cài đặt công cụ build cho Alpine
 RUN apk add --no-cache \
     python3 \
+    py3-pip \
     make \
     g++ \
     gcc \
