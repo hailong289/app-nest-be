@@ -18,11 +18,8 @@ RUN ln -sf python3 /usr/bin/python
 # Copy package.json và lock file trước để tận dụng cache
 COPY package*.json ./
 
-# Install tất cả deps nhưng skip postinstall scripts (bỏ qua mediasoup build)
-RUN npm install --ignore-scripts
-
-# Chỉ build mediasoup riêng (chạy postinstall của mediasoup)
-RUN npm rebuild mediasoup --update-binary || npm run --prefix node_modules/mediasoup postinstall || node node_modules/mediasoup/npm-scripts.mjs postinstall
+# Install toàn bộ deps (mediasoup sẽ tự build worker trong postinstall)
+RUN npm install
 
 # Copy toàn bộ source code (apps + libs)
 COPY . .
@@ -30,29 +27,19 @@ COPY . .
 # Build chỉ service chat
 RUN npm run build:chat
 
+# Pruning: giữ lại chỉ production deps
+RUN npm prune --omit=dev
+
 # ---------- Stage 2: Production ----------
 FROM node:24-alpine AS runner
 
 WORKDIR /app
 
-# Cài đặt công cụ build cho Alpine (cần cho mediasoup)
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    make \
-    g++ \
-    gcc \
-    linux-headers
+# Cài đặt runtime libs cần thiết cho mediasoup worker binary
+RUN apk add --no-cache libstdc++ libgcc
 
-# Link python3 thành python để mediasoup tìm thấy
-RUN ln -sf python3 /usr/bin/python
-
-# Copy package.json và cài dependencies production (skip postinstall)
-COPY package*.json ./
-RUN npm install --omit=dev --ignore-scripts
-
-# Chỉ build mediasoup riêng (chạy postinstall của mediasoup)
-RUN node node_modules/mediasoup/npm-scripts.mjs postinstall
+# Copy node_modules đã build sẵn (bao gồm mediasoup worker binary) từ builder
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy dist của service chat từ builder
 COPY --from=builder /app/dist ./dist
