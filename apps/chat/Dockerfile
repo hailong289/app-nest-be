@@ -3,7 +3,7 @@ FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Cài đặt công cụ build cho Alpine
+# Cài đặt công cụ build cho Alpine (cần cho mediasoup)
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -17,7 +17,12 @@ RUN ln -sf python3 /usr/bin/python
 
 # Copy package.json và lock file trước để tận dụng cache
 COPY package*.json ./
-RUN npm install
+
+# Install tất cả deps nhưng skip postinstall scripts (bỏ qua mediasoup build)
+RUN npm install --ignore-scripts
+
+# Chỉ build mediasoup riêng (chạy postinstall của mediasoup)
+RUN npm rebuild mediasoup --update-binary || npm run --prefix node_modules/mediasoup postinstall || node node_modules/mediasoup/npm-scripts.mjs postinstall
 
 # Copy toàn bộ source code (apps + libs)
 COPY . .
@@ -30,7 +35,7 @@ FROM node:24-alpine AS runner
 
 WORKDIR /app
 
-# Cài đặt công cụ build cho Alpine
+# Cài đặt công cụ build cho Alpine (cần cho mediasoup)
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -42,9 +47,12 @@ RUN apk add --no-cache \
 # Link python3 thành python để mediasoup tìm thấy
 RUN ln -sf python3 /usr/bin/python
 
-# Copy package.json và cài dependencies production
+# Copy package.json và cài dependencies production (skip postinstall)
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
+
+# Chỉ build mediasoup riêng (chạy postinstall của mediasoup)
+RUN node node_modules/mediasoup/npm-scripts.mjs postinstall
 
 # Copy dist của service chat từ builder
 COPY --from=builder /app/dist ./dist
