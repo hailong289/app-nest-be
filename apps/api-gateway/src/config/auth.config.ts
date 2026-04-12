@@ -22,12 +22,19 @@ export default registerAs('auth', () => {
   const envConfig = config({ path: envPath, override: false });
   const serviceEnv = envConfig.parsed || {};
 
-  // Đọc giá trị từ file env tương ứng (ưu tiên file env của service này)
-  return {
+  const configResult = {
     host: serviceEnv.GATEWAY_AUTH_HOST || 'localhost',
     port: serviceEnv.GATEWAY_AUTH_PORT || '5001',
     protoPath: serviceEnv.GATEWAY_AUTH_PROTO_PATH || 'libs/grpc/auth.proto',
     nodeEnv,
     envFile,
   };
+
+  console.log('[auth.config] Config result:', {
+    ...configResult,
+    protoPathType: typeof configResult.protoPath,
+  });
+
+  // Đọc giá trị từ file env tương ứng (ưu tiên file env của service này)
+  return configResult;
 });
