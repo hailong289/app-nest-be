@@ -3,6 +3,17 @@ FROM node:24-alpine AS builder
 
 WORKDIR /app
 
+# Cài đặt công cụ build cho Alpine
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    gcc \
+    linux-headers
+
+# Link python3 thành python để mediasoup tìm thấy
+RUN ln -sf python3 /usr/bin/python
+
 # Copy package.json và lock file trước để tận dụng cache
 COPY package*.json ./
 RUN npm install
@@ -17,6 +28,17 @@ RUN npm run build:ai
 FROM node:24-alpine AS runner
 
 WORKDIR /app
+
+# Cài đặt công cụ build cho Alpine
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    gcc \
+    linux-headers
+
+# Link python3 thành python để mediasoup tìm thấy
+RUN ln -sf python3 /usr/bin/python
 
 # Copy package.json và cài dependencies production
 COPY package*.json ./
