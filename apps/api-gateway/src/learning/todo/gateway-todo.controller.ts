@@ -54,10 +54,10 @@ export class GatewayTodoController {
   private todoService: TodoGrpcService;
 
   constructor(
-    @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
+    @Inject(SERVICES.LEARNING) private readonly learningClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
   ) {
-    this.todoService = this.aiClient.getService<TodoGrpcService>('TodoService');
+    this.todoService = this.learningClient.getService<TodoGrpcService>('TodoService');
   }
 
   @Post('create')

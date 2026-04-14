@@ -78,6 +78,17 @@
         "tsConfigPath": "apps/ai/tsconfig.app.json"
       }
     },
+    "learning": {
+      "type": "application",
+      "root": "apps/learning",
+      "entryFile": "main",
+      "sourceRoot": "apps/learning/src",
+      "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
+        "tsConfigPath": "apps/learning/tsconfig.app.json"
+      }
+    },
     "socket": {
       "type": "application",
       "root": "apps/socket",

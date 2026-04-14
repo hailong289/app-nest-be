@@ -18,7 +18,7 @@ import {
   GetQuizzDto,
   ListQuizzesDto,
   UpdateQuizzDto,
-} from 'apps/ai/src/quizz/dto/quizz.dto';
+} from 'apps/learning/src/quizz/dto/quizz.dto';
 import { Observable } from 'rxjs';
 import { GatewayService } from '../../gateway/gateway.service';
 import type { AuthenticatedRequest } from 'libs/types/auth.type';
@@ -59,11 +59,11 @@ interface QuizzGrpcService {
 export class GatewayQuizzController {
   private quizzService: QuizzGrpcService;
   constructor(
-    @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
+    @Inject(SERVICES.LEARNING) private readonly learningClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
   ) {
     this.quizzService =
-      this.aiClient.getService<QuizzGrpcService>('QuizzService');
+      this.learningClient.getService<QuizzGrpcService>('QuizzService');
   }
 
   @Post('create')
