@@ -5,14 +5,13 @@ WORKDIR /app
 
 # Copy package.json và lock file trước để tận dụng cache
 COPY package*.json ./
-RUN npm install
+RUN npm install --ignore-scripts
 
 # Copy toàn bộ source code (apps + libs)
 COPY . .
 
 # Build chỉ service auth
 RUN npm run build:auth
-
 
 # ---------- Stage 2: Production ----------
 FROM node:24-alpine AS runner
@@ -21,7 +20,7 @@ WORKDIR /app
 
 # Copy package.json và cài dependencies production
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 
 # Copy dist của service auth từ builder
 COPY --from=builder /app/dist ./dist

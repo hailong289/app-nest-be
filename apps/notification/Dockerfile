@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy package.json và lock file trước để tận dụng cache
 COPY package*.json ./
-RUN npm install
+RUN npm install --ignore-scripts
 
 # Copy toàn bộ source code (apps + libs)
 COPY . .
@@ -20,7 +20,7 @@ WORKDIR /app
 
 # Copy package.json và cài dependencies production
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 
 # Copy dist của service notification từ builder
 COPY --from=builder /app/dist ./dist

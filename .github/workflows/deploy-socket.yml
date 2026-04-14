@@ -11,52 +11,47 @@ jobs:
       name: SOCKET_SERVICE
     steps:
       - uses: actions/checkout@v3
-
-      # 1. Authenticate với Google Cloud
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      # 2. Setup Gcloud SDK
       - uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: app-chat-2b616
-
-      # 3. Configure Docker Auth
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
-
-      # 4. Build và Push Docker Image
-      - name: Build and Push Container
-        run: |
+      - run: |
           IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/socket:latest"
           docker build -t $IMAGE -f apps/socket/Dockerfile .
           docker push $IMAGE
 
       - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: socket-service
-          image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/socket:latest
-          region: asia-southeast1
-          flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=1Gi --port=8080 --timeout=60s --use-http2'
-          env_vars: |-
-            NODE_ENV=${{ secrets.NODE_ENV }}
-            PORT=${{ secrets.PORT }}
-            REDIS_HOST=${{ secrets.REDIS_HOST }}
-            REDIS_PORT=${{ secrets.REDIS_PORT }}
-            REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            GATEWAY_JWT_ACCESS_SECRET=${{ secrets.GATEWAY_JWT_ACCESS_SECRET }}
-            GATEWAY_CHAT_HOST=${{ secrets.GATEWAY_CHAT_HOST }}
-            GATEWAY_CHAT_PORT=${{ secrets.GATEWAY_CHAT_PORT }}
-            GATEWAY_CHAT_PROTO_PATH=${{ secrets.GATEWAY_CHAT_PROTO_PATH }}
-            GATEWAY_FILESYSTEM_HOST=${{ secrets.GATEWAY_FILESYSTEM_HOST }}
-            GATEWAY_FILESYSTEM_PORT=${{ secrets.GATEWAY_FILESYSTEM_PORT }}
-            GATEWAY_NOTI_KAFKA_HOST=${{ secrets.GATEWAY_NOTI_KAFKA_HOST }}
-            GATEWAY_NOTI_KAFKA_PORT=${{ secrets.GATEWAY_NOTI_KAFKA_PORT }}
-            GATEWAY_NOTI_KAFKA_CLIENT_ID=${{ secrets.GATEWAY_NOTI_KAFKA_CLIENT_ID }}
-            GATEWAY_NOTI_KAFKA_GROUP_ID=${{ secrets.GATEWAY_NOTI_KAFKA_GROUP_ID }}
-            GATEWAY_NOTI_KAFKA_SASL=${{ secrets.GATEWAY_NOTI_KAFKA_SASL }}
-            GATEWAY_NOTI_KAFKA_SASL_MECHANISM=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_MECHANISM }}
-            GATEWAY_NOTI_KAFKA_SASL_USERNAME=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_USERNAME }}
-            GATEWAY_NOTI_KAFKA_SASL_PASSWORD=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_PASSWORD }}
+        run: |
+          gcloud run deploy socket-service \
+            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/socket:latest \
+            --region asia-southeast1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=3 \
+            --cpu=1 \
+            --memory=1Gi \
+            --port=8080 \
+            --timeout=60s \
+            --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
+            --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
+            --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
+            --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} \
+            --set-env-vars GATEWAY_JWT_ACCESS_SECRET=${{ secrets.GATEWAY_JWT_ACCESS_SECRET }} \
+            --set-env-vars GATEWAY_CHAT_HOST=${{ secrets.GATEWAY_CHAT_HOST }} \
+            --set-env-vars GATEWAY_CHAT_PORT=${{ secrets.GATEWAY_CHAT_PORT }} \
+            --set-env-vars GATEWAY_CHAT_PROTO_PATH=${{ secrets.GATEWAY_CHAT_PROTO_PATH }} \
+            --set-env-vars GATEWAY_FILESYSTEM_HOST=${{ secrets.GATEWAY_FILESYSTEM_HOST }} \
+            --set-env-vars GATEWAY_FILESYSTEM_PORT=${{ secrets.GATEWAY_FILESYSTEM_PORT }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_HOST=${{ secrets.GATEWAY_NOTI_KAFKA_HOST }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_PORT=${{ secrets.GATEWAY_NOTI_KAFKA_PORT }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_CLIENT_ID=${{ secrets.GATEWAY_NOTI_KAFKA_CLIENT_ID }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_GROUP_ID=${{ secrets.GATEWAY_NOTI_KAFKA_GROUP_ID }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_SASL=${{ secrets.GATEWAY_NOTI_KAFKA_SASL }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_SASL_MECHANISM=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_MECHANISM }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_SASL_USERNAME=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_USERNAME }} \
+            --set-env-vars GATEWAY_NOTI_KAFKA_SASL_PASSWORD=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_PASSWORD }}
