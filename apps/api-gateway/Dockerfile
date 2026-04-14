@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy package.json để cache cài deps
 COPY package*.json ./
-RUN npm install
+RUN npm install --ignore-scripts
 
 # Copy toàn bộ source (apps + libs)
 COPY . .
@@ -14,13 +14,13 @@ COPY . .
 RUN npm run build:gateway
 
 # ---------- Stage 2: Runner ----------
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 
 WORKDIR /app
 
 # Copy package.json & install production deps
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 
 # Copy dist từ builder
 COPY --from=builder /app/dist ./dist

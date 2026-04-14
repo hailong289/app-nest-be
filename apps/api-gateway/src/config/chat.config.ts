@@ -6,22 +6,26 @@ export default registerAs('chat', () => {
   const nodeEnv =
     process.env.GATEWAY_CHAT_NODE_ENV || process.env.NODE_ENV || 'local';
 
-  // Chỉ hợp pháp khi NODE_ENV là 'local' hoặc 'production'
   if (nodeEnv !== 'local' && nodeEnv !== 'production') {
     throw new Error(
       `Invalid GATEWAY_CHAT_NODE_ENV: ${nodeEnv}. Must be 'local' or 'production'`,
     );
   }
 
-  // Load file env tương ứng với NODE_ENV của service này
-  const envFile = nodeEnv === 'local' ? 'development' : 'production';
-  const envPath = resolve(process.cwd(), `apps/api-gateway/.env.${envFile}`);
-  const envConfig = config({ path: envPath, override: false });
-  const serviceEnv = envConfig.parsed || {};
-  let protoPath: string =
-    serviceEnv.GATEWAY_CHAT_PROTO_PATH || 'libs/grpc/chat.proto';
+  // Production (Cloud Run): đọc trực tiếp từ process.env được inject
+  // Local: load từ file .env.development
+  let serviceEnv: Record<string, string> = {};
+  if (nodeEnv === 'local') {
+    const envPath = resolve(process.cwd(), 'apps/api-gateway/.env.development');
+    const envConfig = config({ path: envPath, override: false });
+    serviceEnv = envConfig.parsed || {};
+  }
 
-  // Validate: nếu protoPath không chứa 'chat.proto', dùng giá trị mặc định
+  const get = (key: string) => serviceEnv[key] || process.env[key];
+
+  let protoPath: string =
+    get('GATEWAY_CHAT_PROTO_PATH') || 'libs/grpc/chat.proto';
+
   if (!protoPath.includes('chat.proto')) {
     console.warn(
       `[chat.config] Invalid protoPath: ${protoPath}, using default: libs/grpc/chat.proto`,
@@ -30,11 +34,10 @@ export default registerAs('chat', () => {
   }
 
   const configResult = {
-    host: serviceEnv.GATEWAY_CHAT_HOST || 'localhost',
-    port: serviceEnv.GATEWAY_CHAT_PORT || '5003',
+    host: get('GATEWAY_CHAT_HOST') || 'localhost',
+    port: get('GATEWAY_CHAT_PORT') || '5003',
     protoPath,
     nodeEnv,
-    envFile,
   };
 
   console.log('[chat.config] Config result:', {

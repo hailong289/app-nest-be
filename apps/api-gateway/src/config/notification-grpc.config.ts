@@ -8,29 +8,28 @@ export default registerAs('notificationGrpc', () => {
     process.env.NODE_ENV ||
     'local';
 
-  // Chỉ hợp pháp khi NODE_ENV là 'local' hoặc 'production'
   if (nodeEnv !== 'local' && nodeEnv !== 'production') {
     throw new Error(
       `Invalid GATEWAY_NOTIFICATION_NODE_ENV: ${nodeEnv}. Must be 'local' or 'production'`,
     );
   }
 
-  // Load file env tương ứng với NODE_ENV của service này
-  const envFile = nodeEnv === 'local' ? 'development' : 'production';
-  const envPath = resolve(process.cwd(), `apps/api-gateway/.env.${envFile}`);
+  // Production (Cloud Run): đọc trực tiếp từ process.env được inject
+  // Local: load từ file .env.development
+  let serviceEnv: Record<string, string> = {};
+  if (nodeEnv === 'local') {
+    const envPath = resolve(process.cwd(), 'apps/api-gateway/.env.development');
+    const envConfig = config({ path: envPath, override: false });
+    serviceEnv = envConfig.parsed || {};
+  }
 
-  // Load file env riêng cho service này (không override process.env hiện tại)
-  const envConfig = config({ path: envPath, override: false });
-  const serviceEnv = envConfig.parsed || {};
+  const get = (key: string) => serviceEnv[key] || process.env[key];
 
-  // Đọc giá trị từ file env tương ứng (ưu tiên file env của service này)
   return {
-    host: serviceEnv.GATEWAY_NOTIFICATION_HOST || 'localhost',
-    port: serviceEnv.GATEWAY_NOTIFICATION_PORT || '5005',
+    host: get('GATEWAY_NOTIFICATION_HOST') || 'localhost',
+    port: get('GATEWAY_NOTIFICATION_PORT') || '5005',
     protoPath:
-      serviceEnv.GATEWAY_NOTIFICATION_PROTO_PATH ||
-      'libs/grpc/notification.proto',
+      get('GATEWAY_NOTIFICATION_PROTO_PATH') || 'libs/grpc/notification.proto',
     nodeEnv,
-    envFile,
   };
 });
