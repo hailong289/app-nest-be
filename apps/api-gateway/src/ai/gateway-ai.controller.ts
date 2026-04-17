@@ -47,11 +47,12 @@ interface AiGrpcService {
   quizz(data: QuizzDto): Observable<unknown>;
   generateFlashcard(data: {
     topic: string;
-    type: 'text' | 'document';
+    type: 'text' | 'document' | 'file_url';
     card_count: number;
     difficulty: number;
     language: string;
     file?: unknown;
+    file_url?: string;
   }): Observable<unknown>;
 }
 
@@ -159,11 +160,12 @@ export class GatewayAiController {
    * Tạo flashcard tự động bằng AI từ văn bản hoặc tài liệu đính kèm.
    * Body (multipart/form-data):
    *   - topic      : string  — nội dung / chủ đề (khi type='text')
-   *   - type       : 'text' | 'document'
+   *   - type       : 'text' | 'document' | 'file_url'
    *   - card_count : number  — số lượng thẻ (1–50, default: 10)
    *   - difficulty : number  — độ khó 1–5 (default: 3)
    *   - language   : string  — ngôn ngữ đầu ra (default: 'vi')
    *   - file       : File    — file đính kèm (khi type='document')
+   *   - file_url   : string  — URL file nguồn (khi type='file_url')
    */
   @Post('generate-flashcard')
   @UseInterceptors(FileInterceptor('file'))
@@ -172,15 +174,23 @@ export class GatewayAiController {
     @Body()
     body: {
       topic: string;
-      type: 'text' | 'document';
+      type: 'text' | 'document' | 'file_url';
       card_count: number;
       difficulty: number;
       language: string;
+      file_url?: string;
     },
   ) {
-    console.log('GenerateFlashcard request:', { file, body });
     return this.gatewayService.dispatchGrpcRequest(
-      (data: GenerateFlashcardDto & { file?: MulterFile }) =>
+      (data: {
+        topic: string;
+        type: 'text' | 'document' | 'file_url';
+        card_count?: number;
+        difficulty?: number;
+        language?: string;
+        file?: MulterFile;
+        file_url?: string;
+      }) =>
         this.aiService.generateFlashcard({
           topic: data.topic ?? '',
           type: data.type,
@@ -188,8 +198,9 @@ export class GatewayAiController {
           difficulty: Number(data.difficulty) || 3,
           language: data.language || 'vi',
           file: data.file,
+          file_url: data.file_url,
         }),
-      { ...body, file },
+      { ...body, file, file_url: body.file_url },
       180000, // 3 minutes timeout (AI cần thời gian tạo nhiều thẻ)
     );
   }
