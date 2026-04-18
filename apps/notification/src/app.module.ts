@@ -7,7 +7,7 @@ import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
 import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
-import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handlebars.adapter';
+import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
 import {
   redisConfig,
