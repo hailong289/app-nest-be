@@ -17,7 +17,7 @@ import { LearningModule } from './learning/learning.module';
       ),
       load: [mongoConfig, kafkaConfig],
     }),
-    KafkaAdminModule,
+    // KafkaAdminModule,
     MongodbModule,
     LearningModule,
   ],
