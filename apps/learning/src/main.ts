@@ -12,7 +12,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   const HOST = configService.get<string>('HOST') || '0.0.0.0';
-  const PORT = configService.get<number>('PORT') || 5005;
+  const PORT = configService.get<number>('PORT') || 5007;
 
   app.useGlobalFilters(new HttpExceptionsFilter());
 
