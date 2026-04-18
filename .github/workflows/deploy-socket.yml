@@ -35,7 +35,7 @@ jobs:
             --cpu=1 \
             --memory=1Gi \
             --port=8080 \
-            --timeout=60s \
+            --timeout=3600s \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
