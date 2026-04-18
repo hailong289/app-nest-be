@@ -5,6 +5,8 @@ import { Model } from 'mongoose';
 import { EmbeddingService } from './embedding.service';
 import { Message } from 'libs/db/src';
 import { MulterFile } from '@app/dto';
+import axios from 'axios';
+import { basename } from 'node:path';
 
 @Injectable()
 export class AIService {
@@ -83,14 +85,42 @@ export class AIService {
     difficulty: number,
     language: string,
     file?: MulterFile,
+    file_url?: string,
   ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
     return await this.googleProvider.generateFlashcard(
       topic,
       type,
       card_count,
       difficulty,
       language,
-      file,
+      inputFile,
     );
+  }
+
+  private async downloadFileFromUrl(fileUrl: string): Promise<MulterFile> {
+    const response = await axios.get(fileUrl, { responseType: 'stream' });
+    const chunks: Buffer[] = [];
+
+    for await (const chunk of response.data as AsyncIterable<Buffer | string>) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+
+    const buffer = Buffer.concat(chunks);
+    const filenameFromUrl = basename(new URL(fileUrl).pathname);
+
+    return {
+      fieldname: 'file',
+      originalname: filenameFromUrl || 'remote-file',
+      encoding: '7bit',
+      mimetype: response.headers['content-type'] || 'application/octet-stream',
+      size: buffer.length,
+      buffer,
+    };
   }
 }

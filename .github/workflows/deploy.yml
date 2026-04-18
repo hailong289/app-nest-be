@@ -12,6 +12,7 @@ on:
       - 'apps/chat/**'
       - 'apps/ai/**'
       - 'apps/socket/**'
+      - 'apps/learning/**'
 
 jobs:
   detect-changes:
@@ -24,6 +25,7 @@ jobs:
       service-chat: ${{ steps.filter.outputs.service-chat }}
       service-ai: ${{ steps.filter.outputs.service-ai }}
       service-socket: ${{ steps.filter.outputs.service-socket }}
+      service-learning: ${{ steps.filter.outputs.service-learning }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -48,6 +50,8 @@ jobs:
               - 'apps/ai/**'
             service-socket:
               - 'apps/socket/**'
+            service-learning:
+              - 'apps/learning/**'
 
   deploy-auth-service:
     needs:
@@ -96,6 +100,13 @@ jobs:
       - detect-changes
     if: ${{ needs.detect-changes.outputs.service-socket == 'true' }}
     uses: ./.github/workflows/deploy-socket.yml
+    secrets: inherit
+
+  deploy-learning-service:
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-learning == 'true' }}
+    uses: ./.github/workflows/deploy-learning.yml
     secrets: inherit
 
   notify-services:
@@ -151,6 +162,24 @@ jobs:
               MESSAGES+=("✅ AI Service deployment thành công!")
             elif [ "${{ needs.deploy-ai-service.result }}" == "failure" ]; then
               MESSAGES+=("❌ AI Service deployment thất bại!")
+            fi
+          fi
+
+          # Socket Service
+          if [ "${{ needs.detect-changes.outputs.service-socket }}" == "true" ]; then
+            if [ "${{ needs.deploy-socket-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Socket Service deployment thành công!")
+            elif [ "${{ needs.deploy-socket-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Socket Service deployment thất bại!")
+            fi
+          fi
+          
+          # Learning Service
+          if [ "${{ needs.detect-changes.outputs.service-learning }}" == "true" ]; then
+            if [ "${{ needs.deploy-learning-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Learning Service deployment thành công!")
+            elif [ "${{ needs.deploy-learning-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Learning Service deployment thất bại!")
             fi
           fi
           

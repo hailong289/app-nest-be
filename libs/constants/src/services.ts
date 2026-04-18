@@ -1,4 +1,3 @@
-// Service names and configurations
 export const SERVICES = {
   AUTH: 'AUTH_SERVICE',
   CHAT: 'CHAT_SERVICE',
@@ -6,4 +5,6 @@ export const SERVICES = {
   FILESYSTEM: 'FILESYSTEM_SERVICE',
   AI: 'AI_SERVICE',
   SOCKET: 'SOCKET_SERVICE',
+  LEARNING: 'LEARNING_SERVICE',
 } as const;
+

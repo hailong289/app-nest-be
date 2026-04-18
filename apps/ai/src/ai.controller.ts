@@ -169,6 +169,8 @@ export class AIController {
     language: string;
     /** File đính kèm (chỉ dùng khi type = 'document') */
     file?: MulterFile;
+    /** URL file nguồn (chỉ dùng khi type = 'file_url') */
+    file_url?: string;
   }) {
     return await this.service.generateFlashcard(
       data.topic,
@@ -177,6 +179,7 @@ export class AIController {
       data.difficulty ?? 3,
       data.language ?? 'vi',
       data.file,
+      data.file_url,
     );
   }
 }

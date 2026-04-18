@@ -25,7 +25,7 @@ import {
   ListFlashcardDecksDto,
   UpdateFlashcardDeckDto,
   UpdateFlashcardProgressDto,
-} from 'apps/ai/src/flashcard/dto/flashcard.dto';
+} from 'apps/learning/src/flashcard/dto/flashcard.dto';
 import { Observable } from 'rxjs';
 import { GatewayService } from '../../gateway/gateway.service';
 
@@ -40,7 +40,9 @@ interface FlashcardGrpcService {
     data: DeleteFlashcardDto & { card_id: string },
   ): Observable<any>;
   CreateFlashcardDeck(data: CreateFlashcardDeckDto): Observable<any>;
-  GetFlashcardDeck(data: GetFlashcardDeckDto & { userId?: string }): Observable<any>;
+  GetFlashcardDeck(
+    data: GetFlashcardDeckDto & { userId?: string },
+  ): Observable<any>;
   ListFlashcardDecks(data: ListFlashcardDecksDto): Observable<any>;
   UpdateFlashcardDeck(
     data: UpdateFlashcardDeckDto & { deck_id: string },
@@ -51,20 +53,21 @@ interface FlashcardGrpcService {
   UpdateFlashcardProgress(
     data: UpdateFlashcardProgressDto & { card_id: string; user_id: string },
   ): Observable<any>;
-  GetFlashcardProgress(
-    data: { card_id: string; user_id: string },
-  ): Observable<any>;
+  GetFlashcardProgress(data: {
+    card_id: string;
+    user_id: string;
+  }): Observable<any>;
 }
 
-@Controller('ai/flashcard')
+@Controller('learning/flashcard')
 export class GatewayFlashcardController {
   private flashcardService: FlashcardGrpcService;
   constructor(
-    @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
+    @Inject(SERVICES.LEARNING) private readonly learningClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
   ) {
     this.flashcardService =
-      this.aiClient.getService<FlashcardGrpcService>('FlashcardService');
+      this.learningClient.getService<FlashcardGrpcService>('FlashcardService');
   }
 
   // Flashcard endpoints

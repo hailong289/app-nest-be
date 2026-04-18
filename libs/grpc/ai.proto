@@ -3,6 +3,7 @@ syntax = "proto3";
 package ai;
 import "quizz.proto";
 import "flashcard.proto";
+import "todo.proto";
 
 service AIService {
   rpc Moderation(ModerationRequest) returns (ModerationResponse);

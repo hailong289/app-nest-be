@@ -81,6 +81,12 @@ export class GenerateFlashcardDto {
   @Type(() => FileUploadData)
   file?: FileUploadData;
 
+  /** URL file nguồn — bắt buộc khi type = 'file_url' */
+  @ValidateIf((o) => o.type === 'file_url')
+  @IsNotEmpty({ message: 'file_url không để trống khi type là file_url' })
+  @IsString({ message: 'file_url phải là chuỗi' })
+  file_url?: string;
+
   /** Nội dung văn bản để tạo flashcard — bắt buộc khi type = 'text' */
   @ValidateIf((o) => o.type === 'text')
   @IsNotEmpty({ message: 'Chủ đề / nội dung không để trống' })
@@ -89,8 +95,10 @@ export class GenerateFlashcardDto {
 
   /** Nguồn dữ liệu đầu vào */
   @IsNotEmpty({ message: 'Loại không để trống' })
-  @IsIn(['text', 'document'], { message: 'Loại phải là text hoặc document' })
-  type: 'text' | 'document';
+  @IsIn(['text', 'document', 'file_url'], {
+    message: 'Loại phải là text, document hoặc file_url',
+  })
+  type: 'text' | 'document' | 'file_url';
 
   /** Số lượng flashcard cần tạo (mặc định: 10) */
   @IsOptional()

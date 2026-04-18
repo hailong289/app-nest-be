@@ -17,6 +17,7 @@ on:
           - chat
           - ai
           - socket
+          - learning
 
 jobs:
   deploy-auth-service:
@@ -54,6 +55,11 @@ jobs:
     uses: ./.github/workflows/deploy-api-gateway.yml
     secrets: inherit
 
+  deploy-learning-service:
+    if: ${{ github.event.inputs.service == 'learning' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-learning.yml
+    secrets: inherit
+
   notify-services:
     name: Send Deployment Notifications
     runs-on: ubuntu-latest
@@ -63,7 +69,10 @@ jobs:
         deploy-noti-service,
         deploy-filesystem-service,
         deploy-chat-service,
+        deploy-ai-service,
         deploy-gateway-service,
+        deploy-socket-service,
+        deploy-learning-service
       ]
     if: always()
     steps:
@@ -132,6 +141,15 @@ jobs:
               MESSAGES+=("✅ Socket Service deployment thành công!")
             elif [ "${{ needs.deploy-socket-service.result }}" == "failure" ]; then
               MESSAGES+=("❌ Socket Service deployment thất bại!")
+            fi
+          fi
+
+          # Learning Service
+          if [ "${{ github.event.inputs.service }}" == "learning" ] || [ "${{ github.event.inputs.service }}" == "all" ]; then
+            if [ "${{ needs.deploy-learning-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ Learning Service deployment thành công!")
+            elif [ "${{ needs.deploy-learning-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ Learning Service deployment thất bại!")
             fi
           fi
 
