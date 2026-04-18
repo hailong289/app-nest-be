@@ -20,9 +20,7 @@ export class CreateTodoDto {
   todo_description?: string;
 
   @IsOptional()
-  @IsEnum(['todo', 'in_progress', 'done', 'cancelled'], {
-    message: 'Trạng thái không hợp lệ',
-  })
+  @IsString({ message: 'Trạng thái phải là chuỗi' })
   todo_status?: TodoStatus;
 
   @IsOptional()
@@ -63,9 +61,7 @@ export class ListTodosDto {
   roomId?: string;
 
   @IsOptional()
-  @IsEnum(['todo', 'in_progress', 'done', 'cancelled'], {
-    message: 'Trạng thái không hợp lệ',
-  })
+  @IsString({ message: 'Trạng thái phải là chuỗi' })
   status?: TodoStatus;
 
   @IsNotEmpty({ message: 'Trang không để trống' })
@@ -89,9 +85,7 @@ export class UpdateTodoDto {
   todo_description?: string;
 
   @IsOptional()
-  @IsEnum(['todo', 'in_progress', 'done', 'cancelled'], {
-    message: 'Trạng thái không hợp lệ',
-  })
+  @IsString({ message: 'Trạng thái phải là chuỗi' })
   todo_status?: TodoStatus;
 
   @IsOptional()
@@ -125,8 +119,6 @@ export class UpdateTodoStatusDto {
   todo_id: string;
 
   @IsNotEmpty({ message: 'Trạng thái không để trống' })
-  @IsEnum(['todo', 'in_progress', 'done', 'cancelled'], {
-    message: 'Trạng thái không hợp lệ',
-  })
+  @IsString({ message: 'Trạng thái phải là chuỗi' })
   status: TodoStatus;
 }

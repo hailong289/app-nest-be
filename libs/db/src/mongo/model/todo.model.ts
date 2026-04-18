@@ -4,7 +4,13 @@ import Utils from 'libs/helpers/utils';
 
 export type TodoDocument = HydratedDocument<Todo>;
 
-export type TodoStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
+export const DEFAULT_TODO_STATUSES = [
+  'todo',
+  'in_progress',
+  'done',
+  'cancelled',
+] as const;
+export type TodoStatus = (typeof DEFAULT_TODO_STATUSES)[number] | string;
 export type TodoPriority = 'low' | 'medium' | 'high';
 
 @Schema({ timestamps: true, collection: 'Todos' })
@@ -25,7 +31,6 @@ export class Todo {
 
   @Prop({
     type: String,
-    enum: ['todo', 'in_progress', 'done', 'cancelled'],
     default: 'todo',
     index: true,
   })

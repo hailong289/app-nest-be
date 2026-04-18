@@ -15,7 +15,10 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { Observable } from 'rxjs';
 import { GatewayService } from '../../gateway/gateway.service';
 import type { AuthenticatedRequest } from 'libs/types/auth.type';
-import type { TodoStatus, TodoPriority } from 'libs/db/src/mongo/model/todo.model';
+import type {
+  TodoStatus,
+  TodoPriority,
+} from 'libs/db/src/mongo/model/todo.model';
 
 interface TodoGrpcService {
   CreateTodo(data: {
@@ -45,11 +48,14 @@ interface TodoGrpcService {
     todo_dueDate?: string;
   }): Observable<any>;
   DeleteTodo(data: { todo_id: string }): Observable<any>;
-  AssignTodo(data: { todo_id: string; assignee_ids: string[] }): Observable<any>;
+  AssignTodo(data: {
+    todo_id: string;
+    assignee_ids: string[];
+  }): Observable<any>;
   UpdateTodoStatus(data: { todo_id: string; status: string }): Observable<any>;
 }
 
-@Controller('ai/todo')
+@Controller('learning/todo')
 export class GatewayTodoController {
   private todoService: TodoGrpcService;
 
@@ -57,7 +63,8 @@ export class GatewayTodoController {
     @Inject(SERVICES.LEARNING) private readonly learningClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
   ) {
-    this.todoService = this.learningClient.getService<TodoGrpcService>('TodoService');
+    this.todoService =
+      this.learningClient.getService<TodoGrpcService>('TodoService');
   }
 
   @Post('create')

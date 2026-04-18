@@ -24,7 +24,7 @@ export default registerAs('learning', () => {
   return {
     host: get('GATEWAY_LEARNING_HOST') || 'localhost',
     port: get('GATEWAY_LEARNING_PORT') || '5005',
-    protoPath: get('GATEWAY_LEARNING_PROTO_PATH') || 'libs/grpc/ai.proto',
+    protoPath: get('GATEWAY_LEARNING_PROTO_PATH') || 'libs/grpc/learning.proto',
     nodeEnv,
   };
 });

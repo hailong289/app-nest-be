@@ -20,7 +20,7 @@ async function bootstrap() {
     transport: Transport.GRPC,
     options: {
       package: ['quizz', 'flashcard', 'todo'],
-      protoPath: [join(process.cwd(), 'libs/grpc/ai.proto')],
+      protoPath: [join(process.cwd(), 'libs/grpc/learning.proto')],
       url: `${HOST}:${PORT}`,
       loader: {
         keepCase: true,
@@ -36,7 +36,7 @@ async function bootstrap() {
     },
   });
 
-  Utils.createKafkaMicroserviceFromApplication(app, SERVICES.LEARNING);
+  // Utils.createKafkaMicroserviceFromApplication(app, SERVICES.LEARNING);
 
   try {
     await app.startAllMicroservices();

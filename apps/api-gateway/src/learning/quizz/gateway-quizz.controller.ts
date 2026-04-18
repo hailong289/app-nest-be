@@ -55,7 +55,7 @@ interface QuizzGrpcService {
   }): Observable<any>;
 }
 
-@Controller('ai/quizz')
+@Controller('learning/quizz')
 export class GatewayQuizzController {
   private quizzService: QuizzGrpcService;
   constructor(

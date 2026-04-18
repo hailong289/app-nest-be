@@ -40,7 +40,9 @@ interface FlashcardGrpcService {
     data: DeleteFlashcardDto & { card_id: string },
   ): Observable<any>;
   CreateFlashcardDeck(data: CreateFlashcardDeckDto): Observable<any>;
-  GetFlashcardDeck(data: GetFlashcardDeckDto & { userId?: string }): Observable<any>;
+  GetFlashcardDeck(
+    data: GetFlashcardDeckDto & { userId?: string },
+  ): Observable<any>;
   ListFlashcardDecks(data: ListFlashcardDecksDto): Observable<any>;
   UpdateFlashcardDeck(
     data: UpdateFlashcardDeckDto & { deck_id: string },
@@ -51,12 +53,13 @@ interface FlashcardGrpcService {
   UpdateFlashcardProgress(
     data: UpdateFlashcardProgressDto & { card_id: string; user_id: string },
   ): Observable<any>;
-  GetFlashcardProgress(
-    data: { card_id: string; user_id: string },
-  ): Observable<any>;
+  GetFlashcardProgress(data: {
+    card_id: string;
+    user_id: string;
+  }): Observable<any>;
 }
 
-@Controller('ai/flashcard')
+@Controller('learning/flashcard')
 export class GatewayFlashcardController {
   private flashcardService: FlashcardGrpcService;
   constructor(

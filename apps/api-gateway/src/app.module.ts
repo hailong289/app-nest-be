@@ -55,8 +55,9 @@ export class AppModule {
         path: 'notifications/:notificationId/read',
         method: RequestMethod.PUT,
       },
-      { path: 'ai/quizz/*path', method: RequestMethod.ALL },
-      { path: 'ai/flashcard/*path', method: RequestMethod.ALL },
+      { path: 'learning/quizz/*path', method: RequestMethod.ALL },
+      { path: 'learning/flashcard/*path', method: RequestMethod.ALL },
+      { path: 'learning/todo/*path', method: RequestMethod.ALL },
     );
   }
 }
