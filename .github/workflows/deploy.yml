@@ -112,7 +112,18 @@ jobs:
   notify-services:
     name: Send Deployment Notifications
     runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-auth-service, deploy-noti-service, deploy-filesystem-service, deploy-chat-service, deploy-gateway-service]
+    needs: 
+      [
+        detect-changes, 
+        deploy-auth-service, 
+        deploy-noti-service, 
+        deploy-filesystem-service, 
+        deploy-chat-service, 
+        deploy-gateway-service, 
+        deploy-socket-service, 
+        deploy-learning-service, 
+        deploy-ai-service
+      ]
     if: always()
     steps:
       - name: Send Discord notifications
