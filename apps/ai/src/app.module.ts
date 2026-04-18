@@ -15,19 +15,12 @@ import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
-import QuizSchema from 'libs/db/src/mongo/model/quiz.model';
 import Userschema from 'libs/db/src/mongo/model/user.model';
 import MessageSchema from 'libs/db/src/mongo/model/messages.model';
 import { mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { AiLogUseService } from './ai-log-use.service';
-import { QuizzController } from './quizz/quizz.controller';
-import { QuizzService } from './quizz/quizz.service';
-import { FlashcardController } from './flashcard/flashcard.controller';
-import { FlashcardService } from './flashcard/flashcard.service';
-import FlashcardSchema from 'libs/db/src/mongo/model/flashcard.model';
-import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/model/flashcard.model';
 
 @Module({
   imports: [
@@ -45,22 +38,16 @@ import { flashcardDeckModel, flashcardProgressModel } from 'libs/db/src/mongo/mo
     MongooseModule.forFeature([
       AIUsageLogSchema,
       AIEmbeddingSchema,
-      QuizSchema,
       Userschema,
       MessageSchema,
-      FlashcardSchema,
-      flashcardDeckModel,
-      flashcardProgressModel,
     ]),
   ],
-  controllers: [AIController, QuizzController, FlashcardController],
+  controllers: [AIController],
   providers: [
     AIService,
     EmbeddingService,
     GoogleModerationProvider,
     AiLogUseService,
-    QuizzService,
-    FlashcardService,
   ],
 })
 export class AppModule {}

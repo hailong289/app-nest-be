@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package learning;
+
+import "quizz.proto";
+import "flashcard.proto";
+import "todo.proto";

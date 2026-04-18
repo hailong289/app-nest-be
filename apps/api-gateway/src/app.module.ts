@@ -12,6 +12,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 import { kafkaConfig } from 'libs/kafka';
 import { GatewayAiModule } from './ai/gateway-ai.module';
+import { GatewayLearningModule } from './learning/gateway-learning.module';
 import { RedisModule } from 'libs/db/src';
 
 @Module({
@@ -29,6 +30,7 @@ import { RedisModule } from 'libs/db/src';
     GatewayFileSystemModule,
     GatewayChatModule,
     GatewayAiModule,
+    GatewayLearningModule,
   ],
 })
 export class AppModule {
@@ -53,8 +55,9 @@ export class AppModule {
         path: 'notifications/:notificationId/read',
         method: RequestMethod.PUT,
       },
-      { path: 'ai/quizz/*path', method: RequestMethod.ALL },
-      { path: 'ai/flashcard/*path', method: RequestMethod.ALL },
+      { path: 'learning/quizz/*path', method: RequestMethod.ALL },
+      { path: 'learning/flashcard/*path', method: RequestMethod.ALL },
+      { path: 'learning/todo/*path', method: RequestMethod.ALL },
     );
   }
 }

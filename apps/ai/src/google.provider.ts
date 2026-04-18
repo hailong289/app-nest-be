@@ -355,7 +355,7 @@ export class GoogleModerationProvider {
       const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> =
         [{ text: prompt }];
 
-      if (type === 'document' && file) {
+      if ((type === 'document' || type === 'file_url') && file) {
         parts.push({
           inlineData: {
             mimeType: file.mimetype,
