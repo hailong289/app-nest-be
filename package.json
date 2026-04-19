@@ -67,7 +67,7 @@
     "@grpc/grpc-js": "^1.14.0",
     "@grpc/proto-loader": "^0.8.0",
     "@grpc/reflection": "^1.0.4",
-    "@nestjs-modules/mailer": "^2.0.2",
+    "@nestjs-modules/mailer": "^2.3.4",
     "@nestjs/bull": "^11.0.3",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
