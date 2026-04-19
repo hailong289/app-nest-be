@@ -512,10 +512,11 @@ message outputCall {
 }
 
 message CallMetadata {
-  CallHistory history = 1;      
-  RoomResponse room = 2;         
-  string callType = 3;  
-  MessageCore msg=4;   
+  CallHistory history = 1;
+  RoomResponse room = 2;
+  string callType = 3;
+  MessageCore msg=4;
+  string callMode = 5;
 }
 
 message Member {
