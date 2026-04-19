@@ -355,11 +355,16 @@ export class CallGateway
         callType: callType,
         callMode: callMode,
         callId: history.call_id,
+        startedAt: history.started_at,
       };
       this.io.to(otherMembers).emit('call:request', historyCall);
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-      return { ok: true, room: { room_id: room.room_id } };
+      return {
+        ok: true,
+        room: { room_id: room.room_id },
+        startedAt: history.started_at,
+      };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
       client.emit('error', {
