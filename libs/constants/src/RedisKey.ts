@@ -211,6 +211,19 @@ export const REDISKEY = {
    */
   USER_IN_CALL: (userId: string) => `chat:user:${userId}:in_call`,
 
+  /**
+   * Tracks WHICH socket of the user is the active call socket (String)
+   * Format: chat:user:{userId}:call_socket
+   * Type: STRING
+   * Value: socketId currently holding the call (most recent device)
+   * TTL: 3600s (matches USER_IN_CALL)
+   *
+   * Use case: multi-device handoff. When user accepts/joins from device B
+   * while device A still has the call open → server emits `call:handoff` to
+   * A's socketId, A closes its popup; this key flips to B's socketId.
+   */
+  USER_CALL_SOCKET: (userId: string) => `chat:user:${userId}:call_socket`,
+
   // ==========================================
   // 📢 PUBSUB CHANNELS
   // ==========================================

@@ -95,6 +95,67 @@ export class CallGateway
       this.chatClient.getService<ChatGrpcService>('ChatService');
   }
 
+  /**
+   * Mark `client.id` as THE active call socket for this user. If a different
+   * socket of the same user was already in the call (other device, other
+   * tab), tell it to gracefully release the call (close popup, clear state).
+   * Returns the previous socketId if a handoff happened, otherwise null.
+   *
+   * Used by every entry point into a call: caller (call:request), callee
+   * (call:accepted), late joiner (call:join). Ensures single-active-device.
+   */
+  private async claimCallSocket(
+    userUlid: string,
+    callId: string,
+    roomId: string,
+    newSocketId: string,
+  ): Promise<string | null> {
+    const previousSocketId = await this.redis.getData<string>(
+      this.key.USER_CALL_SOCKET(userUlid),
+    );
+
+    await this.redis.setData(
+      this.key.USER_CALL_SOCKET(userUlid),
+      newSocketId,
+      REDIS_TTL.CALL_ACTIVE,
+    );
+
+    if (previousSocketId && previousSocketId !== newSocketId) {
+      // Notify the old device to release the call. FE handler closes the
+      // popup window and tears down its local stream / SFU consumers.
+      this.io.to(previousSocketId).emit('call:handoff', {
+        callId,
+        roomId,
+        reason: 'another_device_joined',
+        newSocketId,
+      });
+
+      // Server-side cleanup: drop the old socket from the SFU room so its
+      // transports/producers don't linger until ICE timeout.
+      try {
+        if (await this.sfuRpc.roomExists(roomId)) {
+          await this.sfuRpc.leaveRoom(roomId, userUlid);
+          this.logger.log(
+            `[HANDOFF] SFU cleanup for ${userUlid} (old socket ${previousSocketId})`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[HANDOFF] SFU leaveRoom failed for ${userUlid}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
+      this.logger.log(
+        `[HANDOFF] User ${userUlid} call ${callId} → handed off ${previousSocketId} → ${newSocketId}`,
+      );
+      return previousSocketId;
+    }
+
+    return null;
+  }
+
   // ========================================================
   // 🟢 HÀM XỬ LÝ KẾT NỐI (HANDLING CONNECTION)
   // ========================================================
@@ -315,8 +376,17 @@ export class CallGateway
               );
             }
 
-            // 3. Always clear the in-call flag so reconnects don't show stale "busy".
+            // 3. Always clear the in-call flag + active call socket so
+            //    reconnects don't show stale "busy" and handoff state resets.
             await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
+            // Only clear the call_socket key if THIS socket was the active
+            // one — otherwise we'd wipe out a handoff to another device.
+            const activeSocketId = await this.redis.getData<string>(
+              this.key.USER_CALL_SOCKET(userUlid),
+            );
+            if (!activeSocketId || activeSocketId === client.id) {
+              await this.redis.delKey(this.key.USER_CALL_SOCKET(userUlid));
+            }
           }
         } catch (err) {
           this.logger.error(
@@ -362,22 +432,67 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
-      // Pre-check: for 1-on-1 calls, check if the single target is busy.
-      // This avoids creating a call history record and gives instant feedback.
-      if (data.membersIds && data.membersIds.length === 2) {
-        const targetUserId = data.membersIds.find((id) => id !== user.usr_id);
-        if (targetUserId) {
-          const busyCallId = await this.redis.getData<string>(
-            this.key.USER_IN_CALL(targetUserId),
-          );
-          if (busyCallId) {
-            client.emit('call:busy', {
-              targetUserId,
-              callId: busyCallId,
-              reason: 'busy',
-            });
-            return { ok: false, reason: 'busy' };
-          }
+      // ─── Server-side guard 1: caller already in another call ─────────────
+      // Trust Redis as the source of truth — client state can drift (stale
+      // popup window, crashed tab, multi-device). Reject before creating any
+      // CallHistory so DB stays clean.
+      const callerActiveCallId = await this.redis.getData<string>(
+        this.key.USER_IN_CALL(user.usr_id),
+      );
+      if (callerActiveCallId) {
+        this.logger.warn(
+          `[CALL] Reject request: caller ${user.usr_id} already in call ${callerActiveCallId}`,
+        );
+        client.emit('error', {
+          message: 'Bạn đang trong cuộc gọi khác, không thể bắt đầu cuộc gọi mới',
+          error: 'caller_already_in_call',
+          callId: callerActiveCallId,
+        });
+        return { ok: false, reason: 'caller_already_in_call' };
+      }
+
+      const memberIds = data.membersIds ?? [];
+      const targetIds = memberIds.filter((id) => id !== user.usr_id);
+
+      // ─── Server-side guard 2: 1-1 — target busy → instant reject ─────────
+      if (targetIds.length === 1) {
+        const targetUserId = targetIds[0];
+        const busyCallId = await this.redis.getData<string>(
+          this.key.USER_IN_CALL(targetUserId),
+        );
+        if (busyCallId) {
+          client.emit('call:busy', {
+            targetUserId,
+            callId: busyCallId,
+            reason: 'busy',
+          });
+          return { ok: false, reason: 'busy' };
+        }
+      }
+
+      // ─── Server-side guard 3: group call — pre-compute busy/free targets ──
+      // Allow the call to proceed even if some members are busy (other members
+      // can still join), but track busy ones so we don't spam them with
+      // call:request and so the caller's UI can flag them.
+      const busyTargets = new Map<string, string>(); // userId → callId
+      const freeTargets: string[] = [];
+      if (targetIds.length > 1) {
+        const busyKeys = targetIds.map((id) => this.key.USER_IN_CALL(id));
+        const busyValues = await this.redis.mget(busyKeys);
+        targetIds.forEach((id, i) => {
+          const v = busyValues[i];
+          if (v) busyTargets.set(id, typeof v === 'string' ? JSON.parse(v) : String(v));
+          else freeTargets.push(id);
+        });
+
+        // If everyone is busy → abort to avoid an empty group call.
+        if (freeTargets.length === 0) {
+          client.emit('error', {
+            message: 'Tất cả thành viên đang trong cuộc gọi khác',
+            error: 'all_targets_busy',
+            busyMembers: Array.from(busyTargets.keys()),
+          });
+          return { ok: false, reason: 'all_targets_busy' };
         }
       }
 
@@ -410,8 +525,21 @@ export class CallGateway
         REDIS_TTL.CALL_ACTIVE,
       );
 
+      // Multi-device handoff: claim this socket as the active call socket
+      // (caller starts call from this device → other devices auto-release).
+      await this.claimCallSocket(
+        user.usr_id,
+        history.call_id,
+        room.room_id,
+        client.id,
+      );
+
+      // Skip members already busy in another call — they're tracked in
+      // busyTargets from guard 3 above. Send call:request only to free
+      // members. Busy members are reported back to the caller so the FE can
+      // mark them with a "đang bận" badge.
       const otherMembers = room.room_members
-        .filter((m) => m.id !== user.usr_id)
+        .filter((m) => m.id !== user.usr_id && !busyTargets.has(m.id))
         .map((m) => this.key.ROOM_CLIENT(m.id));
       const roomClients = room.room_members.map((m) =>
         this.key.ROOM_CLIENT(m.id),
@@ -433,6 +561,9 @@ export class CallGateway
         ok: true,
         room: { room_id: room.room_id },
         startedAt: history.started_at,
+        busyMembers: Array.from(busyTargets.entries()).map(
+          ([userId, callId]) => ({ userId, callId }),
+        ),
       };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
@@ -526,7 +657,35 @@ export class CallGateway
       if (alreadyAccepted) {
         return { ok: true };
       }
+
+      // Server-side guard: reject accept ONLY if user is in a DIFFERENT
+      // active call. Same callId is allowed — could be a multi-device
+      // accept (handoff handled below).
+      const inCallId = await this.redis.getData<string>(
+        this.key.USER_IN_CALL(data.actionUserId),
+      );
+      if (inCallId && inCallId !== data.callId) {
+        this.logger.warn(
+          `[CALL] Reject accept: user ${data.actionUserId} already in call ${inCallId}`,
+        );
+        client.emit('error', {
+          message: 'Bạn đang trong cuộc gọi khác',
+          error: 'already_in_call',
+          callId: inCallId,
+        });
+        return { ok: false, reason: 'already_in_call' };
+      }
+
       await this.redis.setData(acceptLockKey, '1', REDIS_TTL.CALL_ACTIVE);
+
+      // Multi-device handoff: if another socket of the same user already
+      // holds this call, tell that socket to release. New socket takes over.
+      await this.claimCallSocket(
+        data.actionUserId,
+        data.callId,
+        data.roomId,
+        client.id,
+      );
 
       // Người nhận tham gia socket room để nhận các sự kiện call:end, call:share-screen, v.v.
       await client.join(data.roomId);
@@ -652,6 +811,32 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      // Server-side guard: reject join ONLY if user is in a DIFFERENT call.
+      // Same callId is allowed (multi-device join → handoff).
+      const inCallId = await this.redis.getData<string>(
+        this.key.USER_IN_CALL(data.actionUserId),
+      );
+      if (inCallId && inCallId !== data.callId) {
+        this.logger.warn(
+          `[CALL] Reject join: user ${data.actionUserId} already in call ${inCallId}`,
+        );
+        client.emit('error', {
+          message: 'Bạn đang trong cuộc gọi khác',
+          error: 'already_in_call',
+          callId: inCallId,
+        });
+        return { ok: false, reason: 'already_in_call' };
+      }
+
+      // Multi-device handoff: claim this socket as the active call socket.
+      // Old device's popup auto-closes via `call:handoff` event.
+      await this.claimCallSocket(
+        data.actionUserId,
+        data.callId,
+        data.roomId,
+        client.id,
+      );
+
       // Cập nhật trạng thái thành viên sang 'started' qua gRPC
       const result = (await Utils.dispatchGrpcRequest(
         (d) => this.ChatGrpcService.AcceptCall(d),
@@ -769,12 +954,13 @@ export class CallGateway
 
       const { history, room, msg } = result.metadata;
 
-      // Clear in-call status for all members when call ends
+      // Clear in-call status + active call socket for all members when call ends
       if (history?.members) {
         await Promise.all(
-          history.members.map((m: { id: string }) =>
+          history.members.flatMap((m: { id: string }) => [
             this.redis.delKey(this.key.USER_IN_CALL(m.id)),
-          ),
+            this.redis.delKey(this.key.USER_CALL_SOCKET(m.id)),
+          ]),
         );
       }
 
