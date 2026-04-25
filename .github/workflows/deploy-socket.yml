@@ -46,12 +46,11 @@ jobs:
             GATEWAY_NOTI_KAFKA_SASL_PASSWORD=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_PASSWORD }}
             EOF
 
-            docker build -t socket:latest -f apps/socket/Dockerfile .
-            docker stop socket-service || true
-            docker rm socket-service || true
-            docker run -d \
-              --name socket-service \
-              --restart unless-stopped \
-              --env-file apps/socket/.env \
-              -p 5006:5006 \
-              socket:latest
+            npm install
+            npm run build:socket
+            npm prune --omit=dev
+
+            pm2 delete nest-app || true
+            pm2 start dist/apps/socket/main.js --name "nest-app"
+            pm2 save
+
