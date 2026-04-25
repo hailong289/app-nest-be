@@ -26,14 +26,13 @@ jobs:
 
             cat > apps/sfu/.env << 'EOF'
             NODE_ENV=${{ secrets.NODE_ENV }}
-            HOST=${{ secrets.SFU_HOST }}
-            PORT=${{ secrets.SFU_PORT }}
+            HOST=${{ secrets.HOST }}
+            PORT=${{ secrets.PORT }}
             SFU_INTERNAL_SECRET=${{ secrets.SFU_INTERNAL_SECRET }}
             MEDIASOUP_LISTEN_IP=${{ secrets.MEDIASOUP_LISTEN_IP }}
             MEDIASOUP_ANNOUNCED_IP=${{ secrets.MEDIASOUP_ANNOUNCED_IP }}
             MEDIASOUP_RTC_MIN_PORT=${{ secrets.MEDIASOUP_RTC_MIN_PORT }}
             MEDIASOUP_RTC_MAX_PORT=${{ secrets.MEDIASOUP_RTC_MAX_PORT }}
-            MEDIASOUP_NUM_WORKERS=${{ secrets.MEDIASOUP_NUM_WORKERS }}
             MEDIASOUP_LOG_LEVEL=${{ secrets.MEDIASOUP_LOG_LEVEL }}
             EOF
 
