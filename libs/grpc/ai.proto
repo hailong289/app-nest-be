@@ -152,6 +152,7 @@ message GenerateFlashcardRequest {
   int32 difficulty = 4;
   string language = 5;
   FileRequest file = 6;
+  string file_url = 7;
 }
 
 message GeneratedFlashcard {
