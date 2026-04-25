@@ -262,6 +262,69 @@ export class CallGateway
             );
           }
         }
+
+        // If the user was in an active call, mark their participation as ended
+        // in the CallHistory (chat service) so DB stays consistent + notify
+        // remaining members so their UI removes the leaver. Without this, the
+        // member's status sits at 'started' forever and the call never ends
+        // server-side until everyone manually clicks End.
+        try {
+          const activeCallId = await this.redis.getData<string>(
+            this.key.USER_IN_CALL(userUlid),
+          );
+          if (activeCallId) {
+            // Pick the socket room that hosts the SFU session (or any joined
+            // room as fallback for P2P 1-1) — that's the room we end on behalf
+            // of this user.
+            let endRoomId: string | null = null;
+            for (const socketRoom of client.rooms) {
+              if (socketRoom === client.id) continue;
+              if (socketRoom === 'system') continue;
+              if (socketRoom.startsWith('client:')) continue; // ROOM_CLIENT(usr_id)
+              endRoomId = socketRoom;
+              break;
+            }
+
+            if (endRoomId) {
+              // 1. Update CallHistory in DB via gRPC. status='ended' lets the
+              //    chat service compute member.status correctly (ended for
+              //    leavers; ended_at when caller leaves or all members ended).
+              const endResult = (await Utils.dispatchGrpcRequest(
+                (d) => this.ChatGrpcService.EndCall(d),
+                {
+                  actionUserId: userUlid,
+                  roomId: endRoomId,
+                  callId: activeCallId,
+                  status: 'ended',
+                },
+              )) as ChatGatewayCallResponse;
+
+              // 2. Notify remaining members in the room.
+              const members = endResult?.metadata?.history?.members ?? [];
+              this.io.to(endRoomId).except(client.id).emit('call:end', {
+                roomId: endRoomId,
+                actionUserId: userUlid,
+                callId: activeCallId,
+                status: 'ended',
+                members,
+                reason: 'disconnect',
+              });
+
+              this.logger.log(
+                `[DISCONNECT] Updated CallHistory + emitted call:end for ${userUlid} in ${endRoomId}`,
+              );
+            }
+
+            // 3. Always clear the in-call flag so reconnects don't show stale "busy".
+            await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
+          }
+        } catch (err) {
+          this.logger.error(
+            `[DISCONNECT] Failed to update call state for ${userUlid}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
       }
 
       // Nếu không còn socket nào của user này connected -> Remove presence

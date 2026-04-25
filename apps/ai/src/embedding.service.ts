@@ -432,9 +432,33 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         }
       });
 
-      // 6. Sort & Limit
-      const ranked = Array.from(uniqueMap.values())
-        .sort((a, b) => b.score - a.score)
+      // 6. Sort & Drop system-message hits, then limit.
+      // AIEmbeddings may have been generated for system messages (member
+      // added, call started, ...) but users searching chat content don't
+      // want those. Look up messageId → msg_type and filter post-hoc so we
+      // don't have to alter the vector pipeline `$match` stage.
+      const sortedAll = Array.from(uniqueMap.values()).sort(
+        (a, b) => b.score - a.score,
+      );
+      const messageIds = sortedAll
+        .map((r) => r.messageId)
+        .filter((id) => !!id);
+      const systemMessageIds = new Set<string>();
+      if (messageIds.length > 0) {
+        const systemDocs = await this.messageModel
+          .find(
+            { _id: { $in: messageIds }, msg_type: 'system' },
+            { _id: 1 },
+          )
+          .lean()
+          .exec();
+        systemDocs.forEach((d) =>
+          systemMessageIds.add(String((d as { _id: unknown })._id)),
+        );
+      }
+
+      const ranked = sortedAll
+        .filter((r) => !systemMessageIds.has(String(r.messageId)))
         .slice(0, limit);
 
       // 7. Fallback: if no embeddings/vectors matched (room never indexed,
@@ -482,6 +506,10 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           msg_roomId: roomObjectId,
           msg_content_norm: { $regex: safe, $options: 'i' },
           deletedAt: null,
+          // Exclude system messages (member added/left, call started/ended,
+          // ...) — they're notifications, not actual chat content the user
+          // would search for.
+          msg_type: { $ne: 'system' },
         })
         .sort({ createdAt: -1 })
         .limit(limit)
