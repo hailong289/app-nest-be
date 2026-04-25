@@ -10,6 +10,9 @@ export class SignatureMiddleware implements NestMiddleware {
 
   use(req: Request, res: Response, next: NextFunction) {
     try {
+      if (typeof global.crypto === 'undefined') {
+        (global as any).crypto = crypto;
+      }
       const signature = req.headers['x-signature'] as string;
       const timestamp = req.headers['x-timestamp'] as string;
       const apiKey = req.headers['x-api-key'] as string;
