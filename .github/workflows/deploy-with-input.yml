@@ -18,6 +18,7 @@ on:
           - ai
           - socket
           - learning
+          - sfu
 
 jobs:
   deploy-auth-service:
@@ -60,6 +61,11 @@ jobs:
     uses: ./.github/workflows/deploy-learning.yml
     secrets: inherit
 
+  deploy-sfu-service:
+    if: ${{ github.event.inputs.service == 'sfu' || github.event.inputs.service == 'all' }}
+    uses: ./.github/workflows/deploy-sfu.yml
+    secrets: inherit
+
   notify-services:
     name: Send Deployment Notifications
     runs-on: ubuntu-latest
@@ -72,7 +78,8 @@ jobs:
         deploy-ai-service,
         deploy-gateway-service,
         deploy-socket-service,
-        deploy-learning-service
+        deploy-learning-service,
+        deploy-sfu-service
       ]
     if: always()
     steps:
@@ -150,6 +157,15 @@ jobs:
               MESSAGES+=("✅ Learning Service deployment thành công!")
             elif [ "${{ needs.deploy-learning-service.result }}" == "failure" ]; then
               MESSAGES+=("❌ Learning Service deployment thất bại!")
+            fi
+          fi
+
+          # SFU Service
+          if [ "${{ github.event.inputs.service }}" == "sfu" ] || [ "${{ github.event.inputs.service }}" == "all" ]; then
+            if [ "${{ needs.deploy-sfu-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ SFU Service deployment thành công!")
+            elif [ "${{ needs.deploy-sfu-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ SFU Service deployment thất bại!")
             fi
           fi
 

@@ -26,6 +26,7 @@ jobs:
       service-ai: ${{ steps.filter.outputs.service-ai }}
       service-socket: ${{ steps.filter.outputs.service-socket }}
       service-learning: ${{ steps.filter.outputs.service-learning }}
+      service-sfu: ${{ steps.filter.outputs.service-sfu }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -52,6 +53,8 @@ jobs:
               - 'apps/socket/**'
             service-learning:
               - 'apps/learning/**'
+            service-sfu:
+              - 'apps/sfu/**'
 
   deploy-auth-service:
     needs:
@@ -109,6 +112,13 @@ jobs:
     uses: ./.github/workflows/deploy-learning.yml
     secrets: inherit
 
+  deploy-sfu-service:
+    needs:
+      - detect-changes
+    if: ${{ needs.detect-changes.outputs.service-sfu == 'true' }}
+    uses: ./.github/workflows/deploy-sfu.yml
+    secrets: inherit
+
   notify-services:
     name: Send Deployment Notifications
     runs-on: ubuntu-latest
@@ -122,7 +132,8 @@ jobs:
         deploy-gateway-service, 
         deploy-socket-service, 
         deploy-learning-service, 
-        deploy-ai-service
+        deploy-ai-service,
+        deploy-sfu-service
       ]
     if: always()
     steps:
@@ -191,6 +202,15 @@ jobs:
               MESSAGES+=("✅ Learning Service deployment thành công!")
             elif [ "${{ needs.deploy-learning-service.result }}" == "failure" ]; then
               MESSAGES+=("❌ Learning Service deployment thất bại!")
+            fi
+          fi
+
+          # SFU Service
+          if [ "${{ needs.detect-changes.outputs.service-sfu }}" == "true" ]; then
+            if [ "${{ needs.deploy-sfu-service.result }}" == "success" ]; then
+              MESSAGES+=("✅ SFU Service deployment thành công!")
+            elif [ "${{ needs.deploy-sfu-service.result }}" == "failure" ]; then
+              MESSAGES+=("❌ SFU Service deployment thất bại!")
             fi
           fi
           
