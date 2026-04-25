@@ -30,6 +30,7 @@ service ChatService {
   rpc RequestCall(RequestCallInput)returns(outputCall);
   rpc AcceptCall(AcceptCallInput)returns(outputCall);
   rpc EndCall(EndCallInput)returns(outputCall);
+  rpc GetCallStatus(GetCallStatusInput)returns(GetCallStatusOutput);
   rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
   rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
@@ -501,6 +502,24 @@ message GetCallHistoryInput{
   string userId=1;
   string roomId=2;
   string type=3;
+}
+
+message GetCallStatusInput{
+  string callId=1;
+}
+
+message GetCallStatusOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetCallStatusMetadata metadata = 4;
+}
+
+message GetCallStatusMetadata{
+  string call_id = 1;
+  bool exists = 2;       // false → call_id not in DB at all (very stale)
+  bool ended = 3;        // true → call has ended_at OR all members terminal
+  string ended_at = 4;
 }
 
 message outputCall {

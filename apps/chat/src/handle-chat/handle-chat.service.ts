@@ -149,8 +149,6 @@ export class HandleChatService {
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
 
-    console.log('🚀 ~ HandleChatService ~ quizId:', quizId);
-
     const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
@@ -894,7 +892,6 @@ export class HandleChatService {
       if (!actionUser) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
-      console.log('cuộc gọi kết nối thành công');
 
       const msg = await this.messageModel.create({
         msg_roomId: room._id,
@@ -1256,6 +1253,68 @@ export class HandleChatService {
     if (seconds > 0 || parts.length === 0) parts.push(`${seconds} giây`);
 
     return `Cuộc gọi đã kết thúc · ${parts.join(' ')}`;
+  }
+
+  /**
+   * Cheap "is this call still alive?" probe used by the socket gateway when
+   * deciding whether to reject `already_in_call`. Redis can hold a stale
+   * USER_IN_CALL marker if the popup crashed or beforeunload didn't get a
+   * chance to fire EndCall — in that case, the marker points at a callId
+   * that the DB knows has already ended. We let the gateway clear the
+   * stale marker and proceed instead of permanently locking the user out.
+   *
+   * `ended = true` when EITHER the document has `ended_at` set OR every
+   * member is in a terminal state (ended/cancelled/rejected/missed).
+   */
+  async getCallStatus({ callId }: { callId: string }) {
+    try {
+      if (!callId) {
+        return Response.success(
+          { call_id: '', exists: false, ended: true, ended_at: '' },
+          'callId rỗng',
+        );
+      }
+      const callHistory = await this.callHistoryModel
+        .findOne({ call_id: callId })
+        .lean();
+      if (!callHistory) {
+        return Response.success(
+          { call_id: callId, exists: false, ended: true, ended_at: '' },
+          'Cuộc gọi không tồn tại',
+        );
+      }
+      const TERMINAL = new Set<MemberStatus>([
+        'ended',
+        'cancelled',
+        'rejected',
+        'missed',
+      ]);
+      const allMembersTerminal =
+        Array.isArray(callHistory.members) &&
+        callHistory.members.length > 0 &&
+        callHistory.members.every((m) => TERMINAL.has(m.status));
+      const ended = !!callHistory.ended_at || allMembersTerminal;
+      return Response.success(
+        {
+          call_id: callId,
+          exists: true,
+          ended,
+          ended_at: callHistory.ended_at
+            ? new Date(callHistory.ended_at).toISOString()
+            : '',
+        },
+        'OK',
+      );
+    } catch (error) {
+      console.log('🚀 ~ HandleChatService ~ getCallStatus ~ error:', error);
+      // On any error, treat as "still active" so we don't accidentally clear
+      // a valid in-call marker. The gateway will fall back to the existing
+      // reject behavior.
+      return Response.success(
+        { call_id: callId, exists: true, ended: false, ended_at: '' },
+        'Không kiểm tra được trạng thái cuộc gọi',
+      );
+    }
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi

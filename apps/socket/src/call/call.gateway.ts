@@ -59,6 +59,7 @@ export interface ChatGrpcService {
   RequestCall<T = any>(data: T): Observable<any>;
   AcceptCall<T = any>(data: T): Observable<any>;
   EndCall<T = any>(data: T): Observable<any>;
+  GetCallStatus<T = any>(data: T): Observable<any>;
   SendCandidate<T = any>(data: T): Observable<any>;
 }
 
@@ -93,6 +94,66 @@ export class CallGateway
   onModuleInit() {
     this.ChatGrpcService =
       this.chatClient.getService<ChatGrpcService>('ChatService');
+  }
+
+  /**
+   * Resolve whether `userUlid`'s `USER_IN_CALL` marker is genuinely live or
+   * stale. Returns:
+   *   - `live`: the marker points at the same call the user is trying to
+   *     enter — no rejection needed (multi-device / renegotiation case).
+   *   - `clear`: the marker is for a DIFFERENT call that the DB confirms has
+   *     ended. We've already cleaned up the stale `USER_IN_CALL` /
+   *     `USER_CALL_SOCKET` keys, caller should proceed.
+   *   - `reject`: the marker is for a different call that is genuinely still
+   *     active — reject with `already_in_call`.
+   *
+   * Used before the `if (inCallId && inCallId !== data.callId)` reject so a
+   * stale marker (popup crash, beforeunload didn't fire EndCall, etc.)
+   * doesn't permanently lock the user out of new calls.
+   */
+  private async validateInCallOrClearStale(
+    userUlid: string,
+    incomingCallId: string,
+  ): Promise<
+    { kind: 'live' } | { kind: 'clear' } | { kind: 'reject'; inCallId: string }
+  > {
+    const inCallId = await this.redis.getData<string>(
+      this.key.USER_IN_CALL(userUlid),
+    );
+    if (!inCallId || inCallId === incomingCallId) {
+      return { kind: 'live' };
+    }
+
+    try {
+      const status = (await Utils.dispatchGrpcRequest(
+        (d) => this.ChatGrpcService.GetCallStatus(d),
+        { callId: inCallId },
+      )) as {
+        statusCode: number;
+        metadata?: { ended?: boolean; exists?: boolean };
+      };
+
+      const ended =
+        status?.statusCode === 200 &&
+        (status.metadata?.ended === true || status.metadata?.exists === false);
+
+      if (ended) {
+        await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
+        await this.redis.delKey(this.key.USER_CALL_SOCKET(userUlid));
+        this.logger.log(
+          `[CALL] Cleared stale USER_IN_CALL for ${userUlid} (DB says ${inCallId} ended)`,
+        );
+        return { kind: 'clear' };
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[CALL] GetCallStatus failed for ${inCallId}: ${
+          err instanceof Error ? err.message : String(err)
+        } — falling back to reject`,
+      );
+    }
+
+    return { kind: 'reject', inCallId };
   }
 
   /**
@@ -435,18 +496,22 @@ export class CallGateway
       // ─── Server-side guard 1: caller already in another call ─────────────
       // Trust Redis as the source of truth — client state can drift (stale
       // popup window, crashed tab, multi-device). Reject before creating any
-      // CallHistory so DB stays clean.
-      const callerActiveCallId = await this.redis.getData<string>(
-        this.key.USER_IN_CALL(user.usr_id),
+      // CallHistory so DB stays clean. Pass empty incomingCallId so the
+      // helper will validate any existing marker against the DB and clear
+      // it if the call has already ended.
+      const callerValidation = await this.validateInCallOrClearStale(
+        user.usr_id,
+        '',
       );
-      if (callerActiveCallId) {
+      if (callerValidation.kind === 'reject') {
         this.logger.warn(
-          `[CALL] Reject request: caller ${user.usr_id} already in call ${callerActiveCallId}`,
+          `[CALL] Reject request: caller ${user.usr_id} already in call ${callerValidation.inCallId}`,
         );
         client.emit('error', {
-          message: 'Bạn đang trong cuộc gọi khác, không thể bắt đầu cuộc gọi mới',
+          message:
+            'Bạn đang trong cuộc gọi khác, không thể bắt đầu cuộc gọi mới',
           error: 'caller_already_in_call',
-          callId: callerActiveCallId,
+          callId: callerValidation.inCallId,
         });
         return { ok: false, reason: 'caller_already_in_call' };
       }
@@ -455,15 +520,20 @@ export class CallGateway
       const targetIds = memberIds.filter((id) => id !== user.usr_id);
 
       // ─── Server-side guard 2: 1-1 — target busy → instant reject ─────────
+      // Same stale-marker recovery as guard 1: if the target's USER_IN_CALL
+      // points at a call the DB confirms has ended, clear it and let the
+      // request through (target was probably stuck because their previous
+      // popup crashed).
       if (targetIds.length === 1) {
         const targetUserId = targetIds[0];
-        const busyCallId = await this.redis.getData<string>(
-          this.key.USER_IN_CALL(targetUserId),
+        const targetValidation = await this.validateInCallOrClearStale(
+          targetUserId,
+          '',
         );
-        if (busyCallId) {
+        if (targetValidation.kind === 'reject') {
           client.emit('call:busy', {
             targetUserId,
-            callId: busyCallId,
+            callId: targetValidation.inCallId,
             reason: 'busy',
           });
           return { ok: false, reason: 'busy' };
@@ -481,7 +551,11 @@ export class CallGateway
         const busyValues = await this.redis.mget(busyKeys);
         targetIds.forEach((id, i) => {
           const v = busyValues[i];
-          if (v) busyTargets.set(id, typeof v === 'string' ? JSON.parse(v) : String(v));
+          if (v)
+            busyTargets.set(
+              id,
+              typeof v === 'string' ? JSON.parse(v) : String(v),
+            );
           else freeTargets.push(id);
         });
 
@@ -649,6 +723,27 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      // Renegotiation fast-path: when the FE re-emits `call:accepted` mid-call
+      // to push a new SDP offer (e.g. screen-share starts → addTransceiver →
+      // createOffer), it sets `renegotiate=true`. This is NOT a fresh accept
+      // — the user is already in the call and has a PC. Skip the dedup lock,
+      // the in-call validation, the gRPC AcceptCall (which would re-update
+      // member.status), and the socket-room join. Just relay the offer to
+      // the targeted peer's socket so they can apply it via setRemoteDescription.
+      const renegotiate = (data as { renegotiate?: boolean }).renegotiate === true;
+      if (renegotiate) {
+        const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+        this.io.to(targetSocketId).emit('call:accepted', {
+          members: (data as { members?: unknown }).members,
+          roomId: data.roomId,
+          actionUserId: data.actionUserId,
+          offer: data.offer,
+          callId: data.callId,
+          renegotiate: true,
+        });
+        return { ok: true };
+      }
+
       // Deduplicate: ignore duplicate call:accepted from same user for same call
       // (caused by socket reconnects re-triggering the frontend useEffect)
       const acceptLockKey = `call:accept:lock:${data.callId}:${data.actionUserId}`;
@@ -659,19 +754,21 @@ export class CallGateway
       }
 
       // Server-side guard: reject accept ONLY if user is in a DIFFERENT
-      // active call. Same callId is allowed — could be a multi-device
-      // accept (handoff handled below).
-      const inCallId = await this.redis.getData<string>(
-        this.key.USER_IN_CALL(data.actionUserId),
+      // active call. Same callId is allowed (multi-device accept) and a
+      // marker pointing at an already-ended call is treated as stale and
+      // cleared instead of blocking forever (popup-crash recovery).
+      const validation = await this.validateInCallOrClearStale(
+        data.actionUserId,
+        data.callId,
       );
-      if (inCallId && inCallId !== data.callId) {
+      if (validation.kind === 'reject') {
         this.logger.warn(
-          `[CALL] Reject accept: user ${data.actionUserId} already in call ${inCallId}`,
+          `[CALL] Reject accept: user ${data.actionUserId} already in call ${validation.inCallId}`,
         );
         client.emit('error', {
           message: 'Bạn đang trong cuộc gọi khác',
           error: 'already_in_call',
-          callId: inCallId,
+          callId: validation.inCallId,
         });
         return { ok: false, reason: 'already_in_call' };
       }
@@ -699,7 +796,6 @@ export class CallGateway
           callId: data.callId,
         },
       )) as ChatGatewayCallResponse;
-      console.log('🚀 ~ ChatGateway ~ handleAccept ~ result:', result);
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -811,19 +907,23 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
-      // Server-side guard: reject join ONLY if user is in a DIFFERENT call.
-      // Same callId is allowed (multi-device join → handoff).
-      const inCallId = await this.redis.getData<string>(
-        this.key.USER_IN_CALL(data.actionUserId),
+      // Server-side guard: reject join ONLY if user is in a DIFFERENT
+      // active call. Same callId is allowed (multi-device join → handoff).
+      // A marker pointing at an already-ended call (popup crashed without
+      // running EndCall etc.) is treated as stale and cleared instead of
+      // permanently locking the user out.
+      const validation = await this.validateInCallOrClearStale(
+        data.actionUserId,
+        data.callId,
       );
-      if (inCallId && inCallId !== data.callId) {
+      if (validation.kind === 'reject') {
         this.logger.warn(
-          `[CALL] Reject join: user ${data.actionUserId} already in call ${inCallId}`,
+          `[CALL] Reject join: user ${data.actionUserId} already in call ${validation.inCallId}`,
         );
         client.emit('error', {
           message: 'Bạn đang trong cuộc gọi khác',
           error: 'already_in_call',
-          callId: inCallId,
+          callId: validation.inCallId,
         });
         return { ok: false, reason: 'already_in_call' };
       }

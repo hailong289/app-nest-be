@@ -86,12 +86,6 @@ export class GatewayFilesystemController implements OnModuleInit {
     },
     @Req() req: { user?: { _id?: string; usr_id?: string } },
   ) {
-    console.log('� Upload request from user:', {
-      userId: req.user?._id,
-      body,
-      fileName: file?.originalname,
-    });
-
     if (!req.user?._id) {
       throw new NotFoundException('User not authenticated');
     }
