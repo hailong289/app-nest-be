@@ -54,7 +54,7 @@ jobs:
             --set-env-vars GATEWAY_NOTI_KAFKA_SASL=${{ secrets.GATEWAY_NOTI_KAFKA_SASL }} \
             --set-env-vars GATEWAY_NOTI_KAFKA_SASL_MECHANISM=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_MECHANISM }} \
             --set-env-vars GATEWAY_NOTI_KAFKA_SASL_USERNAME=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_USERNAME }} \
-            --set-env-vars GATEWAY_NOTI_KAFKA_SASL_PASSWORD=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_PASSWORD }} \ 
+            --set-env-vars GATEWAY_NOTI_KAFKA_SASL_PASSWORD=${{ secrets.GATEWAY_NOTI_KAFKA_SASL_PASSWORD }} \
             --set-env-vars GATEWAY_SFU_HOST=${{ secrets.GATEWAY_SFU_HOST }} \
             --set-env-vars GATEWAY_SFU_PORT=${{ secrets.GATEWAY_SFU_PORT }} \
             --set-env-vars GATEWAY_SFU_TLS=${{ secrets.GATEWAY_SFU_TLS }} \
