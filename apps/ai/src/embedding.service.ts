@@ -24,6 +24,9 @@ export class EmbeddingService {
     @InjectModel(Document.name)
     private readonly documentModel: Model<Document>,
   ) {
+    if (typeof global.crypto === 'undefined') {
+      (global as any).crypto = crypto;
+    }
     this.gemini = new GoogleGenerativeAI(
       this.cfg.get<string>('google.apiKey') || '',
     );

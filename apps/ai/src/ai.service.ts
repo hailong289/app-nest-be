@@ -118,7 +118,7 @@ export class AIService {
       fieldname: 'file',
       originalname: filenameFromUrl || 'remote-file',
       encoding: '7bit',
-      mimetype: response.headers['content-type'] || 'application/octet-stream',
+      mimetype: (response.headers['content-type'] as string) || 'application/octet-stream',
       size: buffer.length,
       buffer,
     };
