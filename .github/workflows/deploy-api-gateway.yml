@@ -59,4 +59,7 @@ jobs:
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
             --set-env-vars REDIS_USERNAME=${{ secrets.REDIS_USERNAME }} \
-            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            --set-env-vars REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }} \
+            --set-env-vars GATEWAY_LEARNING_HOST=${{ secrets.GATEWAY_LEARNING_HOST }} \
+            --set-env-vars GATEWAY_LEARNING_PORT=${{ secrets.GATEWAY_LEARNING_PORT }} \
+            --set-env-vars GATEWAY_LEARNING_PROTO_PATH=${{ secrets.GATEWAY_LEARNING_PROTO_PATH }} \
