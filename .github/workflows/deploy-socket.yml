@@ -48,9 +48,7 @@ jobs:
 
             npm install
             npm run build:socket
-            npm prune --omit=dev
 
             pm2 delete nest-app || true
-            pm2 start dist/apps/socket/main.js --name "nest-app"
-            pm2 save
+            NODE_ENV=production pm2 start dist/apps/socket/main.js --name "nest-app"
 
