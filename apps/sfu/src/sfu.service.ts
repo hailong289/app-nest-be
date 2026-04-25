@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as mediasoup from 'mediasoup';
 import { types as MediasoupTypes } from 'mediasoup';
-import { mediasoupConfig } from './config/mediasoup.config';
+import * as os from 'os';
+import { mediasoupConfig, ensureAnnouncedIp } from './config/mediasoup.config';
 
 type Worker = MediasoupTypes.Worker;
 type Router = MediasoupTypes.Router;
@@ -14,12 +15,32 @@ export class SfuService implements OnModuleInit {
   private nextWorkerIdx = 0;
 
   async onModuleInit() {
+    await this.resolveAnnouncedIp();
     await this.createWorkers();
+  }
+
+  private async resolveAnnouncedIp() {
+    const { announcedIp, source } = await ensureAnnouncedIp();
+    this.logger.log(
+      `Mediasoup ANNOUNCED_IP = ${announcedIp} (source: ${source})`,
+    );
+    if (
+      source === 'fallback' ||
+      (announcedIp === '127.0.0.1' && process.env.NODE_ENV === 'production')
+    ) {
+      this.logger.warn(
+        `ANNOUNCED_IP fell back to ${announcedIp} — browser clients will NOT be able to reach this SFU. ` +
+          `Set MEDIASOUP_ANNOUNCED_IP env to the VM's public IP.`,
+      );
+    }
   }
 
   private async createWorkers() {
     const numWorkers = mediasoupConfig.numWorkers;
-    this.logger.log(`Creating ${numWorkers} mediasoup workers...`);
+    const cpuCount = os.cpus().length;
+    this.logger.log(
+      `Creating ${numWorkers} mediasoup workers (host has ${cpuCount} CPU cores)`,
+    );
 
     for (let i = 0; i < numWorkers; i++) {
       try {

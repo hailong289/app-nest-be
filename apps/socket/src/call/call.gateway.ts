@@ -23,7 +23,7 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
-import { SfuRoomService, UnifiedSignalHandler } from '@app/sfu';
+import { SfuRpcClient, UnifiedSignalHandler } from '@app/sfu';
 
 interface JwtPayload {
   _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
@@ -75,20 +75,20 @@ export interface ChatGrpcService {
 export class CallGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
 {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   public get server(): Server {
     return this.io;
   }
   private readonly logger = new Logger(CallGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService: ChatGrpcService;
+  private ChatGrpcService!: ChatGrpcService;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly unifiedSignalHandler: UnifiedSignalHandler,
-    private readonly sfuRoomService: SfuRoomService,
+    private readonly sfuRpc: SfuRpcClient,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
@@ -246,15 +246,84 @@ export class CallGateway
       const userUlid = client.user?.usr_id;
       if (userUlid) {
         for (const socketRoom of client.rooms) {
-          if (
-            socketRoom !== client.id &&
-            this.sfuRoomService.getRoom(socketRoom)
-          ) {
-            this.sfuRoomService.leaveRoom(socketRoom, userUlid);
-            this.logger.log(
-              `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+          if (socketRoom === client.id) continue;
+          try {
+            if (await this.sfuRpc.roomExists(socketRoom)) {
+              await this.sfuRpc.leaveRoom(socketRoom, userUlid);
+              this.logger.log(
+                `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+              );
+            }
+          } catch (err) {
+            this.logger.warn(
+              `[DISCONNECT] SFU cleanup failed for ${userUlid} in ${socketRoom}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
             );
           }
+        }
+
+        // If the user was in an active call, mark their participation as ended
+        // in the CallHistory (chat service) so DB stays consistent + notify
+        // remaining members so their UI removes the leaver. Without this, the
+        // member's status sits at 'started' forever and the call never ends
+        // server-side until everyone manually clicks End.
+        try {
+          const activeCallId = await this.redis.getData<string>(
+            this.key.USER_IN_CALL(userUlid),
+          );
+          if (activeCallId) {
+            // Pick the socket room that hosts the SFU session (or any joined
+            // room as fallback for P2P 1-1) — that's the room we end on behalf
+            // of this user.
+            let endRoomId: string | null = null;
+            for (const socketRoom of client.rooms) {
+              if (socketRoom === client.id) continue;
+              if (socketRoom === 'system') continue;
+              if (socketRoom.startsWith('client:')) continue; // ROOM_CLIENT(usr_id)
+              endRoomId = socketRoom;
+              break;
+            }
+
+            if (endRoomId) {
+              // 1. Update CallHistory in DB via gRPC. status='ended' lets the
+              //    chat service compute member.status correctly (ended for
+              //    leavers; ended_at when caller leaves or all members ended).
+              const endResult = (await Utils.dispatchGrpcRequest(
+                (d) => this.ChatGrpcService.EndCall(d),
+                {
+                  actionUserId: userUlid,
+                  roomId: endRoomId,
+                  callId: activeCallId,
+                  status: 'ended',
+                },
+              )) as ChatGatewayCallResponse;
+
+              // 2. Notify remaining members in the room.
+              const members = endResult?.metadata?.history?.members ?? [];
+              this.io.to(endRoomId).except(client.id).emit('call:end', {
+                roomId: endRoomId,
+                actionUserId: userUlid,
+                callId: activeCallId,
+                status: 'ended',
+                members,
+                reason: 'disconnect',
+              });
+
+              this.logger.log(
+                `[DISCONNECT] Updated CallHistory + emitted call:end for ${userUlid} in ${endRoomId}`,
+              );
+            }
+
+            // 3. Always clear the in-call flag so reconnects don't show stale "busy".
+            await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
+          }
+        } catch (err) {
+          this.logger.error(
+            `[DISCONNECT] Failed to update call state for ${userUlid}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
         }
       }
 
@@ -452,7 +521,8 @@ export class CallGateway
       // Deduplicate: ignore duplicate call:accepted from same user for same call
       // (caused by socket reconnects re-triggering the frontend useEffect)
       const acceptLockKey = `call:accept:lock:${data.callId}:${data.actionUserId}`;
-      const alreadyAccepted: string | null = await this.redis.getData(acceptLockKey);
+      const alreadyAccepted: string | null =
+        await this.redis.getData(acceptLockKey);
       if (alreadyAccepted) {
         return { ok: true };
       }

@@ -2,7 +2,7 @@
 
 # Quick script to start different modes
 # Usage: ./start.sh [mode]
-# Modes: docker, local, hybrid
+# Modes: docker, local, stop
 
 MODE=${1:-docker}
 
@@ -13,7 +13,7 @@ case $MODE in
     echo "✅ All services started!"
     echo "📍 API Gateway: http://localhost:5000"
     ;;
-  
+
   local)
     echo "🏠 Starting only infrastructure in Docker..."
     docker-compose -f docker-compose.local.yml up -d
@@ -27,28 +27,14 @@ case $MODE in
     echo ""
     echo "⚠️  Make sure to use .env.local for each service!"
     ;;
-  
-  hybrid)
-    echo "🔀 Starting API Gateway in Docker, services run locally..."
-    docker-compose -f docker-compose.yml -f docker-compose.hybrid.yml up -d
-    echo "✅ API Gateway started in Docker!"
-    echo ""
-    echo "📋 Now start your services locally:"
-    echo "   cd apps/auth && npm run start:dev"
-    echo "   cd apps/chat && npm run start:dev"
-    echo "   cd apps/filesystem && npm run start:dev"
-    echo ""
-    echo "📍 API Gateway: http://localhost:5000"
-    echo "⚠️  API Gateway will connect to local services via host.docker.internal"
-    ;;
-  
+
   stop)
     echo "🛑 Stopping all services..."
     docker-compose down
     docker-compose -f docker-compose.local.yml down
     echo "✅ All services stopped!"
     ;;
-  
+
   *)
     echo "❌ Unknown mode: $MODE"
     echo ""
@@ -57,7 +43,6 @@ case $MODE in
     echo "Available modes:"
     echo "  docker  - Start all services in Docker"
     echo "  local   - Start only infrastructure, run services locally"
-    echo "  hybrid  - Start API Gateway in Docker, services locally"
     echo "  stop    - Stop all Docker services"
     exit 1
     ;;

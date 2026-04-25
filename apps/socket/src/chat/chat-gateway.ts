@@ -62,20 +62,19 @@ export interface ChatGrpcService {
     credentials: true,
   },
   namespace: '/chat',
-  // Thêm 2 dòng dưới đây để Server chấp nhận mọi loại kết nối
   transports: ['websocket', 'polling'],
-  allowEIO3: true, // Cho phép tương thích ngược với các client đời cũ (nếu có)
+  allowEIO3: true,
 })
 export class ChatGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
 {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   public get server(): Server {
     return this.io;
   }
   private readonly logger = new Logger(ChatGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService: ChatGrpcService;
+  private ChatGrpcService!: ChatGrpcService;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly jwtService: JwtService,
@@ -586,14 +585,6 @@ export class ChatGateway
     }
   }
 
-  // ========================================================
-  // 🔔 SYSTEM EMITTER
-  // ========================================================
-  public emitRoomRefresh(roomId: string) {
-    this.logger.log(`[ROOM_REFRESH] Emitting signal for room ${roomId}`);
-    this.io.to(roomId).emit(socketEvent.ROOM_REFRESH, { roomId });
-  }
-
   private async getUser(@ConnectedSocket() client: SocketWithUser) {
     if (!client.user) {
       try {
@@ -730,25 +721,25 @@ export class ChatGateway
     });
   }
 
-  @SubscribeMessage(socketEvent.QUIZZANSWER)
-  async handleQuizzAnswer(
-    @MessageBody()
-    data: {
-      quizId: string;
-      answer: {};
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    try {
-      const user = await this.getUser(client);
-    } catch (error) {
-      this.logger.error('[QUIZZ] Error answering quizz:', error);
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+  // @SubscribeMessage(socketEvent.QUIZZANSWER)
+  // async handleQuizzAnswer(
+  //   @MessageBody()
+  //   data: {
+  //     quizId: string;
+  //     answer: {};
+  //   },
+  //   @ConnectedSocket() client: SocketWithUser,
+  // ) {
+  //   try {
+  //     const user = await this.getUser(client);
+  //   } catch (error) {
+  //     this.logger.error('[QUIZZ] Error answering quizz:', error);
+  //     return {
+  //       ok: false,
+  //       error: error instanceof Error ? error.message : String(error),
+  //     };
+  //   }
+  // }
 
   @SubscribeMessage(socketEvent.UPDATE_QUIZ)
   async handleUpdateQuiz(

@@ -4,13 +4,15 @@ import { join } from 'node:path';
 import * as grpc from '@grpc/grpc-js';
 import { SERVICES } from '@app/constants';
 import { CallGateway } from './call.gateway';
-import { SfuModule } from '@app/sfu';
+import { SfuRpcModule } from '@app/sfu';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
-    SfuModule,
+    // SFU operations are delegated via gRPC to apps/sfu (mediasoup VM).
+    // No mediasoup native binary is loaded in this app (Cloud Run friendly).
+    SfuRpcModule.register(),
     ConfigModule, // WsJwtGuard cần ConfigService
     JwtModule.register({}), // WsJwtGuard cần JwtService
     ClientsModule.register([

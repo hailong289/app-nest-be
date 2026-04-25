@@ -1,14 +1,14 @@
 # =============================================================================
 # Stage 1: deps — install Node packages.
-# Note: mediasoup is still in package.json so it'll compile here, but apps/socket
-# never imports it at runtime after the SFU split. We accept the build-time cost
-# in exchange for keeping a single root package.json. The runner stage does NOT
-# carry the mediasoup native binary into Cloud Run — only the slim runtime.
+# Mediasoup ships a C++ worker that gets compiled via node-gyp during install,
+# which requires Python 3 + a C/C++ toolchain. This stage carries those tools;
+# the runner stage doesn't, keeping the final image slim.
 # =============================================================================
 FROM node:24-alpine AS deps
 
 WORKDIR /app
 
+# linux-headers needed by some native modules under Alpine.
 RUN apk add --no-cache python3 py3-pip make g++ gcc linux-headers \
   && ln -sf python3 /usr/bin/python
 
@@ -17,6 +17,7 @@ RUN npm install
 
 # =============================================================================
 # Stage 2: builder — compile TypeScript -> dist/.
+# Reuses node_modules from `deps` (incl. the pre-built mediasoup-worker binary).
 # =============================================================================
 FROM node:24-alpine AS builder
 
@@ -28,29 +29,33 @@ COPY tsconfig*.json nest-cli.json ./
 COPY apps ./apps
 COPY libs ./libs
 
-RUN npm run build:socket \
+RUN npm run build:sfu \
   && npm prune --omit=dev
 
 # =============================================================================
-# Stage 3: runner — slim runtime image, deploy target = Cloud Run.
+# Stage 3: runner — slim runtime image.
+# No Python, no compilers. Just Node + compiled artifacts + mediasoup binary
+# (which lives inside node_modules/mediasoup/worker/out/Release/).
 # =============================================================================
 FROM node:24-alpine AS runner
 
 WORKDIR /app
 
-# libstdc++/libgcc still needed in case any transitive native dep links them.
+# libstdc++ / libgcc are required by the compiled mediasoup-worker.
 RUN apk add --no-cache libstdc++ libgcc
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-# Proto files loaded at runtime by gRPC clients (chat.proto, sfu.proto, etc.).
+# Proto files are loaded at runtime by gRPC server (path: libs/grpc/sfu.proto).
 COPY libs ./libs
 
 ENV NODE_ENV=production
-# Cloud Run expects the app to read PORT env (default 8080). main.ts already
-# falls back to PORT || 5006 — set PORT here so local docker-compose works too.
-ENV PORT=5006
 
-EXPOSE 5006
+# gRPC port (apps/sfu listens here for control plane from apps/socket).
+EXPOSE 5008
+# Mediasoup RTC port range (UDP). Browsers send media here directly.
+# Note: Docker doesn't auto-open this many UDP ports efficiently — use
+# `--network host` on the VM (see docker-compose.dev.yml) for production.
+EXPOSE 40000-49999/udp
 
-CMD ["node", "dist/apps/socket/main.js"]
+CMD ["node", "dist/apps/sfu/main.js"]

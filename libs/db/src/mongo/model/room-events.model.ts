@@ -14,7 +14,12 @@ export type EventRoomType =
   | 'member.unPinded'
   | 'member.change.name'
   | 'member.change.avatar'
-  | 'member.change.nickName';
+  | 'member.change.nickName'
+  // Group call lifecycle (only logged for sfu calls — private/p2p calls skip)
+  | 'call.started'
+  | 'call.joined'
+  | 'call.left'
+  | 'call.ended';
 
 @Schema({ timestamps: true, collection: 'RoomEvents' })
 export class RoomEvent {

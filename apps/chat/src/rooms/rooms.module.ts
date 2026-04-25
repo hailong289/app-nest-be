@@ -3,6 +3,7 @@ import { RoomsService } from './rooms.service';
 import { RoomsController } from './rooms.controller';
 import { MongooseModule } from '@nestjs/mongoose';
 import { RedisModule } from 'libs/db/src/redis/redis.module';
+import { RemoteEmitterModule } from 'libs/ws/src';
 
 import {
   messageHidesModel,
@@ -14,7 +15,6 @@ import {
   roomsStateModel,
   roomsUsersStateModel,
   userModel,
-  SharedBullModule,
 } from 'libs/db/src';
 
 @Module({
@@ -31,7 +31,7 @@ import {
       messageReactionsModel,
     ]),
     RedisModule,
-    SharedBullModule.registerQueue('room_updates'),
+    RemoteEmitterModule,
   ],
   controllers: [RoomsController],
   providers: [RoomsService],

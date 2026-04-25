@@ -94,6 +94,33 @@ export class GatewayAiController {
     );
   }
 
+  /**
+   * POST /ai/search — hybrid AI search (vector embedding + keyword) over a
+   * user's accessible messages. Body: `{ query, roomId?, limit? }`.
+   * `userId` is taken from the authenticated request, not the body.
+   */
+  @Post('search')
+  async search(
+    @Body() body: { query: string; roomId?: string; limit?: number },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.gatewayService.dispatchGrpcRequest(
+      (data: {
+        query: string;
+        userId: string;
+        limit: number;
+        roomId?: string;
+      }) => this.aiService.search(data),
+      {
+        query: body.query,
+        userId: req.user.usr_id,
+        limit: body.limit ?? 5,
+        roomId: body.roomId,
+      },
+      60000, // 1 minute — embedding + vector search may be slow on cold cache
+    );
+  }
+
   @Get('search-messages')
   async searchMessages(@Query() query: SearchMessagesDto) {
     return this.gatewayService.dispatchGrpcRequest(

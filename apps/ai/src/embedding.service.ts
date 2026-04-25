@@ -7,8 +7,23 @@ import { ConfigService } from '@nestjs/config';
 import { AIEmbedding } from 'libs/db/src/mongo/model/AIEmbedding.model';
 import { Attachment } from 'libs/db/src/mongo/model/Attachment.model';
 import { Document } from 'libs/db/src/mongo/model/Document.model';
+import { Message } from 'libs/db/src/mongo/model/messages.model';
 import axios from 'axios';
 import Utils from '@app/helpers/utils';
+
+/**
+ * Strip Vietnamese diacritics + lowercase. Mirrors the `normalizeVi` hook in
+ * messages.model.ts so a query like "tin nhan" matches stored
+ * `msg_content_norm` for "tin nhắn".
+ */
+function normalizeVi(s = ''): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
 
 @Injectable()
 export class EmbeddingService {
@@ -23,6 +38,8 @@ export class EmbeddingService {
     private readonly attachmentModel: Model<Attachment>,
     @InjectModel(Document.name)
     private readonly documentModel: Model<Document>,
+    @InjectModel(Message.name)
+    private readonly messageModel: Model<Message>,
   ) {
     if (typeof global.crypto === 'undefined') {
       (global as any).crypto = crypto;
@@ -415,12 +432,110 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         }
       });
 
-      // 6. Sort & Limit
-      return Array.from(uniqueMap.values())
-        .sort((a, b) => b.score - a.score)
+      // 6. Sort & Drop system-message hits, then limit.
+      // AIEmbeddings may have been generated for system messages (member
+      // added, call started, ...) but users searching chat content don't
+      // want those. Look up messageId → msg_type and filter post-hoc so we
+      // don't have to alter the vector pipeline `$match` stage.
+      const sortedAll = Array.from(uniqueMap.values()).sort(
+        (a, b) => b.score - a.score,
+      );
+      const messageIds = sortedAll
+        .map((r) => r.messageId)
+        .filter((id) => !!id);
+      const systemMessageIds = new Set<string>();
+      if (messageIds.length > 0) {
+        const systemDocs = await this.messageModel
+          .find(
+            { _id: { $in: messageIds }, msg_type: 'system' },
+            { _id: 1 },
+          )
+          .lean()
+          .exec();
+        systemDocs.forEach((d) =>
+          systemMessageIds.add(String((d as { _id: unknown })._id)),
+        );
+      }
+
+      const ranked = sortedAll
+        .filter((r) => !systemMessageIds.has(String(r.messageId)))
         .slice(0, limit);
+
+      // 7. Fallback: if no embeddings/vectors matched (room never indexed,
+      // AI offline, etc.) fall back to a plain regex over Messages.msg_content_norm
+      // — same UX as a regular keyword search.
+      if (ranked.length === 0) {
+        return this.fallbackKeywordSearchOnMessages(
+          query,
+          roomObjectId,
+          limit,
+        );
+      }
+
+      return ranked;
     } catch (error) {
-      this.logger.error('Search failed', error);
+      this.logger.error('Search failed, falling back to keyword search', error);
+      return this.fallbackKeywordSearchOnMessages(
+        query,
+        Utils.convertToObjectIdMongoose(roomId),
+        limit,
+      );
+    }
+  }
+
+  /**
+   * Plain keyword search over the Messages collection — used as a fallback
+   * when the AI/vector pipeline returns no hits (room not yet embedded, AI
+   * service unavailable, ...). Searches against `msg_content_norm` (Vietnamese
+   * diacritics-stripped index) so "tin nhan" matches "tin nhắn".
+   */
+  private async fallbackKeywordSearchOnMessages(
+    query: string,
+    roomObjectId: Types.ObjectId,
+    limit: number,
+  ) {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    try {
+      const normalized = normalizeVi(trimmed);
+      const safe = Utils.escapeRegex(normalized);
+
+      const docs = await this.messageModel
+        .find({
+          msg_roomId: roomObjectId,
+          msg_content_norm: { $regex: safe, $options: 'i' },
+          deletedAt: null,
+          // Exclude system messages (member added/left, call started/ended,
+          // ...) — they're notifications, not actual chat content the user
+          // would search for.
+          msg_type: { $ne: 'system' },
+        })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .select('_id msg_roomId msg_content createdAt')
+        .lean()
+        .exec();
+
+      this.logger.log(
+        `[Fallback] Keyword search on Messages found ${docs.length} hits for "${query}" in room ${roomObjectId.toString()}`,
+      );
+
+      return docs.map((d) => ({
+        text: d.msg_content,
+        contextId: d.msg_roomId,
+        messageId: d._id,
+        createdAt: d.createdAt,
+        // Lower than vector hits (>=0.5) and lower than embedding-keyword hits
+        // (1.5) — keeps fallback results visually distinct.
+        score: 0.3,
+      }));
+    } catch (err) {
+      this.logger.error(
+        `[Fallback] Keyword search failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
       return [];
     }
   }
