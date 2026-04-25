@@ -68,7 +68,7 @@ interface DocumentService {
   namespace: '/doc',
 })
 export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   private readonly logger = new Logger(DocGateway.name);
   private readonly key = REDISKEY;
   private DocGrpcService: DocumentService;

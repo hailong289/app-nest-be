@@ -23,7 +23,7 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
-import { SfuRoomService, UnifiedSignalHandler } from '@app/sfu';
+import { SfuRpcClient, UnifiedSignalHandler } from '@app/sfu';
 
 interface JwtPayload {
   _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
@@ -75,20 +75,20 @@ export interface ChatGrpcService {
 export class CallGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
 {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   public get server(): Server {
     return this.io;
   }
   private readonly logger = new Logger(CallGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService: ChatGrpcService;
+  private ChatGrpcService!: ChatGrpcService;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly unifiedSignalHandler: UnifiedSignalHandler,
-    private readonly sfuRoomService: SfuRoomService,
+    private readonly sfuRpc: SfuRpcClient,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
@@ -246,13 +246,19 @@ export class CallGateway
       const userUlid = client.user?.usr_id;
       if (userUlid) {
         for (const socketRoom of client.rooms) {
-          if (
-            socketRoom !== client.id &&
-            this.sfuRoomService.getRoom(socketRoom)
-          ) {
-            this.sfuRoomService.leaveRoom(socketRoom, userUlid);
-            this.logger.log(
-              `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+          if (socketRoom === client.id) continue;
+          try {
+            if (await this.sfuRpc.roomExists(socketRoom)) {
+              await this.sfuRpc.leaveRoom(socketRoom, userUlid);
+              this.logger.log(
+                `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+              );
+            }
+          } catch (err) {
+            this.logger.warn(
+              `[DISCONNECT] SFU cleanup failed for ${userUlid} in ${socketRoom}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
             );
           }
         }
@@ -452,7 +458,8 @@ export class CallGateway
       // Deduplicate: ignore duplicate call:accepted from same user for same call
       // (caused by socket reconnects re-triggering the frontend useEffect)
       const acceptLockKey = `call:accept:lock:${data.callId}:${data.actionUserId}`;
-      const alreadyAccepted: string | null = await this.redis.getData(acceptLockKey);
+      const alreadyAccepted: string | null =
+        await this.redis.getData(acceptLockKey);
       if (alreadyAccepted) {
         return { ok: true };
       }

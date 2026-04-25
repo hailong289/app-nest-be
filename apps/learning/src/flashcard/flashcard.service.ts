@@ -75,7 +75,7 @@ export class FlashcardService {
         .find(query)
         .skip((page - 1) * limit)
         .limit(limit)
-        .sort({ createdAt: -1 }); 
+        .sort({ createdAt: -1 });
 
       const total_item = await this.flashcardModel.countDocuments(query);
 
@@ -160,7 +160,10 @@ export class FlashcardService {
     });
   }
 
-  private async getDeckProgressStats(deckObjectId: Types.ObjectId, userId?: string) {
+  private async getDeckProgressStats(
+    deckObjectId: Types.ObjectId,
+    userId?: string,
+  ) {
     const flashcards = await this.flashcardModel
       .find({ card_deckId: deckObjectId })
       .lean();
@@ -177,9 +180,7 @@ export class FlashcardService {
         .find({ user_id: userId, card_id: { $in: cardIds } })
         .lean();
 
-      const progressMap = new Map(
-        progresses.map((p: any) => [p.card_id, p]),
-      );
+      const progressMap = new Map(progresses.map((p: any) => [p.card_id, p]));
 
       flashcards.forEach((card: any) => {
         const progress = progressMap.get(card.card_id);
@@ -267,9 +268,7 @@ export class FlashcardService {
 
         const deleteQuery: any = { card_deckId: deck._id };
         if (providedIds.length > 0) {
-          deleteQuery.$nor = [
-            { card_id: { $in: providedIds } }
-          ];
+          deleteQuery.$nor = [{ card_id: { $in: providedIds } }];
         }
         await this.flashcardModel.deleteMany(deleteQuery);
 
@@ -280,26 +279,26 @@ export class FlashcardService {
             chunk.map(async (flashcard: any) => {
               const cardData = {
                 ...flashcard,
-                card_userId: flashcard.card_userId 
-                  ? new Types.ObjectId(flashcard.card_userId) 
+                card_userId: flashcard.card_userId
+                  ? new Types.ObjectId(flashcard.card_userId)
                   : deck.deck_userId,
                 card_deckId: deck._id,
               };
 
-              const filter = flashcard.card_id 
-                ? { card_id: flashcard.card_id } 
+              const filter = flashcard.card_id
+                ? { card_id: flashcard.card_id }
                 : null;
 
               if (filter) {
                 return this.flashcardModel.updateOne(
                   filter,
                   { $set: cardData },
-                  { upsert: true }
+                  { upsert: true },
                 );
               } else {
                 return this.flashcardModel.create(cardData);
               }
-            })
+            }),
           );
         }
       }
@@ -327,8 +326,14 @@ export class FlashcardService {
     try {
       const updateData: Record<string, any> = {};
       const allowedFields = [
-        'mastery_level', 'review_count', 'correct_count', 'incorrect_count',
-        'is_mastered', 'is_favorite', 'status', 'next_review',
+        'mastery_level',
+        'review_count',
+        'correct_count',
+        'incorrect_count',
+        'is_mastered',
+        'is_favorite',
+        'status',
+        'next_review',
       ];
       for (const field of allowedFields) {
         if (data[field] !== undefined) {

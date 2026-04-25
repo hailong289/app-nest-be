@@ -23,4 +23,3 @@ import aiConfig from '../config/ai.config';
   providers: [GatewayService],
 })
 export class GatewayAiModule {}
-

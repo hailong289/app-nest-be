@@ -14,6 +14,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
+    "ignoreDeprecations": "5.0",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
@@ -23,46 +24,46 @@
     "noFallthroughCasesInSwitch": false,
     "paths": {
       "@app/constants": [
-        "libs/constants/src"
+        "./libs/constants/src"
       ],
       "@app/constants/*": [
-        "libs/constants/src/*"
+        "./libs/constants/src/*"
       ],
       "@app/dto": [
-        "libs/dto/src"
+        "./libs/dto/src"
       ],
       "@app/dto/*": [
-        "libs/dto/src/*"
+        "./libs/dto/src/*"
       ],
       "@app/grpc": [
-        "libs/grpc"
+        "./libs/grpc"
       ],
       "@app/grpc/*": [
-        "libs/grpc/*"
+        "./libs/grpc/*"
       ],
       "@app/helpers": [
-        "libs/helpers"
+        "./libs/helpers"
       ],
       "@app/helpers/*": [
-        "libs/helpers/*"
+        "./libs/helpers/*"
       ],
       "@app/schemas": [
-        "libs/schemas/src"
+        "./libs/schemas/src"
       ],
       "@app/database": [
-        "libs/database/mongodb/src"
+        "./libs/database/mongodb/src"
       ],
       "@app/sfu": [
-        "libs/sfu/src"
+        "./libs/sfu/src"
       ],
       "@app/sfu/*": [
-        "libs/sfu/src/*"
+        "./libs/sfu/src/*"
       ],
       "libs/sfu": [
-        "libs/sfu/src"
+        "./libs/sfu/src"
       ],
       "libs/sfu/*": [
-        "libs/sfu/src/*"
+        "./libs/sfu/src/*"
       ]
     }
   }

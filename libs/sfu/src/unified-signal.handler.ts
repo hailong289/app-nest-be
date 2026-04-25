@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { SfuRoomService } from './room/sfu-room.service';
-import { SfuTransportService } from './transport/sfu-transport.service';
-import * as MediasoupTypes from 'mediasoup/types';
+import { SfuRpcClient } from './rpc/sfu-rpc.client';
+// Type-only import — erased at compile time, so apps/socket bundle won't pull
+// in the mediasoup native module. Only apps/sfu (on the VM) needs the runtime.
+import type { types as MediasoupTypes } from 'mediasoup';
 
 /**
  * Socket with user info (after auth)
@@ -50,16 +51,16 @@ interface SignalPayload {
 
 /**
  * Unified Signal Handler
- * One event to rule them all - routes to P2P or SFU based on target
+ * One event to rule them all - routes to P2P or SFU based on target.
+ *
+ * SFU operations are delegated to apps/sfu (mediasoup VM) via SfuRpcClient.
+ * Socket emit/broadcast remains here on the signaling server.
  */
 @Injectable()
 export class UnifiedSignalHandler {
   private readonly logger = new Logger(UnifiedSignalHandler.name);
 
-  constructor(
-    private readonly sfuRoomService: SfuRoomService,
-    private readonly sfuTransportService: SfuTransportService,
-  ) {}
+  constructor(private readonly sfuRpc: SfuRpcClient) {}
 
   /**
    * Main signal handler - routes based on target field
@@ -88,7 +89,7 @@ export class UnifiedSignalHandler {
   }
 
   /**
-   * Handle SFU signals (server-side media processing)
+   * Handle SFU signals (server-side media processing via gRPC to apps/sfu)
    */
   private async handleSFUSignal(
     payload: SignalPayload,
@@ -102,13 +103,12 @@ export class UnifiedSignalHandler {
     // Normalize roomId: the FE join URL uses msg.roomId (MongoDB ObjectId), while the socket
     // room and SFU room are keyed by room.room_id (custom string). If the provided roomId has
     // no SFU room yet, find a socket room the client already joined that DOES have an SFU room.
-    // This is reliable because call:join always does client.join(room.room_id) before signal:join.
     let roomId = rawRoomId;
-    if (!this.sfuRoomService.getRoom(rawRoomId)) {
+    if (!(await this.sfuRpc.roomExists(rawRoomId))) {
       for (const socketRoom of client.rooms) {
         if (
           socketRoom !== client.id &&
-          this.sfuRoomService.getRoom(socketRoom)
+          (await this.sfuRpc.roomExists(socketRoom))
         ) {
           this.logger.log(
             `[SFU] Normalized roomId: ${rawRoomId} → ${socketRoom} (ObjectId→room_id)`,
@@ -122,13 +122,16 @@ export class UnifiedSignalHandler {
     try {
       switch (type) {
         case 'join': {
-          const room = await this.sfuRoomService.joinRoom(roomId, userId);
+          const { rtpCapabilities } = await this.sfuRpc.joinRoom(
+            roomId,
+            userId,
+          );
           client.emit('signal', {
             type: 'join',
             sender: 'sfu',
             target: 'me',
             ok: true,
-            rtpCapabilities: room.router.rtpCapabilities,
+            rtpCapabilities,
           });
           break;
         }
@@ -138,19 +141,18 @@ export class UnifiedSignalHandler {
             throw new Error('Missing direction parameter');
           }
 
-          const transport =
-            await this.sfuTransportService.createWebRtcTransport(
-              roomId,
-              userId,
-              payload.direction,
-            );
+          const transport = await this.sfuRpc.createWebRtcTransport(
+            roomId,
+            userId,
+            payload.direction,
+          );
 
           client.emit('signal', {
             type: 'createTransport',
             sender: 'sfu',
             target: 'me',
             ok: true,
-            transportId: transport.id,
+            transportId: transport.transportId,
             iceParameters: transport.iceParameters,
             iceCandidates: transport.iceCandidates,
             dtlsParameters: transport.dtlsParameters,
@@ -163,7 +165,7 @@ export class UnifiedSignalHandler {
             throw new Error('Missing transport parameters');
           }
 
-          await this.sfuTransportService.connectTransport(
+          await this.sfuRpc.connectTransport(
             roomId,
             userId,
             payload.transportId,
@@ -184,7 +186,7 @@ export class UnifiedSignalHandler {
             throw new Error('Missing produce parameters');
           }
 
-          const producer = await this.sfuTransportService.produce(
+          const { producerId } = await this.sfuRpc.produce(
             roomId,
             userId,
             payload.transportId,
@@ -198,7 +200,7 @@ export class UnifiedSignalHandler {
             sender: 'sfu',
             target: 'broadcast',
             ok: true,
-            producerId: producer.id,
+            producerId,
             userId: userId,
             kind: payload.kind,
           });
@@ -208,7 +210,7 @@ export class UnifiedSignalHandler {
             sender: 'sfu',
             target: 'me',
             ok: true,
-            producerId: producer.id,
+            producerId,
             appData: payload.appData || {}, // echo back so FE callback can resolve
           });
           break;
@@ -223,7 +225,7 @@ export class UnifiedSignalHandler {
             throw new Error('Missing consume parameters');
           }
 
-          const consumer = await this.sfuTransportService.consume(
+          const consumer = await this.sfuRpc.consume(
             roomId,
             userId,
             payload.transportId,
@@ -234,14 +236,10 @@ export class UnifiedSignalHandler {
           // Find the userId who owns this producer so FE can map stream to user
           let producerUserId = payload.userId;
           if (!producerUserId) {
-            const room = this.sfuRoomService.getRoom(roomId);
-            if (room) {
-              room.participants.forEach((participant, pUserId) => {
-                if (participant.producers.has(payload.producerId!)) {
-                  producerUserId = pUserId;
-                }
-              });
-            }
+            producerUserId = await this.sfuRpc.findProducerOwner(
+              roomId,
+              payload.producerId,
+            );
           }
 
           client.emit('signal', {
@@ -249,7 +247,7 @@ export class UnifiedSignalHandler {
             sender: 'sfu',
             target: 'me',
             ok: true,
-            consumerId: consumer.id,
+            consumerId: consumer.consumerId,
             producerId: consumer.producerId,
             kind: consumer.kind,
             rtpParameters: consumer.rtpParameters,
@@ -262,11 +260,7 @@ export class UnifiedSignalHandler {
           if (!payload.producerId) {
             throw new Error('Missing producerId');
           }
-          await this.sfuTransportService.pauseProducer(
-            roomId,
-            userId,
-            payload.producerId,
-          );
+          await this.sfuRpc.pauseProducer(roomId, userId, payload.producerId);
           client.emit('signal', {
             type: 'pause',
             sender: 'sfu',
@@ -280,11 +274,7 @@ export class UnifiedSignalHandler {
           if (!payload.producerId) {
             throw new Error('Missing producerId');
           }
-          await this.sfuTransportService.resumeProducer(
-            roomId,
-            userId,
-            payload.producerId,
-          );
+          await this.sfuRpc.resumeProducer(roomId, userId, payload.producerId);
           client.emit('signal', {
             type: 'resume',
             sender: 'sfu',
@@ -295,7 +285,7 @@ export class UnifiedSignalHandler {
         }
 
         case 'leave': {
-          this.sfuRoomService.leaveRoom(roomId, userId);
+          await this.sfuRpc.leaveRoom(roomId, userId);
           client.emit('signal', {
             type: 'leave',
             sender: 'sfu',
@@ -307,27 +297,7 @@ export class UnifiedSignalHandler {
 
         case 'getProducers': {
           // Return all active producers in the room except the requesting user's own
-          const room = this.sfuRoomService.getRoom(roomId);
-          const producers: Array<{
-            producerId: string;
-            userId: string;
-            kind: string;
-          }> = [];
-          if (room) {
-            room.participants.forEach((participant, pUserId) => {
-              if (pUserId !== userId) {
-                participant.producers.forEach((producer) => {
-                  if (!producer.closed) {
-                    producers.push({
-                      producerId: producer.id,
-                      userId: pUserId,
-                      kind: producer.kind,
-                    });
-                  }
-                });
-              }
-            });
-          }
+          const producers = await this.sfuRpc.getProducers(roomId, userId);
           client.emit('signal', {
             type: 'getProducers',
             sender: 'sfu',

@@ -718,8 +718,14 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
-    // Notify clients to refresh room info (pinned messages updated)
-    await this.roomService.emitRoomUpdate(finInfo.room_id.toString());
+    // Notify clients to refresh room info (pinned messages updated).
+    // Lightweight ping — pin events already surface via MSGPINNED, this just
+    // nudges the room metadata.
+    this.roomService.notifyRoomChanged(finInfo.room_id.toString(), {
+      reason: 'pinned-changed',
+      messageId: msgId,
+      pinned,
+    });
 
     return Response.success(
       {
@@ -934,6 +940,36 @@ export class HandleChatService {
       if (!callHistory) {
         throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
       }
+
+      // Group call → log a system event so non-call members see "X started a
+      // group call" inline in chat. Skip for private/p2p (1-1) calls.
+      if (callMode === 'sfu') {
+        await this.roomService
+          .writeLogRoom({
+            event_type: 'call.started',
+            room_id: room._id,
+            actor_id: actionUser._id,
+            targets: members.map((m) => m._id),
+            placeholder: `${actionUser.usr_fullname} đã bắt đầu cuộc gọi ${
+              callType === 'video' ? 'video' : 'thoại'
+            } nhóm`,
+            payload: {
+              callId: callHistory.call_id,
+              callType,
+              callMode,
+              callMessageId: msg._id.toString(),
+              startedAt: callHistory.started_at,
+            },
+          })
+          .catch((err) =>
+            this.log.error(
+              `[CALL_LOG] Failed to log call.started: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            ),
+          );
+      }
+
       const message = await this.messageModel.aggregate(
         buildMessageDetailPipeline(msg._id.toString()),
       );
@@ -985,6 +1021,14 @@ export class HandleChatService {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
+      // Capture the user's status BEFORE we flip it to 'started'. We only want
+      // to log a "joined" system message on the first transition (pending →
+      // started), not on every reconnect/accept retry.
+      const previousStatus = callHistory.members.find(
+        (m) => m.id.toString() === actionUser.usr_id.toString(),
+      )?.status;
+      const isFirstJoin = previousStatus === 'pending';
+
       // Dùng findOneAndUpdate thay vì save() để tránh Mongoose VersionError khi
       // nhiều request đồng thời cùng cập nhật document (optimistic locking conflict).
       const updateFields: Record<string, any> = {
@@ -1006,6 +1050,31 @@ export class HandleChatService {
       if (!refreshedHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
+
+      // Group calls log "X joined the call" once per member, on first join only.
+      if (refreshedHistory.call_mode === 'sfu' && isFirstJoin) {
+        await this.roomService
+          .writeLogRoom({
+            event_type: 'call.joined',
+            room_id: room._id,
+            actor_id: actionUser._id,
+            targets: refreshedHistory.members.map((m) => m.user_id),
+            placeholder: `${actionUser.usr_fullname} đã tham gia cuộc gọi`,
+            payload: {
+              callId: refreshedHistory.call_id,
+              callMode: refreshedHistory.call_mode,
+              callMessageId: refreshedHistory.message_id?.toString(),
+            },
+          })
+          .catch((err) =>
+            this.log.error(
+              `[CALL_LOG] Failed to log call.joined: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            ),
+          );
+      }
+
       const msg = await this.messageModel.aggregate(
         buildMessageDetailPipeline(refreshedHistory.message_id.toString()),
       );
@@ -1106,6 +1175,45 @@ export class HandleChatService {
       // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
       callHistory.markModified('members');
       await callHistory.save();
+
+      // Group call → log either:
+      //   call.ended → cuộc gọi vừa kết thúc với mọi người (ended_at vừa set)
+      //   call.left  → user này rời sớm trong khi cuộc gọi vẫn đang diễn ra
+      // Skip for p2p (1-1) — bữa cuộc gọi đó tự nó đã là tin nhắn 'call'.
+      if (callHistory.call_mode === 'sfu') {
+        const callJustEnded = !!callHistory.ended_at;
+        await this.roomService
+          .writeLogRoom({
+            event_type: callJustEnded ? 'call.ended' : 'call.left',
+            room_id: room._id,
+            actor_id: actionUser._id,
+            targets: callHistory.members.map((m) => m.user_id),
+            placeholder: callJustEnded
+              ? this.formatCallEndedPlaceholder(callHistory)
+              : `${actionUser.usr_fullname} đã rời cuộc gọi`,
+            payload: {
+              callId: callHistory.call_id,
+              callMode: callHistory.call_mode,
+              callMessageId: callHistory.message_id?.toString(),
+              endStatus: status,
+              startedAt: callHistory.started_at,
+              endedAt: callHistory.ended_at,
+              durationMs:
+                callJustEnded && callHistory.started_at
+                  ? new Date(callHistory.ended_at!).getTime() -
+                    new Date(callHistory.started_at).getTime()
+                  : undefined,
+            },
+          })
+          .catch((err) =>
+            this.log.error(
+              `[CALL_LOG] Failed to log ${
+                callJustEnded ? 'call.ended' : 'call.left'
+              }: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
+      }
+
       const msg = await this.messageModel.aggregate(
         buildMessageDetailPipeline(callHistory.message_id.toString()),
       );
@@ -1121,6 +1229,33 @@ export class HandleChatService {
       console.log('🚀 ~ HandleChatService ~ endCall ~ error:', error);
       return Response.badRequest('Không kết thúc được cuộc gọi');
     }
+  }
+
+  /**
+   * Build a friendly "Cuộc gọi đã kết thúc - X phút Y giây" string for the
+   * call.ended system event. Falls back to a duration-less message when the
+   * call never actually started (cancelled before pickup).
+   */
+  private formatCallEndedPlaceholder(callHistory: CallHistory): string {
+    if (!callHistory.started_at || !callHistory.ended_at) {
+      return 'Cuộc gọi đã kết thúc';
+    }
+    const durationMs =
+      new Date(callHistory.ended_at).getTime() -
+      new Date(callHistory.started_at).getTime();
+    if (durationMs <= 0) return 'Cuộc gọi đã kết thúc';
+
+    const totalSec = Math.floor(durationMs / 1000);
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours} giờ`);
+    if (minutes > 0) parts.push(`${minutes} phút`);
+    if (seconds > 0 || parts.length === 0) parts.push(`${seconds} giây`);
+
+    return `Cuộc gọi đã kết thúc · ${parts.join(' ')}`;
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi

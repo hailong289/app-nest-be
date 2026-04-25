@@ -6,5 +6,5 @@ export const SERVICES = {
   AI: 'AI_SERVICE',
   SOCKET: 'SOCKET_SERVICE',
   LEARNING: 'LEARNING_SERVICE',
+  SFU: 'SFU_SERVICE',
 } as const;
-

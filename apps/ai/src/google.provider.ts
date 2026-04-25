@@ -349,11 +349,18 @@ export class GoogleModerationProvider {
     language: string,
     file?: MulterFile,
   ) {
-    const prompt = generateFlashcardPrompt(topic, type, card_count, difficulty, language);
+    const prompt = generateFlashcardPrompt(
+      topic,
+      type,
+      card_count,
+      difficulty,
+      language,
+    );
 
     try {
-      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> =
-        [{ text: prompt }];
+      const parts: Array<
+        { text: string } | { inlineData: { mimeType: string; data: string } }
+      > = [{ text: prompt }];
 
       if ((type === 'document' || type === 'file_url') && file) {
         parts.push({
@@ -363,7 +370,6 @@ export class GoogleModerationProvider {
           },
         });
       }
-
 
       const result = await this.generateContent(
         {
@@ -395,12 +401,23 @@ export class GoogleModerationProvider {
 
       return Response.success(
         {
-          deck_name: typeof parsed.deck_name === 'string' ? parsed.deck_name : '',
+          deck_name:
+            typeof parsed.deck_name === 'string' ? parsed.deck_name : '',
           deck_description:
-            typeof parsed.deck_description === 'string' ? parsed.deck_description : '',
-          deck_level: typeof parsed.deck_level === 'string' ? parsed.deck_level : 'beginner',
-          deck_language: typeof parsed.deck_language === 'string' ? parsed.deck_language : language,
-          deck_tags: Array.isArray(parsed.deck_tags) ? (parsed.deck_tags as string[]) : [],
+            typeof parsed.deck_description === 'string'
+              ? parsed.deck_description
+              : '',
+          deck_level:
+            typeof parsed.deck_level === 'string'
+              ? parsed.deck_level
+              : 'beginner',
+          deck_language:
+            typeof parsed.deck_language === 'string'
+              ? parsed.deck_language
+              : language,
+          deck_tags: Array.isArray(parsed.deck_tags)
+            ? (parsed.deck_tags as string[])
+            : [],
           flashcards: flashcards.map((card) => ({
             card_front: card.card_front ?? '',
             card_back: card.card_back ?? '',
@@ -415,7 +432,11 @@ export class GoogleModerationProvider {
       );
     } catch (err) {
       this.logger.error('Lỗi generate flashcard:', (err as Error).message);
-      return Response.error('Không thể tạo flashcard lúc này', 400, 'Bad input');
+      return Response.error(
+        'Không thể tạo flashcard lúc này',
+        400,
+        'Bad input',
+      );
     }
   }
 }

@@ -8,7 +8,10 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import type { TodoPriority, TodoStatus } from 'libs/db/src/mongo/model/todo.model';
+import type {
+  TodoPriority,
+  TodoStatus,
+} from 'libs/db/src/mongo/model/todo.model';
 
 export class CreateTodoDto {
   @IsNotEmpty({ message: 'Tiêu đề không để trống' })
