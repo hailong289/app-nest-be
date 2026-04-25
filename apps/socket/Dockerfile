@@ -1,56 +1,31 @@
-# =============================================================================
-# Stage 1: deps — install Node packages.
-# Note: mediasoup is still in package.json so it'll compile here, but apps/socket
-# never imports it at runtime after the SFU split. We accept the build-time cost
-# in exchange for keeping a single root package.json. The runner stage does NOT
-# carry the mediasoup native binary into Cloud Run — only the slim runtime.
-# =============================================================================
-FROM node:24-alpine AS deps
-
-WORKDIR /app
-
-RUN apk add --no-cache python3 py3-pip make g++ gcc linux-headers \
-  && ln -sf python3 /usr/bin/python
-
-COPY package*.json ./
-RUN npm install
-
-# =============================================================================
-# Stage 2: builder — compile TypeScript -> dist/.
-# =============================================================================
+# ---------- Stage 1: Builder ----------
 FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-COPY --from=deps /app/node_modules ./node_modules
+# Copy package.json và lock file trước để tận dụng cache
 COPY package*.json ./
-COPY tsconfig*.json nest-cli.json ./
-COPY apps ./apps
-COPY libs ./libs
+RUN npm install --ignore-scripts
 
-RUN npm run build:socket \
-  && npm prune --omit=dev
+# Copy toàn bộ source code (apps + libs)
+COPY . .
 
-# =============================================================================
-# Stage 3: runner — slim runtime image, deploy target = Cloud Run.
-# =============================================================================
+# Build chỉ service socket
+RUN npm run build:socket
+
+# ---------- Stage 2: Production ----------
 FROM node:24-alpine AS runner
 
 WORKDIR /app
 
-# libstdc++/libgcc still needed in case any transitive native dep links them.
-RUN apk add --no-cache libstdc++ libgcc
+# Copy package.json và cài dependencies production
+COPY package*.json ./
+RUN npm install --omit=dev --ignore-scripts
 
-COPY --from=builder /app/node_modules ./node_modules
+# Copy dist của service filesystem từ builder
 COPY --from=builder /app/dist ./dist
-# Proto files loaded at runtime by gRPC clients (chat.proto, sfu.proto, etc.).
+
+# Copy libs từ builder stage
 COPY libs ./libs
-
-ENV NODE_ENV=production
-# Cloud Run expects the app to read PORT env (default 8080). main.ts already
-# falls back to PORT || 5006 — set PORT here so local docker-compose works too.
-ENV PORT=5006
-
-EXPOSE 5006
 
 CMD ["node", "dist/apps/socket/main.js"]
