@@ -5,7 +5,7 @@ steps:
       [
         'build',
         '-t',
-        'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest',
+        'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/api-gateway:latest',
         '-f',
         'apps/api-gateway/Dockerfile',
         '.'
@@ -14,4 +14,4 @@ steps:
       - 'ENV_FILE=apps/api-gateway/.env'
       
 images:
-  - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/api-gateway:latest'
+  - 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/api-gateway:latest'

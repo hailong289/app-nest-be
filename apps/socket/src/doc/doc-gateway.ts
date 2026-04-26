@@ -52,6 +52,8 @@ interface DocumentService {
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/doc',
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
 })
 export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() io!: Server;

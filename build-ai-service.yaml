@@ -5,7 +5,7 @@ steps:
       [
         'build',
         '-t',
-        'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest',
+        'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/ai:latest',
         '-f',
         'apps/ai/Dockerfile',
         '.'
@@ -13,7 +13,7 @@ steps:
 
   # Push AI service image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest']
+    args: ['push', 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/ai:latest']
 
   # Deploy AI service to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'  
@@ -23,7 +23,7 @@ steps:
         'run',
         'deploy',
         'ai-service',
-        '--image','asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest',
+        '--image','asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/ai:latest',
         '--region','asia-southeast1',
         '--platform','managed',
         '--use-http2',
@@ -45,4 +45,4 @@ steps:
       ]
 
 images:
-  - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/ai:latest'
+  - 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/ai:latest'

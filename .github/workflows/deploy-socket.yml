@@ -16,17 +16,17 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
       - uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: app-chat-2b616
+          project_id: project-3a90e7bd-fcfe-474a-a03
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
       - run: |
-          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/socket:latest"
+          IMAGE="asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/socket:latest"
           docker build -t $IMAGE -f apps/socket/Dockerfile .
           docker push $IMAGE
 
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy socket-service \
-            --image asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/socket:latest \
+            --image asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/socket:latest \
             --region asia-southeast1 \
             --platform managed \
             --allow-unauthenticated \
