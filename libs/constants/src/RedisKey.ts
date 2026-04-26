@@ -104,30 +104,44 @@ export const REDISKEY = {
   // USERS_ONLINE: 'chat:users:online:v2',
 
   /**
-   * ZSET tracking heartbeat timestamps for Cron job
-   * Format: chat:users:heartbeat
-   * Type: ZSET
-   * Score: Timestamp (ms)
-   * Member: userId
+   * @deprecated Replaced by per-socket SOCKET_ALIVE TTL keys. Kept for
+   * legacy reads during the rolling deploy; PresenceService no longer
+   * writes to it.
    */
   USERS_HEARTBEAT: 'chat:users:heartbeat',
 
   /**
-   * Online Presence của 1 user (String với TTL)
-   * Format: chat:user:{userId}:presence
-   * Type: STRING
-   * Value: timestamp của lần ping cuối
-   * TTL: 45s (heartbeat + buffer)
+   * @deprecated User presence is now derived from `USER_ONLINE` set
+   * cardinality. Kept here only so old code still compiles; new code reads
+   * from `USER_ONLINE` via PresenceService.
    */
   USER_PRESENCE: (userId: string) => `chat:user:${userId}:presence`,
 
   /**
-   * Online status set of sockets (Set of socketIds)
+   * Set of currently-connected socket descriptors for this user.
    * Format: chat:user:{userId}:online
    * Type: SET
-   * TTL: 30s (heartbeat)
+   * Members: `<ns>:<socketId>` (e.g. `chat:abc123`, `call:xyz789`).
+   *
+   * Online check: `sCard > 0` → user is online on at least one device.
+   * Multi-device / multi-namespace safe: each tab+namespace contributes
+   * exactly one entry, so a /chat tab disconnect doesn't mark the user
+   * offline if their /call tab is still connected.
    */
   USER_ONLINE: (userId: string) => `chat:user:${userId}:online`,
+
+  /**
+   * Per-socket liveness key with TTL, refreshed by client heartbeat.
+   * Format: chat:socket:{ns}:{socketId}:alive
+   * Type: STRING
+   * TTL: 45s (heartbeat every 15s + buffer)
+   *
+   * Used by the cleanup cron: a `<ns>:<sid>` member of `USER_ONLINE` set
+   * whose corresponding alive key has expired is treated as a dead socket
+   * and removed. When the set transitions to empty, broadcasts offline.
+   */
+  SOCKET_ALIVE: (ns: string, socketId: string) =>
+    `chat:socket:${ns}:${socketId}:alive`,
 
   /**
    * Last seen timestamp của user (String)
@@ -210,6 +224,19 @@ export const REDISKEY = {
    * TTL: 3600s (max call duration safety net)
    */
   USER_IN_CALL: (userId: string) => `chat:user:${userId}:in_call`,
+
+  /**
+   * Tracks WHICH socket of the user is the active call socket (String)
+   * Format: chat:user:{userId}:call_socket
+   * Type: STRING
+   * Value: socketId currently holding the call (most recent device)
+   * TTL: 3600s (matches USER_IN_CALL)
+   *
+   * Use case: multi-device handoff. When user accepts/joins from device B
+   * while device A still has the call open → server emits `call:handoff` to
+   * A's socketId, A closes its popup; this key flips to B's socketId.
+   */
+  USER_CALL_SOCKET: (userId: string) => `chat:user:${userId}:call_socket`,
 
   // ==========================================
   // 📢 PUBSUB CHANNELS

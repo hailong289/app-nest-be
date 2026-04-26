@@ -29,6 +29,8 @@ interface SignalPayload {
     | 'consume'
     | 'pause'
     | 'resume'
+    | 'pauseConsumer'
+    | 'resumeConsumer'
     | 'leave'
     | 'getProducers';
   target: 'sfu' | (string & {}); // 'sfu' for server, userId for P2P
@@ -44,6 +46,7 @@ interface SignalPayload {
   rtpCapabilities?: MediasoupTypes.RtpCapabilities;
   dtlsParameters?: MediasoupTypes.DtlsParameters;
   producerId?: string;
+  consumerId?: string; // for pauseConsumer / resumeConsumer
   direction?: 'send' | 'recv';
   appData?: Record<string, unknown>; // echoed back in produce:me for callback matching
   userId?: string; // producer's userId, echoed back in consume response
@@ -280,6 +283,36 @@ export class UnifiedSignalHandler {
             sender: 'sfu',
             target: 'me',
             ok: true,
+          });
+          break;
+        }
+
+        case 'pauseConsumer': {
+          if (!payload.consumerId) {
+            throw new Error('Missing consumerId');
+          }
+          await this.sfuRpc.pauseConsumer(roomId, userId, payload.consumerId);
+          client.emit('signal', {
+            type: 'pauseConsumer',
+            sender: 'sfu',
+            target: 'me',
+            ok: true,
+            consumerId: payload.consumerId,
+          });
+          break;
+        }
+
+        case 'resumeConsumer': {
+          if (!payload.consumerId) {
+            throw new Error('Missing consumerId');
+          }
+          await this.sfuRpc.resumeConsumer(roomId, userId, payload.consumerId);
+          client.emit('signal', {
+            type: 'resumeConsumer',
+            sender: 'sfu',
+            target: 'me',
+            ok: true,
+            consumerId: payload.consumerId,
           });
           break;
         }

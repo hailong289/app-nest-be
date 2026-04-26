@@ -17,6 +17,7 @@ service SocialService {
   rpc OpenBlockedFriend(OpenBlockedFriendRequest) returns (OpenBlockedFriendResponse);
   rpc GetBlockedFriends(GetBlockedFriendsRequest) returns (GetBlockedFriendsResponse);
   rpc GetFriendByUserId(GetFriendByUserIdRequest) returns (GetFriendByUserIdResponse);
+  rpc GetFriendSuggestions(GetFriendSuggestionsRequest) returns (GetFriendSuggestionsResponse);
 }
 
 // Friend Request Messages
@@ -237,6 +238,35 @@ message RemoveFriendMetadata {
   string frpId = 1;
   string frpStatus = 2; // "BLOCKED" or "REJECTED"
   int64 removedAt = 3;
+}
+
+// ===================== Friend Suggestions =====================
+message GetFriendSuggestionsRequest {
+  string userId = 1;          // requester usr_id (ULID)
+  int32 limit = 2;            // max suggestions to return (default 10)
+}
+
+message FriendSuggestion {
+  string _id = 1;
+  string id = 2;              // suggested user usr_id (ULID)
+  string fullname = 3;
+  string avatar = 4;
+  string email = 5;
+  int32 mutualFriendsCount = 6;   // # of mutual friends with the requester
+  // Names of up to 3 mutual friends, useful for "5 friends including X, Y, Z"
+  repeated string mutualSamples = 7;
+}
+
+message GetFriendSuggestionsMetadata {
+  repeated FriendSuggestion suggestions = 1;
+  int32 total = 2;
+}
+
+message GetFriendSuggestionsResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetFriendSuggestionsMetadata metadata = 4;
 }
 
 message BlockFriendRequest {

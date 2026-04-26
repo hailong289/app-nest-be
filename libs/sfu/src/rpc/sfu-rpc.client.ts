@@ -140,6 +140,16 @@ interface SfuServiceGrpc {
     kind: string;
     rtpParametersJson: string;
   }>;
+
+  PauseConsumer(
+    data: { roomId: string; userId: string; consumerId: string },
+    metadata: grpc.Metadata,
+  ): Observable<Record<string, never>>;
+
+  ResumeConsumer(
+    data: { roomId: string; userId: string; consumerId: string },
+    metadata: grpc.Metadata,
+  ): Observable<Record<string, never>>;
 }
 
 const RPC_TIMEOUT_MS = 5000;
@@ -352,6 +362,32 @@ export class SfuRpcClient implements OnModuleInit {
       kind: res.kind,
       rtpParameters: JSON.parse(res.rtpParametersJson),
     };
+  }
+
+  async pauseConsumer(
+    roomId: string,
+    userId: string,
+    consumerId: string,
+  ): Promise<void> {
+    await this.invoke(
+      this.service.PauseConsumer(
+        { roomId, userId, consumerId },
+        this.metadata(),
+      ),
+    );
+  }
+
+  async resumeConsumer(
+    roomId: string,
+    userId: string,
+    consumerId: string,
+  ): Promise<void> {
+    await this.invoke(
+      this.service.ResumeConsumer(
+        { roomId, userId, consumerId },
+        this.metadata(),
+      ),
+    );
   }
 
   // ===== Helpers =====

@@ -440,16 +440,11 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       const sortedAll = Array.from(uniqueMap.values()).sort(
         (a, b) => b.score - a.score,
       );
-      const messageIds = sortedAll
-        .map((r) => r.messageId)
-        .filter((id) => !!id);
+      const messageIds = sortedAll.map((r) => r.messageId).filter((id) => !!id);
       const systemMessageIds = new Set<string>();
       if (messageIds.length > 0) {
         const systemDocs = await this.messageModel
-          .find(
-            { _id: { $in: messageIds }, msg_type: 'system' },
-            { _id: 1 },
-          )
+          .find({ _id: { $in: messageIds }, msg_type: 'system' }, { _id: 1 })
           .lean()
           .exec();
         systemDocs.forEach((d) =>
@@ -465,11 +460,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       // AI offline, etc.) fall back to a plain regex over Messages.msg_content_norm
       // — same UX as a regular keyword search.
       if (ranked.length === 0) {
-        return this.fallbackKeywordSearchOnMessages(
-          query,
-          roomObjectId,
-          limit,
-        );
+        return this.fallbackKeywordSearchOnMessages(query, roomObjectId, limit);
       }
 
       return ranked;

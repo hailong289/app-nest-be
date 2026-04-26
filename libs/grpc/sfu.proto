@@ -31,6 +31,8 @@ service SfuService {
 
   // Consumer
   rpc Consume(ConsumeRequest) returns (ConsumeResponse);
+  rpc PauseConsumer(ConsumerOpRequest) returns (Empty);
+  rpc ResumeConsumer(ConsumerOpRequest) returns (Empty);
 }
 
 // ----- Common -----
@@ -149,4 +151,10 @@ message ConsumeResponse {
   string producerId = 2;
   string kind = 3; // "audio" | "video"
   string rtpParametersJson = 4;
+}
+
+message ConsumerOpRequest {
+  string roomId = 1;
+  string userId = 2;
+  string consumerId = 3;
 }

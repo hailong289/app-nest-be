@@ -90,6 +90,33 @@ export class HandleChatService {
     private readonly quizModel: Model<Quiz>,
   ) {}
 
+  /**
+   * Convert `room_event.payload` (arbitrary object) to `payloadJson` (string)
+   * so it survives gRPC serialization (proto schema only has `payloadJson`).
+   * The realtime Socket.IO path doesn't need this — it carries raw JSON —
+   * but we apply uniformly for consistency, and the FE handler unwraps both
+   * shapes. Mutates and returns the message.
+   */
+  private serializeRoomEvent<T extends Record<string, unknown>>(msg: T): T {
+    const ev = (msg as Record<string, unknown>)?.room_event as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    if (!ev) return msg;
+    if (
+      ev.payload != null &&
+      typeof ev.payload === 'object' &&
+      ev.payloadJson === undefined
+    ) {
+      try {
+        ev.payloadJson = JSON.stringify(ev.payload);
+      } catch {
+        ev.payloadJson = '';
+      }
+    }
+    return msg;
+  }
+
   async createMessage(payload: CreateMessage) {
     const {
       roomId,
@@ -148,8 +175,6 @@ export class HandleChatService {
     const messageId = id
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
-
-    console.log('🚀 ~ HandleChatService ~ quizId:', quizId);
 
     const updatePayload = {
       msg_roomId: finInfo._id,
@@ -325,7 +350,7 @@ export class HandleChatService {
           data: {
             type: notifyType.noify_new_message,
             push_type: 'message',
-            msg: msg[0] as Record<string, any>,
+            msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
           },
         },
       ),
@@ -340,7 +365,7 @@ export class HandleChatService {
         msgId: createNewMsg._id.toString(),
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Tin nhắn mới thành công',
     );
@@ -423,7 +448,8 @@ export class HandleChatService {
 
       ...pipeLine,
     ]);
-    return result[0] as Record<string, any>;
+    const msg = result[0] as Record<string, any>;
+    return msg ? this.serializeRoomEvent(msg) : msg;
   }
   async markReadUpTo(payload: markReadUpToDto) {
     const { roomId, userId, lastMessageId } = payload;
@@ -508,7 +534,7 @@ export class HandleChatService {
         msgId: messgeInfo._id.toString(),
         members: roomInfro.room_members,
         roomId: roomInfro.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã đọc tin nhắn',
     );
@@ -577,7 +603,11 @@ export class HandleChatService {
       { $limit: Number(limit) }, // Giới hạn số lượng
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
-    return Response.success(result, 'Tin nhắn mới thành công');
+    // Stringify each message's room_event.payload so it survives gRPC.
+    const serialized = (result as Record<string, any>[]).map((m) =>
+      this.serializeRoomEvent(m),
+    );
+    return Response.success(serialized, 'Tin nhắn mới thành công');
   }
 
   async handleReact({ userId, roomId, msgId, emoji }: HandleReactDto) {
@@ -668,7 +698,7 @@ export class HandleChatService {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã thả icon',
     );
@@ -732,7 +762,7 @@ export class HandleChatService {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã ghim',
     );
@@ -894,7 +924,6 @@ export class HandleChatService {
       if (!actionUser) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
-      console.log('cuộc gọi kết nối thành công');
 
       const msg = await this.messageModel.create({
         msg_roomId: room._id,
@@ -1082,7 +1111,7 @@ export class HandleChatService {
         {
           history: refreshedHistory,
           room: room,
-          msg: msg[0] as Record<string, any>,
+          msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',
       );
@@ -1221,7 +1250,7 @@ export class HandleChatService {
         {
           history: callHistory,
           room: room,
-          msg: msg[0] as Record<string, any>,
+          msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
         },
         'Cuộc gọi đã được kết thúc',
       );
@@ -1256,6 +1285,68 @@ export class HandleChatService {
     if (seconds > 0 || parts.length === 0) parts.push(`${seconds} giây`);
 
     return `Cuộc gọi đã kết thúc · ${parts.join(' ')}`;
+  }
+
+  /**
+   * Cheap "is this call still alive?" probe used by the socket gateway when
+   * deciding whether to reject `already_in_call`. Redis can hold a stale
+   * USER_IN_CALL marker if the popup crashed or beforeunload didn't get a
+   * chance to fire EndCall — in that case, the marker points at a callId
+   * that the DB knows has already ended. We let the gateway clear the
+   * stale marker and proceed instead of permanently locking the user out.
+   *
+   * `ended = true` when EITHER the document has `ended_at` set OR every
+   * member is in a terminal state (ended/cancelled/rejected/missed).
+   */
+  async getCallStatus({ callId }: { callId: string }) {
+    try {
+      if (!callId) {
+        return Response.success(
+          { call_id: '', exists: false, ended: true, ended_at: '' },
+          'callId rỗng',
+        );
+      }
+      const callHistory = await this.callHistoryModel
+        .findOne({ call_id: callId })
+        .lean();
+      if (!callHistory) {
+        return Response.success(
+          { call_id: callId, exists: false, ended: true, ended_at: '' },
+          'Cuộc gọi không tồn tại',
+        );
+      }
+      const TERMINAL = new Set<MemberStatus>([
+        'ended',
+        'cancelled',
+        'rejected',
+        'missed',
+      ]);
+      const allMembersTerminal =
+        Array.isArray(callHistory.members) &&
+        callHistory.members.length > 0 &&
+        callHistory.members.every((m) => TERMINAL.has(m.status));
+      const ended = !!callHistory.ended_at || allMembersTerminal;
+      return Response.success(
+        {
+          call_id: callId,
+          exists: true,
+          ended,
+          ended_at: callHistory.ended_at
+            ? new Date(callHistory.ended_at).toISOString()
+            : '',
+        },
+        'OK',
+      );
+    } catch (error) {
+      console.log('🚀 ~ HandleChatService ~ getCallStatus ~ error:', error);
+      // On any error, treat as "still active" so we don't accidentally clear
+      // a valid in-call marker. The gateway will fall back to the existing
+      // reject behavior.
+      return Response.success(
+        { call_id: callId, exists: true, ended: false, ended_at: '' },
+        'Không kiểm tra được trạng thái cuộc gọi',
+      );
+    }
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi

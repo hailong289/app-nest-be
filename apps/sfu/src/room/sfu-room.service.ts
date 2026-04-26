@@ -184,6 +184,14 @@ export class SfuRoomService {
     participant.consumers.set(consumerId, consumer);
   }
 
+  getConsumer(
+    roomId: string,
+    userId: string,
+    consumerId: string,
+  ): Consumer | undefined {
+    return this.getParticipant(roomId, userId)?.consumers.get(consumerId);
+  }
+
   getRoomsCount(): number {
     return this.rooms.size;
   }

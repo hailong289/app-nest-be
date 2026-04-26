@@ -206,6 +206,34 @@ export class SfuGrpcController {
 
   // ===== Consumer =====
 
+  @GrpcMethod('SfuService', 'PauseConsumer')
+  async pauseConsumer(data: {
+    roomId: string;
+    userId: string;
+    consumerId: string;
+  }) {
+    await this.transportService.pauseConsumer(
+      data.roomId,
+      data.userId,
+      data.consumerId,
+    );
+    return {};
+  }
+
+  @GrpcMethod('SfuService', 'ResumeConsumer')
+  async resumeConsumer(data: {
+    roomId: string;
+    userId: string;
+    consumerId: string;
+  }) {
+    await this.transportService.resumeConsumer(
+      data.roomId,
+      data.userId,
+      data.consumerId,
+    );
+    return {};
+  }
+
   @GrpcMethod('SfuService', 'Consume')
   async consume(data: {
     roomId: string;

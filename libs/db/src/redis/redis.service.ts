@@ -334,6 +334,38 @@ export class RedisService {
   }
 
   /**
+   * Iterate keys matching a glob pattern using Redis SCAN. Use this instead
+   * of KEYS in production paths — KEYS blocks the entire instance, SCAN
+   * cooperates with normal traffic.
+   *
+   * Caller pumps the cursor in a loop; start with `'0'`, stop when the
+   * returned cursor is `'0'`.
+   *
+   * @param cursor Cursor value from the previous call (or `'0'` to start).
+   * @param match Glob pattern (e.g. `chat:user:*:online`).
+   * @param count Hint to Redis about page size — actual returned count varies.
+   */
+  async scan(
+    cursor: string,
+    match: string,
+    count = 100,
+  ): Promise<{ cursor: string; keys: string[] }> {
+    try {
+      const [next, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        match,
+        'COUNT',
+        count,
+      );
+      return { cursor: next, keys };
+    } catch (err) {
+      console.error('Redis scan error:', err);
+      return { cursor: '0', keys: [] };
+    }
+  }
+
+  /**
    * Publish a message to a channel.
    * @param channel - The channel name.
    * @param message - The message string or object.
