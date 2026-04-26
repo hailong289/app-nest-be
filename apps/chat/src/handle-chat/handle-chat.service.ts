@@ -90,6 +90,33 @@ export class HandleChatService {
     private readonly quizModel: Model<Quiz>,
   ) {}
 
+  /**
+   * Convert `room_event.payload` (arbitrary object) to `payloadJson` (string)
+   * so it survives gRPC serialization (proto schema only has `payloadJson`).
+   * The realtime Socket.IO path doesn't need this — it carries raw JSON —
+   * but we apply uniformly for consistency, and the FE handler unwraps both
+   * shapes. Mutates and returns the message.
+   */
+  private serializeRoomEvent<T extends Record<string, unknown>>(msg: T): T {
+    const ev = (msg as Record<string, unknown>)?.room_event as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    if (!ev) return msg;
+    if (
+      ev.payload != null &&
+      typeof ev.payload === 'object' &&
+      ev.payloadJson === undefined
+    ) {
+      try {
+        ev.payloadJson = JSON.stringify(ev.payload);
+      } catch {
+        ev.payloadJson = '';
+      }
+    }
+    return msg;
+  }
+
   async createMessage(payload: CreateMessage) {
     const {
       roomId,
@@ -323,7 +350,7 @@ export class HandleChatService {
           data: {
             type: notifyType.noify_new_message,
             push_type: 'message',
-            msg: msg[0] as Record<string, any>,
+            msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
           },
         },
       ),
@@ -338,7 +365,7 @@ export class HandleChatService {
         msgId: createNewMsg._id.toString(),
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Tin nhắn mới thành công',
     );
@@ -421,7 +448,8 @@ export class HandleChatService {
 
       ...pipeLine,
     ]);
-    return result[0] as Record<string, any>;
+    const msg = result[0] as Record<string, any>;
+    return msg ? this.serializeRoomEvent(msg) : msg;
   }
   async markReadUpTo(payload: markReadUpToDto) {
     const { roomId, userId, lastMessageId } = payload;
@@ -506,7 +534,7 @@ export class HandleChatService {
         msgId: messgeInfo._id.toString(),
         members: roomInfro.room_members,
         roomId: roomInfro.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã đọc tin nhắn',
     );
@@ -575,7 +603,11 @@ export class HandleChatService {
       { $limit: Number(limit) }, // Giới hạn số lượng
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
-    return Response.success(result, 'Tin nhắn mới thành công');
+    // Stringify each message's room_event.payload so it survives gRPC.
+    const serialized = (result as Record<string, any>[]).map((m) =>
+      this.serializeRoomEvent(m),
+    );
+    return Response.success(serialized, 'Tin nhắn mới thành công');
   }
 
   async handleReact({ userId, roomId, msgId, emoji }: HandleReactDto) {
@@ -666,7 +698,7 @@ export class HandleChatService {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã thả icon',
     );
@@ -730,7 +762,7 @@ export class HandleChatService {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã ghim',
     );
@@ -1079,7 +1111,7 @@ export class HandleChatService {
         {
           history: refreshedHistory,
           room: room,
-          msg: msg[0] as Record<string, any>,
+          msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',
       );
@@ -1218,7 +1250,7 @@ export class HandleChatService {
         {
           history: callHistory,
           room: room,
-          msg: msg[0] as Record<string, any>,
+          msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
         },
         'Cuộc gọi đã được kết thúc',
       );

@@ -13,7 +13,7 @@ import {
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -24,28 +24,11 @@ import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
 import { SfuRpcClient, UnifiedSignalHandler } from '@app/sfu';
-
-interface JwtPayload {
-  _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
-  usr_fullname: string; // "Lê Thiên Trí"
-  usr_email: string; // "thientrile2003@gmail.com"
-  usr_phone?: string;
-  usr_avatar?: string;
-  usr_gender?: string;
-  usr_status?: string;
-  usr_id: string; // User ID
-  usr_slug: string;
-  usr_dateOfBirth?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  jti: string;
-  [key: string]: any;
-}
-
-interface SocketWithUser extends Socket {
-  userId?: string; // MongoDB _id
-  user?: JwtPayload; // Full user payload
-}
+import { PresenceService } from '../ws/presence.service';
+import type {
+  JwtPayload,
+  SocketWithUser,
+} from '../ws/socket-user.types';
 
 export interface ChatGrpcService {
   CreateNewMsg<T = any>(data: T): Observable<any>;
@@ -90,6 +73,7 @@ export class CallGateway
     private readonly redis: RedisService,
     private readonly unifiedSignalHandler: UnifiedSignalHandler,
     private readonly sfuRpc: SfuRpcClient,
+    private readonly presence: PresenceService,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
@@ -289,30 +273,14 @@ export class CallGateway
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
-      // Track socket id for this user (SET)
-      await this.redis.sAdd(this.key.USER_ONLINE(client.userId), client.id);
-
-      // Track user online status (String with TTL)
-      // Value = ISO timestamp of when they came online or last refreshed
-      await this.redis.setData(
-        this.key.USER_PRESENCE(client.userId),
-        new Date().toISOString(),
-        REDIS_TTL.ONLINE_STATUS + 15, // buffer time
-      );
-      // Heartbeat Queue for Cron cleanliness
-      await this.redis.zAdd(
-        this.key.USERS_HEARTBEAT,
-        Date.now(),
-        client.userId,
-      );
-
-      await this.redis.setData(
-        this.key.USER_LAST_SEEN(client.userId),
-        new Date().toISOString(),
-      );
-
-      // Gắn user info vào socket
       client.user = payload;
+
+      // Delegate presence to PresenceService — keyed by usr_id, namespace
+      // "call". The /chat gateway already broadcasts STATUS through the
+      // chat namespace; this call-side register only contributes a member
+      // to the user's online set so e.g. a /chat tab disconnect doesn't
+      // mark a user offline if they still have a /call popup open.
+      await this.presence.register('call', client.id, payload.usr_id);
 
       this.logger.log(
         `[CONNECT] User call ${payload.usr_fullname} (${payload._id}) connected.`,
@@ -321,12 +289,6 @@ export class CallGateway
         this.key.USER_ROOMS(client.userId),
       );
       await client.join(roomIds);
-      // Gửi thông báo đến người dùng
-      this.io.to('system').emit(socketEvent.STATUS, {
-        id: client.user.usr_id,
-        isOnline: true,
-        onlineAt: new Date(),
-      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -348,20 +310,12 @@ export class CallGateway
   async handleDisconnect(client: SocketWithUser) {
     const userId = client.userId;
     const fullname = client.user?.usr_fullname;
+    const usrId = client.user?.usr_id;
 
-    // Use scheduler to handle "true" offline after timeout,
-    // BUT we can update the timestamp or remove if we want immediate offline effect
-    // For now, let's just remove the specific socket ID from the user's socket track
-
-    // Luôn kiểm tra user vì socket có thể disconnect vì lý do mạng,
-    // hoặc client bị ngắt trước khi Guard kịp chạy.
     if (userId) {
       this.logger.log(
         `[DISCONNECT] User ${fullname} (${userId}) disconnected.`,
       );
-
-      await this.redis.sRem(this.key.USER_ONLINE(userId), client.id);
-      const checkOnline = await this.redis.sCard(this.key.USER_ONLINE(userId));
 
       // Clean up SFU participant for all rooms this socket was in.
       // Without this, the server-side transports/producers linger until ICE timeout.
@@ -458,17 +412,18 @@ export class CallGateway
         }
       }
 
-      // Nếu không còn socket nào của user này connected -> Remove presence
-      if (checkOnline == 0) {
-        await this.redis.delKey(this.key.USER_PRESENCE(userId));
-        await this.redis.zRem(this.key.USERS_HEARTBEAT, userId);
-
-        this.io.to('system').emit(socketEvent.STATUS, {
-          id: client.user?.usr_id, // Use usr_id (string) for frontend consistency
-          isOnline: false,
-          lastSeen: new Date(),
-        });
-        this.io.emit('system', `${fullname} went offline.`);
+      // Delegate presence cleanup to PresenceService — it removes this
+      // /call socket from the user's online set; broadcasts offline only
+      // when no other socket (other tab, /chat, /doc) is left.
+      if (usrId) {
+        const { wentOffline } = await this.presence.unregister(
+          'call',
+          client.id,
+          usrId,
+        );
+        if (wentOffline) {
+          this.io.emit('system', `${fullname} went offline.`);
+        }
       }
     }
   }
@@ -677,6 +632,12 @@ export class CallGateway
     }
   }
 
+  @SubscribeMessage('heartbeat')
+  async handleHeartbeat(@ConnectedSocket() client: SocketWithUser) {
+    if (!client.user?.usr_id) return;
+    await this.presence.heartbeat('call', client.id, client.user.usr_id);
+  }
+
   @SubscribeMessage(socketEvent.USERSATUS)
   async handleCheckUserStatus(
     @MessageBody() userIds: string[],
@@ -684,23 +645,12 @@ export class CallGateway
   ) {
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) return;
     try {
-      // Optimized: Check presence keys using MGET
-      const keys = userIds.map((uid) => this.key.USER_PRESENCE(uid));
-      const results = await this.redis.mget(keys);
-
-      results.forEach((val, index) => {
-        if (val) {
-          // val is the ISO string we stored
-          const date = new Date(JSON.parse(val));
-          if (!isNaN(date.getTime())) {
-            client.emit(socketEvent.STATUS, {
-              id: userIds[index],
-              isOnline: true,
-              onlineAt: date,
-            });
-          }
-        }
-      });
+      // Delegate to PresenceService — single canonical "is X online?"
+      // implementation across both /chat and /call namespaces. Returns one
+      // entry per requested id so the FE can apply results in a single pass
+      // (no need to merge multiple per-user STATUS events).
+      const result = await this.presence.getBulkStatus(userIds);
+      client.emit('status:online:bulk', { users: result });
     } catch (error) {
       this.logger.error('[CALL] Error checking user status:', error);
     }
@@ -730,7 +680,8 @@ export class CallGateway
       // the in-call validation, the gRPC AcceptCall (which would re-update
       // member.status), and the socket-room join. Just relay the offer to
       // the targeted peer's socket so they can apply it via setRemoteDescription.
-      const renegotiate = (data as { renegotiate?: boolean }).renegotiate === true;
+      const renegotiate =
+        (data as { renegotiate?: boolean }).renegotiate === true;
       if (renegotiate) {
         const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
         this.io.to(targetSocketId).emit('call:accepted', {
@@ -1126,6 +1077,61 @@ export class CallGateway
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  /**
+   * Relay camera on/off notifications between peers. Receivers use this to
+   * swap the participant tile to an avatar immediately when the sender
+   * turns their camera off, without waiting 5-10s for `track.muted` to fire
+   * (Chrome keeps RTP flowing for `track.enabled=false`, sending black
+   * frames, so the receive-side mute event lags or never fires).
+   */
+  @SubscribeMessage('call:camera-state')
+  async handleCameraState(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isCameraOn: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:camera-state', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error relaying camera-state:', error);
+      return { ok: false };
+    }
+  }
+
+  /**
+   * Relay mic on/off notifications between peers. Same rationale as
+   * camera-state: receivers can't infer mic state reliably from the audio
+   * track alone (track.enabled=false still flows silent RTP), so we
+   * broadcast an explicit signal for the UI to render a "muted" badge.
+   */
+  @SubscribeMessage('call:mic-state')
+  async handleMicState(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isMicOn: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      this.io.to(data.roomId).except(client.id).emit('call:mic-state', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error relaying mic-state:', error);
+      return { ok: false };
     }
   }
 

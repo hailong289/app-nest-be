@@ -72,6 +72,9 @@ export class RemoteSocketEmitter implements OnModuleInit, OnModuleDestroy {
     event: string,
     ...args: unknown[]
   ): void {
-    this.emitter.of(namespace).to(room).emit(event, ...args);
+    this.emitter
+      .of(namespace)
+      .to(room)
+      .emit(event, ...args);
   }
 }

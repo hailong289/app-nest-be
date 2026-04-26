@@ -5,11 +5,12 @@ import { WsJwtGuard } from './ws-jwt.guard';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { JwtModule } from '@nestjs/jwt';
+import { PresenceService } from './presence.service';
 
 /**
- * Lightweight shared module for the socket app: provides JWT guard for
- * gateways and exposes Redis/Config/Jwt modules so child modules don't have
- * to re-import them.
+ * Lightweight shared module for the socket app: provides JWT guard +
+ * PresenceService for gateways, and exposes Redis/Config/Jwt modules so
+ * child modules don't have to re-import them.
  *
  * Lives inside apps/socket because no other microservice needs the WS-side
  * pieces (guard, adapter). Cross-service emit goes through libs/ws's
@@ -18,8 +19,14 @@ import { JwtModule } from '@nestjs/jwt';
 @Global()
 @Module({
   imports: [ConfigModule, RedisModule, JwtModule],
-  providers: [Logger, WsJwtGuard],
-  exports: [RedisModule, WsJwtGuard, ConfigModule, JwtModule],
+  providers: [Logger, WsJwtGuard, PresenceService],
+  exports: [
+    RedisModule,
+    WsJwtGuard,
+    ConfigModule,
+    JwtModule,
+    PresenceService,
+  ],
 })
 export class WsSharedModule {}
 

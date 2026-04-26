@@ -217,4 +217,43 @@ export class SfuTransportService {
     }
     producer.close();
   }
+
+  /**
+   * Pause forwarding RTP from a producer to THIS consumer only. Other peers'
+   * consumers of the same producer keep receiving. Used by FE for Selective
+   * Rendering — when the user collapses the camera-tile strip, their own
+   * consumers are paused so the SFU stops sending unused frames over the
+   * wire (real bandwidth savings, not just client-side decode skip).
+   */
+  async pauseConsumer(
+    roomId: string,
+    userId: string,
+    consumerId: string,
+  ): Promise<void> {
+    const consumer = this.sfuRoomService.getConsumer(
+      roomId,
+      userId,
+      consumerId,
+    );
+    if (!consumer) {
+      throw new BadRequestException(`Consumer ${consumerId} not found`);
+    }
+    await consumer.pause();
+  }
+
+  async resumeConsumer(
+    roomId: string,
+    userId: string,
+    consumerId: string,
+  ): Promise<void> {
+    const consumer = this.sfuRoomService.getConsumer(
+      roomId,
+      userId,
+      consumerId,
+    );
+    if (!consumer) {
+      throw new BadRequestException(`Consumer ${consumerId} not found`);
+    }
+    await consumer.resume();
+  }
 }
