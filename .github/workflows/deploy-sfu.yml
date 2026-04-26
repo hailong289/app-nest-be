@@ -23,6 +23,7 @@ jobs:
             cd ${{ secrets.VM_APP_DIR }}
             git fetch origin master
             git reset --hard origin/master
+            git pull origin master
 
             cat > apps/sfu/.env << 'EOF'
             NODE_ENV=${{ secrets.NODE_ENV }}

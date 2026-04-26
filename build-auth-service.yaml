@@ -5,7 +5,7 @@ steps:
       [
         'build',
         '-t',
-        'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest',
+        'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/auth:latest',
         '-f',
         'apps/auth/Dockerfile',
         '.'
@@ -13,7 +13,7 @@ steps:
 
   # Push Auth service image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest']
+    args: ['push', 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/auth:latest']
 
   # Deploy Auth service to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'  
@@ -23,7 +23,7 @@ steps:
         'run',
         'deploy',
         'auth-service',
-        '--image','asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest',
+        '--image','asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/auth:latest',
         '--region','asia-southeast1',
         '--platform','managed',
         '--use-http2',
@@ -45,4 +45,4 @@ steps:
       ]
 
 images:
-  - 'asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/auth:latest'
+  - 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/auth:latest'
