@@ -77,6 +77,7 @@ export class RedisIoAdapter extends IoAdapter {
     const server = super.createIOServer(port, {
       cors: { origin: '*', credentials: true },
       transports: ['websocket', 'polling'],
+      allowEIO3: true,
       ...options,
     }) as Server;
 
