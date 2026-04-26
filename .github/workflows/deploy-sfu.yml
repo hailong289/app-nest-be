@@ -40,5 +40,5 @@ jobs:
             npm install
             npm run build:sfu
 
-            pm2 delete sfu-app || true
-            NODE_ENV=production pm2 start dist/apps/sfu/main.js --name "sfu-app"
+            NODE_ENV=production pm2 restart sfu-app --update-env || NODE_ENV=production pm2 start dist/apps/sfu/main.js --name "sfu-app"
+            pm2 save
