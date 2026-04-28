@@ -99,8 +99,13 @@ export class HandleChatController {
       callId: string;
     },
   ) {
-    console.log('🚀 ~ HandleChatController ~ EndCall ~ payload:', payload);
     const result = await this.hdChat.endCall(payload);
+    return result;
+  }
+
+  @GrpcMethod('ChatService', 'GetCallStatus')
+  async GetCallStatus(@Body() payload: { callId: string }) {
+    const result = await this.hdChat.getCallStatus(payload);
     return result;
   }
 

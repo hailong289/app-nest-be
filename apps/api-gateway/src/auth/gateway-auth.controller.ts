@@ -39,7 +39,7 @@ interface AuthGrpcService {
 
 @Controller('auth')
 export class GatewayAuthController {
-  private authService: AuthGrpcService;
+  private authService!: AuthGrpcService;
 
   public constructor(
     @Inject(SERVICES.AUTH) private readonly authClient: ClientGrpc,
@@ -73,7 +73,6 @@ export class GatewayAuthController {
     @Req() req: AuthenticatedRequest,
     @Body() body: { fcmToken?: string },
   ) {
-    console.log('Logout request user:', req.user);
     // Safely extract jti from user object
     const jti: string | undefined =
       req.user && typeof req.user === 'object' && 'jti' in req.user

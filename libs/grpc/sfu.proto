@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package sfu;
+
+// =============================================================================
+// SfuService — gRPC contract giữa apps/socket (Cloud Run) và apps/sfu (VM).
+// Mediasoup objects phức tạp (RtpCapabilities, IceCandidates, DtlsParameters,
+// RtpParameters) được encode JSON string để tránh phải map từng field.
+// Caller (SfuRpcClient) parse JSON khi nhận response và stringify khi gửi.
+// =============================================================================
+service SfuService {
+  // Room lifecycle
+  rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+  rpc JoinRoom(JoinRoomRequest) returns (JoinRoomResponse);
+  rpc LeaveRoom(LeaveRoomRequest) returns (Empty);
+  rpc RoomExists(RoomExistsRequest) returns (RoomExistsResponse);
+
+  // Producer queries (dùng cho UnifiedSignalHandler)
+  rpc GetProducers(GetProducersRequest) returns (GetProducersResponse);
+  rpc FindProducerOwner(FindProducerOwnerRequest) returns (FindProducerOwnerResponse);
+
+  // Transport
+  rpc CreateWebRtcTransport(CreateWebRtcTransportRequest) returns (CreateWebRtcTransportResponse);
+  rpc ConnectTransport(ConnectTransportRequest) returns (Empty);
+
+  // Producer
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+  rpc PauseProducer(ProducerOpRequest) returns (Empty);
+  rpc ResumeProducer(ProducerOpRequest) returns (Empty);
+  rpc CloseProducer(ProducerOpRequest) returns (Empty);
+
+  // Consumer
+  rpc Consume(ConsumeRequest) returns (ConsumeResponse);
+  rpc PauseConsumer(ConsumerOpRequest) returns (Empty);
+  rpc ResumeConsumer(ConsumerOpRequest) returns (Empty);
+}
+
+// ----- Common -----
+message Empty {}
+
+// ----- Room lifecycle -----
+message CreateRoomRequest {
+  string roomId = 1;
+}
+
+message CreateRoomResponse {
+  string roomId = 1;
+  string rtpCapabilitiesJson = 2; // JSON-encoded RtpCapabilities
+}
+
+message JoinRoomRequest {
+  string roomId = 1;
+  string userId = 2;
+}
+
+message JoinRoomResponse {
+  string roomId = 1;
+  string rtpCapabilitiesJson = 2; // JSON-encoded RtpCapabilities
+}
+
+message LeaveRoomRequest {
+  string roomId = 1;
+  string userId = 2;
+}
+
+message RoomExistsRequest {
+  string roomId = 1;
+}
+
+message RoomExistsResponse {
+  bool exists = 1;
+}
+
+// ----- Producer queries -----
+message GetProducersRequest {
+  string roomId = 1;
+  string excludeUserId = 2; // Loại trừ producers của chính user requester
+}
+
+message ProducerInfo {
+  string producerId = 1;
+  string userId = 2;
+  string kind = 3; // "audio" | "video"
+}
+
+message GetProducersResponse {
+  repeated ProducerInfo producers = 1;
+}
+
+message FindProducerOwnerRequest {
+  string roomId = 1;
+  string producerId = 2;
+}
+
+message FindProducerOwnerResponse {
+  string userId = 1; // Empty string nếu không tìm thấy
+}
+
+// ----- Transport -----
+message CreateWebRtcTransportRequest {
+  string roomId = 1;
+  string userId = 2;
+  string direction = 3; // "send" | "recv"
+}
+
+message CreateWebRtcTransportResponse {
+  string transportId = 1;
+  string iceParametersJson = 2;
+  string iceCandidatesJson = 3;
+  string dtlsParametersJson = 4;
+}
+
+message ConnectTransportRequest {
+  string roomId = 1;
+  string userId = 2;
+  string transportId = 3;
+  string dtlsParametersJson = 4;
+}
+
+// ----- Producer -----
+message ProduceRequest {
+  string roomId = 1;
+  string userId = 2;
+  string transportId = 3;
+  string kind = 4; // "audio" | "video"
+  string rtpParametersJson = 5;
+  string appDataJson = 6; // Optional, có thể empty string
+}
+
+message ProduceResponse {
+  string producerId = 1;
+}
+
+message ProducerOpRequest {
+  string roomId = 1;
+  string userId = 2;
+  string producerId = 3;
+}
+
+// ----- Consumer -----
+message ConsumeRequest {
+  string roomId = 1;
+  string userId = 2;
+  string transportId = 3;
+  string producerId = 4;
+  string rtpCapabilitiesJson = 5;
+}
+
+message ConsumeResponse {
+  string consumerId = 1;
+  string producerId = 2;
+  string kind = 3; // "audio" | "video"
+  string rtpParametersJson = 4;
+}
+
+message ConsumerOpRequest {
+  string roomId = 1;
+  string userId = 2;
+  string consumerId = 3;
+}

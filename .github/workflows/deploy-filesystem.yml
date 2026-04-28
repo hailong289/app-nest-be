@@ -20,7 +20,7 @@ jobs:
       # 2. Setup Gcloud SDK
       - uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: app-chat-2b616
+          project_id: project-3a90e7bd-fcfe-474a-a03
 
       # 3. Configure Docker Auth
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
@@ -28,7 +28,7 @@ jobs:
       # 4. Build và Push Docker Image
       - name: Build and Push Container
         run: |
-          IMAGE="asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/filesystem:latest"
+          IMAGE="asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/filesystem:latest"
           docker build -t $IMAGE -f apps/filesystem/Dockerfile .
           docker push $IMAGE
 
@@ -37,7 +37,7 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: filesystem-service
-          image: asia-southeast1-docker.pkg.dev/app-chat-2b616/microservices/filesystem:latest
+          image: asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/filesystem:latest
           region: asia-southeast1
           # Các cấu hình server: CPU, RAM, Instance, HTTP2...
           flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=1Gi --port=8080 --timeout=60s --use-http2'

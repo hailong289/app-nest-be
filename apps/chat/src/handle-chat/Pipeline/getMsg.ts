@@ -102,6 +102,105 @@ function buildQuizProjection() {
   };
 }
 
+/**
+ * Stages that hydrate a system message with its RoomEvent + denormalized
+ * actor / target user info. Use right before the final `$project` of any
+ * message pipeline (Core / Detail / MultipleDetail).
+ *
+ * Output fields added:
+ *   - $roomEventDoc:  the RoomEvent document (or null)
+ *   - $roomEventActor: actor user (slim: _id, fullname, avatar, usr_id)
+ *   - $roomEventTargets: array of slim users for `targets`
+ *
+ * The downstream `$project` should expose them via `room_event` (see
+ * `buildRoomEventProjection`).
+ */
+function roomEventLookupStages(): PipelineStage[] {
+  return [
+    {
+      $lookup: {
+        from: 'RoomEvents',
+        let: { mid: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$message_id', '$$mid'] } } },
+          { $sort: { createdAt: -1 } },
+          { $limit: 1 },
+        ],
+        as: 'roomEventDoc',
+      },
+    },
+    { $addFields: { roomEventDoc: { $first: '$roomEventDoc' } } },
+    {
+      $lookup: {
+        from: 'Users',
+        localField: 'roomEventDoc.actor_id',
+        foreignField: '_id',
+        pipeline: [
+          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
+        ],
+        as: 'roomEventActor',
+      },
+    },
+    { $addFields: { roomEventActor: { $first: '$roomEventActor' } } },
+    {
+      $lookup: {
+        from: 'Users',
+        localField: 'roomEventDoc.targets',
+        foreignField: '_id',
+        pipeline: [
+          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
+        ],
+        as: 'roomEventTargets',
+      },
+    },
+  ];
+}
+
+/**
+ * Projection expression for `room_event` field. Returns null when the message
+ * has no linked RoomEvent (i.e. not a system message). Use inside `$project`:
+ *   room_event: buildRoomEventProjection(),
+ */
+function buildRoomEventProjection() {
+  return {
+    $cond: [
+      { $ifNull: ['$roomEventDoc', false] },
+      {
+        event_id: '$roomEventDoc.event_id',
+        event_type: '$roomEventDoc.event_type',
+        placeholder: '$roomEventDoc.placeholder',
+        payload: '$roomEventDoc.payload',
+        createdAt: '$roomEventDoc.createdAt',
+        actor: {
+          $cond: [
+            { $ifNull: ['$roomEventActor', false] },
+            {
+              _id: '$roomEventActor._id',
+              fullname: '$roomEventActor.usr_fullname',
+              avatar: '$roomEventActor.usr_avatar',
+              id: '$roomEventActor.usr_id',
+            },
+            null,
+          ],
+        },
+        targets: {
+          $map: {
+            input: { $ifNull: ['$roomEventTargets', []] },
+            as: 't',
+            in: {
+              _id: '$$t._id',
+              fullname: '$$t.usr_fullname',
+              avatar: '$$t.usr_avatar',
+              id: '$$t.usr_id',
+            },
+          },
+        },
+      },
+      null,
+    ],
+  };
+}
+
 export function buildMessageCorePipeline(userId: string): PipelineStage[] {
   const uid = Utils.convertToObjectIdMongoose(userId);
 
@@ -423,6 +522,9 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
+    /** 7.2) Room event (for system messages) */
+    ...roomEventLookupStages(),
+
     /** 7) Project */
     {
       $project: {
@@ -443,6 +545,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         deletedAt: '$deletedAt',
         isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
+        placeholder: '$placeholder',
 
         // denormalized
         sender: {
@@ -494,6 +597,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        // System message context (member added/left, call started/ended, ...)
+        room_event: buildRoomEventProjection(),
         // Summary cấp độ message để null, vì giờ dùng summary của attachment
         summary: { $literal: null },
       },
@@ -775,6 +880,9 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
+    /** 7.2) Room event (for system messages) */
+    ...roomEventLookupStages(),
+
     /** 8) Project Final */
     {
       $project: {
@@ -790,6 +898,7 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         deletedAt: '$deletedAt',
         isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
+        placeholder: '$placeholder',
 
         // denormalized
         sender: {
@@ -840,6 +949,8 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        // System message context (member added/left, call started/ended, ...)
+        room_event: buildRoomEventProjection(),
         summary: { $literal: null },
       },
     },
@@ -1118,6 +1229,10 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         quizDoc: { $first: '$quizDoc' },
       },
     },
+
+    /** 7.2) Room event (for system messages) */
+    ...roomEventLookupStages(),
+
     /** 8) Project Final */
     {
       $project: {
@@ -1133,6 +1248,7 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         deletedAt: '$deletedAt',
         isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
+        placeholder: '$placeholder',
 
         // denormalized
         sender: {
@@ -1183,6 +1299,8 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        // System message context (member added/left, call started/ended, ...)
+        room_event: buildRoomEventProjection(),
         summary: { $literal: null },
       },
     },

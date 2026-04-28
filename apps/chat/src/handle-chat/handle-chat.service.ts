@@ -90,6 +90,33 @@ export class HandleChatService {
     private readonly quizModel: Model<Quiz>,
   ) {}
 
+  /**
+   * Convert `room_event.payload` (arbitrary object) to `payloadJson` (string)
+   * so it survives gRPC serialization (proto schema only has `payloadJson`).
+   * The realtime Socket.IO path doesn't need this — it carries raw JSON —
+   * but we apply uniformly for consistency, and the FE handler unwraps both
+   * shapes. Mutates and returns the message.
+   */
+  private serializeRoomEvent<T extends Record<string, unknown>>(msg: T): T {
+    const ev = (msg as Record<string, unknown>)?.room_event as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    if (!ev) return msg;
+    if (
+      ev.payload != null &&
+      typeof ev.payload === 'object' &&
+      ev.payloadJson === undefined
+    ) {
+      try {
+        ev.payloadJson = JSON.stringify(ev.payload);
+      } catch {
+        ev.payloadJson = '';
+      }
+    }
+    return msg;
+  }
+
   async createMessage(payload: CreateMessage) {
     const {
       roomId,
@@ -148,8 +175,6 @@ export class HandleChatService {
     const messageId = id
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
-
-    console.log('🚀 ~ HandleChatService ~ quizId:', quizId);
 
     const updatePayload = {
       msg_roomId: finInfo._id,
@@ -325,7 +350,7 @@ export class HandleChatService {
           data: {
             type: notifyType.noify_new_message,
             push_type: 'message',
-            msg: msg[0] as Record<string, any>,
+            msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
           },
         },
       ),
@@ -340,7 +365,7 @@ export class HandleChatService {
         msgId: createNewMsg._id.toString(),
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Tin nhắn mới thành công',
     );
@@ -423,7 +448,8 @@ export class HandleChatService {
 
       ...pipeLine,
     ]);
-    return result[0] as Record<string, any>;
+    const msg = result[0] as Record<string, any>;
+    return msg ? this.serializeRoomEvent(msg) : msg;
   }
   async markReadUpTo(payload: markReadUpToDto) {
     const { roomId, userId, lastMessageId } = payload;
@@ -508,7 +534,7 @@ export class HandleChatService {
         msgId: messgeInfo._id.toString(),
         members: roomInfro.room_members,
         roomId: roomInfro.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã đọc tin nhắn',
     );
@@ -577,7 +603,11 @@ export class HandleChatService {
       { $limit: Number(limit) }, // Giới hạn số lượng
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
-    return Response.success(result, 'Tin nhắn mới thành công');
+    // Stringify each message's room_event.payload so it survives gRPC.
+    const serialized = (result as Record<string, any>[]).map((m) =>
+      this.serializeRoomEvent(m),
+    );
+    return Response.success(serialized, 'Tin nhắn mới thành công');
   }
 
   async handleReact({ userId, roomId, msgId, emoji }: HandleReactDto) {
@@ -668,7 +698,7 @@ export class HandleChatService {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã thả icon',
     );
@@ -718,15 +748,21 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
-    // Notify clients to refresh room info (pinned messages updated)
-    await this.roomService.emitRoomUpdate(finInfo.room_id.toString());
+    // Notify clients to refresh room info (pinned messages updated).
+    // Lightweight ping — pin events already surface via MSGPINNED, this just
+    // nudges the room metadata.
+    this.roomService.notifyRoomChanged(finInfo.room_id.toString(), {
+      reason: 'pinned-changed',
+      messageId: msgId,
+      pinned,
+    });
 
     return Response.success(
       {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: msg[0] as Record<string, any>,
+        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
       },
       'Đã ghim',
     );
@@ -888,7 +924,6 @@ export class HandleChatService {
       if (!actionUser) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
-      console.log('cuộc gọi kết nối thành công');
 
       const msg = await this.messageModel.create({
         msg_roomId: room._id,
@@ -934,6 +969,36 @@ export class HandleChatService {
       if (!callHistory) {
         throw new BadRequestException('Không tạo được lịch sử cuộc gọi');
       }
+
+      // Group call → log a system event so non-call members see "X started a
+      // group call" inline in chat. Skip for private/p2p (1-1) calls.
+      if (callMode === 'sfu') {
+        await this.roomService
+          .writeLogRoom({
+            event_type: 'call.started',
+            room_id: room._id,
+            actor_id: actionUser._id,
+            targets: members.map((m) => m._id),
+            placeholder: `${actionUser.usr_fullname} đã bắt đầu cuộc gọi ${
+              callType === 'video' ? 'video' : 'thoại'
+            } nhóm`,
+            payload: {
+              callId: callHistory.call_id,
+              callType,
+              callMode,
+              callMessageId: msg._id.toString(),
+              startedAt: callHistory.started_at,
+            },
+          })
+          .catch((err) =>
+            this.log.error(
+              `[CALL_LOG] Failed to log call.started: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            ),
+          );
+      }
+
       const message = await this.messageModel.aggregate(
         buildMessageDetailPipeline(msg._id.toString()),
       );
@@ -985,6 +1050,14 @@ export class HandleChatService {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
+      // Capture the user's status BEFORE we flip it to 'started'. We only want
+      // to log a "joined" system message on the first transition (pending →
+      // started), not on every reconnect/accept retry.
+      const previousStatus = callHistory.members.find(
+        (m) => m.id.toString() === actionUser.usr_id.toString(),
+      )?.status;
+      const isFirstJoin = previousStatus === 'pending';
+
       // Dùng findOneAndUpdate thay vì save() để tránh Mongoose VersionError khi
       // nhiều request đồng thời cùng cập nhật document (optimistic locking conflict).
       const updateFields: Record<string, any> = {
@@ -1006,6 +1079,31 @@ export class HandleChatService {
       if (!refreshedHistory) {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
+
+      // Group calls log "X joined the call" once per member, on first join only.
+      if (refreshedHistory.call_mode === 'sfu' && isFirstJoin) {
+        await this.roomService
+          .writeLogRoom({
+            event_type: 'call.joined',
+            room_id: room._id,
+            actor_id: actionUser._id,
+            targets: refreshedHistory.members.map((m) => m.user_id),
+            placeholder: `${actionUser.usr_fullname} đã tham gia cuộc gọi`,
+            payload: {
+              callId: refreshedHistory.call_id,
+              callMode: refreshedHistory.call_mode,
+              callMessageId: refreshedHistory.message_id?.toString(),
+            },
+          })
+          .catch((err) =>
+            this.log.error(
+              `[CALL_LOG] Failed to log call.joined: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            ),
+          );
+      }
+
       const msg = await this.messageModel.aggregate(
         buildMessageDetailPipeline(refreshedHistory.message_id.toString()),
       );
@@ -1013,7 +1111,7 @@ export class HandleChatService {
         {
           history: refreshedHistory,
           room: room,
-          msg: msg[0] as Record<string, any>,
+          msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',
       );
@@ -1106,6 +1204,45 @@ export class HandleChatService {
       // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
       callHistory.markModified('members');
       await callHistory.save();
+
+      // Group call → log either:
+      //   call.ended → cuộc gọi vừa kết thúc với mọi người (ended_at vừa set)
+      //   call.left  → user này rời sớm trong khi cuộc gọi vẫn đang diễn ra
+      // Skip for p2p (1-1) — bữa cuộc gọi đó tự nó đã là tin nhắn 'call'.
+      if (callHistory.call_mode === 'sfu') {
+        const callJustEnded = !!callHistory.ended_at;
+        await this.roomService
+          .writeLogRoom({
+            event_type: callJustEnded ? 'call.ended' : 'call.left',
+            room_id: room._id,
+            actor_id: actionUser._id,
+            targets: callHistory.members.map((m) => m.user_id),
+            placeholder: callJustEnded
+              ? this.formatCallEndedPlaceholder(callHistory)
+              : `${actionUser.usr_fullname} đã rời cuộc gọi`,
+            payload: {
+              callId: callHistory.call_id,
+              callMode: callHistory.call_mode,
+              callMessageId: callHistory.message_id?.toString(),
+              endStatus: status,
+              startedAt: callHistory.started_at,
+              endedAt: callHistory.ended_at,
+              durationMs:
+                callJustEnded && callHistory.started_at
+                  ? new Date(callHistory.ended_at!).getTime() -
+                    new Date(callHistory.started_at).getTime()
+                  : undefined,
+            },
+          })
+          .catch((err) =>
+            this.log.error(
+              `[CALL_LOG] Failed to log ${
+                callJustEnded ? 'call.ended' : 'call.left'
+              }: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
+      }
+
       const msg = await this.messageModel.aggregate(
         buildMessageDetailPipeline(callHistory.message_id.toString()),
       );
@@ -1113,13 +1250,102 @@ export class HandleChatService {
         {
           history: callHistory,
           room: room,
-          msg: msg[0] as Record<string, any>,
+          msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
         },
         'Cuộc gọi đã được kết thúc',
       );
     } catch (error) {
       console.log('🚀 ~ HandleChatService ~ endCall ~ error:', error);
       return Response.badRequest('Không kết thúc được cuộc gọi');
+    }
+  }
+
+  /**
+   * Build a friendly "Cuộc gọi đã kết thúc - X phút Y giây" string for the
+   * call.ended system event. Falls back to a duration-less message when the
+   * call never actually started (cancelled before pickup).
+   */
+  private formatCallEndedPlaceholder(callHistory: CallHistory): string {
+    if (!callHistory.started_at || !callHistory.ended_at) {
+      return 'Cuộc gọi đã kết thúc';
+    }
+    const durationMs =
+      new Date(callHistory.ended_at).getTime() -
+      new Date(callHistory.started_at).getTime();
+    if (durationMs <= 0) return 'Cuộc gọi đã kết thúc';
+
+    const totalSec = Math.floor(durationMs / 1000);
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours} giờ`);
+    if (minutes > 0) parts.push(`${minutes} phút`);
+    if (seconds > 0 || parts.length === 0) parts.push(`${seconds} giây`);
+
+    return `Cuộc gọi đã kết thúc · ${parts.join(' ')}`;
+  }
+
+  /**
+   * Cheap "is this call still alive?" probe used by the socket gateway when
+   * deciding whether to reject `already_in_call`. Redis can hold a stale
+   * USER_IN_CALL marker if the popup crashed or beforeunload didn't get a
+   * chance to fire EndCall — in that case, the marker points at a callId
+   * that the DB knows has already ended. We let the gateway clear the
+   * stale marker and proceed instead of permanently locking the user out.
+   *
+   * `ended = true` when EITHER the document has `ended_at` set OR every
+   * member is in a terminal state (ended/cancelled/rejected/missed).
+   */
+  async getCallStatus({ callId }: { callId: string }) {
+    try {
+      if (!callId) {
+        return Response.success(
+          { call_id: '', exists: false, ended: true, ended_at: '' },
+          'callId rỗng',
+        );
+      }
+      const callHistory = await this.callHistoryModel
+        .findOne({ call_id: callId })
+        .lean();
+      if (!callHistory) {
+        return Response.success(
+          { call_id: callId, exists: false, ended: true, ended_at: '' },
+          'Cuộc gọi không tồn tại',
+        );
+      }
+      const TERMINAL = new Set<MemberStatus>([
+        'ended',
+        'cancelled',
+        'rejected',
+        'missed',
+      ]);
+      const allMembersTerminal =
+        Array.isArray(callHistory.members) &&
+        callHistory.members.length > 0 &&
+        callHistory.members.every((m) => TERMINAL.has(m.status));
+      const ended = !!callHistory.ended_at || allMembersTerminal;
+      return Response.success(
+        {
+          call_id: callId,
+          exists: true,
+          ended,
+          ended_at: callHistory.ended_at
+            ? new Date(callHistory.ended_at).toISOString()
+            : '',
+        },
+        'OK',
+      );
+    } catch (error) {
+      console.log('🚀 ~ HandleChatService ~ getCallStatus ~ error:', error);
+      // On any error, treat as "still active" so we don't accidentally clear
+      // a valid in-call marker. The gateway will fall back to the existing
+      // reject behavior.
+      return Response.success(
+        { call_id: callId, exists: true, ended: false, ended_at: '' },
+        'Không kiểm tra được trạng thái cuộc gọi',
+      );
     }
   }
 

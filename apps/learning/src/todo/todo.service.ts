@@ -32,12 +32,8 @@ export class TodoService {
       todo_assignees: (todo.todo_assignees ?? []).map((a: any) =>
         a?.toString(),
       ),
-      createdAt: todo.createdAt
-        ? new Date(todo.createdAt).toISOString()
-        : '',
-      updatedAt: todo.updatedAt
-        ? new Date(todo.updatedAt).toISOString()
-        : '',
+      createdAt: todo.createdAt ? new Date(todo.createdAt).toISOString() : '',
+      updatedAt: todo.updatedAt ? new Date(todo.updatedAt).toISOString() : '',
     };
   }
 
@@ -120,10 +116,12 @@ export class TodoService {
     try {
       const updateData: Record<string, any> = {};
 
-      if (data.todo_title !== undefined) updateData.todo_title = data.todo_title;
+      if (data.todo_title !== undefined)
+        updateData.todo_title = data.todo_title;
       if (data.todo_description !== undefined)
         updateData.todo_description = data.todo_description;
-      if (data.todo_status !== undefined) updateData.todo_status = data.todo_status;
+      if (data.todo_status !== undefined)
+        updateData.todo_status = data.todo_status;
       if (data.todo_priority !== undefined)
         updateData.todo_priority = data.todo_priority;
       if (data.todo_dueDate !== undefined)
@@ -175,7 +173,10 @@ export class TodoService {
     }
   }
 
-  async updateTodoStatus(todo_id: string, status: UpdateTodoStatusDto['status']) {
+  async updateTodoStatus(
+    todo_id: string,
+    status: UpdateTodoStatusDto['status'],
+  ) {
     try {
       const todo = await this.todoModel
         .findOneAndUpdate(

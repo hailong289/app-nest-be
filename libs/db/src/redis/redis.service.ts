@@ -267,6 +267,72 @@ export class RedisService {
   }
 
   /**
+   * Set the expiration time on a key.
+   * @param key - The Redis key.
+   * @param ttl - Time-to-live in seconds.
+   * @returns 1 if expiration set, 0 if key doesn't exist.
+   */
+  async expire(key: string, ttl: number): Promise<number> {
+    try {
+      return await this.redis.expire(key, ttl);
+    } catch (err) {
+      console.error('Redis expire error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Set one or more fields on a Redis Hash.
+   * @param key - The Redis key.
+   * @param fields - { field: value } map.
+   * @returns Number of new fields added.
+   */
+  async hSet(key: string, fields: Record<string, string>): Promise<number> {
+    try {
+      const flat: string[] = [];
+      for (const [f, v] of Object.entries(fields)) {
+        flat.push(f, v);
+      }
+      if (flat.length === 0) return 0;
+      return await this.redis.hset(key, ...flat);
+    } catch (err) {
+      console.error('Redis hSet error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Get all fields of a Redis Hash.
+   * @param key - The Redis key.
+   * @returns { field: value } map (empty object if key missing).
+   */
+  async hGetAll(key: string): Promise<Record<string, string>> {
+    try {
+      return await this.redis.hgetall(key);
+    } catch (err) {
+      console.error('Redis hGetAll error:', err);
+      return {};
+    }
+  }
+
+  /**
+   * Delete one or more fields from a Redis Hash. The hash key auto-deletes
+   * when the last field is removed (Redis behavior).
+   * @param key - The Redis key.
+   * @param fields - The fields to delete.
+   * @returns Number of fields removed.
+   */
+  async hDel(key: string, ...fields: string[]): Promise<number> {
+    try {
+      if (fields.length === 0) return 0;
+      return await this.redis.hdel(key, ...fields);
+    } catch (err) {
+      console.error('Redis hDel error:', err);
+      return 0;
+    }
+  }
+
+  /**
    * Add a member to a sorted set, or update its score if it already exists.
    * @param key - The Redis key.
    * @param score - The score.
@@ -330,6 +396,38 @@ export class RedisService {
     } catch (err) {
       console.error('Redis zScore error:', err);
       return null;
+    }
+  }
+
+  /**
+   * Iterate keys matching a glob pattern using Redis SCAN. Use this instead
+   * of KEYS in production paths — KEYS blocks the entire instance, SCAN
+   * cooperates with normal traffic.
+   *
+   * Caller pumps the cursor in a loop; start with `'0'`, stop when the
+   * returned cursor is `'0'`.
+   *
+   * @param cursor Cursor value from the previous call (or `'0'` to start).
+   * @param match Glob pattern (e.g. `chat:user:*:online`).
+   * @param count Hint to Redis about page size — actual returned count varies.
+   */
+  async scan(
+    cursor: string,
+    match: string,
+    count = 100,
+  ): Promise<{ cursor: string; keys: string[] }> {
+    try {
+      const [next, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        match,
+        'COUNT',
+        count,
+      );
+      return { cursor: next, keys };
+    } catch (err) {
+      console.error('Redis scan error:', err);
+      return { cursor: '0', keys: [] };
     }
   }
 

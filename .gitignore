@@ -45,7 +45,6 @@ yarn.log
 .env.production
 .env.development
 .env.docker
-.env.hybrid
 # temp directory
 .temp
 .tmp

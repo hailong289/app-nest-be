@@ -9,7 +9,7 @@ import { NotificationService } from './notification.service';
 
 @Injectable()
 export class FirebaseService implements OnModuleInit {
-  private app: admin.app.App;
+  private app!: admin.app.App;
   private readonly key = REDISKEY;
 
   constructor(
@@ -212,6 +212,5 @@ export class FirebaseService implements OnModuleInit {
         skipSaveToDb: true,
       });
     }
-    console.log('đã gửi thông báo cho ', userIds);
   }
 }

@@ -1,0 +1,44 @@
+name: Deploy SFU Service
+
+on:
+  workflow_call:
+
+jobs:
+  deploy:
+    name: Deploy SFU to VM
+    runs-on: ubuntu-latest
+    environment: 
+      name: SFU_SERVICE
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy to VM via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_PORT }}
+          script: |
+            cd ${{ secrets.VM_APP_DIR }}
+            git fetch origin master
+            git reset --hard origin/master
+            git pull origin master
+
+            cat > apps/sfu/.env << 'EOF'
+            NODE_ENV=${{ secrets.NODE_ENV }}
+            HOST=${{ secrets.HOST }}
+            PORT=${{ secrets.PORT }}
+            SFU_INTERNAL_SECRET=${{ secrets.SFU_INTERNAL_SECRET }}
+            MEDIASOUP_LISTEN_IP=${{ secrets.MEDIASOUP_LISTEN_IP }}
+            MEDIASOUP_ANNOUNCED_IP=${{ secrets.MEDIASOUP_ANNOUNCED_IP }}
+            MEDIASOUP_RTC_MIN_PORT=${{ secrets.MEDIASOUP_RTC_MIN_PORT }}
+            MEDIASOUP_RTC_MAX_PORT=${{ secrets.MEDIASOUP_RTC_MAX_PORT }}
+            MEDIASOUP_LOG_LEVEL=${{ secrets.MEDIASOUP_LOG_LEVEL }}
+            EOF
+
+            npm install
+            npm run build:sfu
+
+            NODE_ENV=production pm2 restart sfu-app --update-env || NODE_ENV=production pm2 start dist/apps/sfu/main.js --name "sfu-app"
+            pm2 save

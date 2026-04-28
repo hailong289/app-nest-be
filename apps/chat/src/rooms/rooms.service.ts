@@ -31,14 +31,16 @@ import {
 import removeAccents from 'remove-accents'; // npm i remove-accents
 import {
   memberType,
+  Message,
   Room,
   RoomEvent,
   User,
   EventRoomType,
   RoomsUsersState,
 } from 'libs/db/src';
-import type { Queue } from 'bull';
-import { InjectQueue } from '@nestjs/bull';
+import { RemoteSocketEmitter } from 'libs/ws/src';
+import { socketEvent } from 'libs/dto/src/enum.type';
+import { buildMessageDetailPipeline } from '../handle-chat/Pipeline/getMsg';
 
 @Injectable()
 export class RoomsService {
@@ -49,10 +51,11 @@ export class RoomsService {
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(RoomEvent.name) private readonly roomEvent: Model<RoomEvent>,
+    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
     private readonly redis: RedisService,
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
-    @InjectQueue('room_updates') private readonly queue: Queue,
+    private readonly emitter: RemoteSocketEmitter,
   ) {}
 
   async onModuleInit() {
@@ -106,19 +109,122 @@ export class RoomsService {
     }
   }
 
-  async emitRoomUpdate(roomId: string) {
+  /**
+   * Persist a room event AND broadcast it to clients in real time.
+   *
+   * Pipeline:
+   *   1. Insert a system Message (msg_type='system') with the event placeholder
+   *      so the FE shows it inline in the chat thread.
+   *   2. Insert a RoomEvent linked to that message via `message_id`.
+   *   3. Update room.room_lastMessage so room previews render the system msg.
+   *   4. Emit two Socket.IO events to the room (via Redis pub/sub from libs/ws):
+   *        - 'message:upsert' (the system message itself)
+   *        - 'room:update'    ({ roomId, messageId, eventId, eventType, payload })
+   *
+   * Replaces the old writeLogRoom() + emitRoomUpdate() + Bull queue duo.
+   */
+  async writeLogRoom(input: CreateRoomEvent) {
+    // 1. system Message
+    const systemMsg = await this.messageModel.create({
+      msg_roomId: input.room_id,
+      msg_sender: input.actor_id ?? null,
+      msg_type: 'system',
+      msg_content: input.placeholder,
+      placeholder: input.placeholder,
+    });
+
+    // 2. RoomEvent linked to system message
+    const event = await this.roomEvent.create({
+      ...input,
+      message_id: systemMsg._id,
+    });
+
+    // 3. Update room.room_lastMessage (best-effort, don't fail the whole flow)
     try {
-      await this.queue.add('refresh', { roomId });
-      this.log.log(`[BULL] Added refresh job for room ${roomId}`);
-    } catch (error) {
-      this.log.error(`Failed to add job to queue: ${error}`);
+      await this.roomModel.updateOne(
+        { _id: input.room_id },
+        { $set: { room_lastMessage: systemMsg._id } },
+      );
+    } catch (err) {
+      this.log.warn(
+        `[ROOM_EVENT] Failed to update room_lastMessage for ${String(input.room_id)}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
+
+    // 4. Resolve the room's custom string id (used as Socket.IO room name)
+    const room = await this.roomModel
+      .findById(input.room_id, { room_id: 1 })
+      .lean<{ room_id: string }>();
+
+    if (!room?.room_id) {
+      this.log.warn(
+        `[ROOM_EVENT] Room ${String(input.room_id)} not found, skipping socket emit`,
+      );
+      return event;
+    }
+
+    // 5. Hydrate the system message through the same pipeline FE uses for
+    //    regular messages so it carries `room_event` (event_type, actor,
+    //    targets, payload). FE renders it via <SystemMessageBubble />.
+    let messagePayload: Record<string, unknown>;
+    try {
+      const [hydrated] = await this.messageModel.aggregate(
+        buildMessageDetailPipeline(systemMsg._id.toString()),
+      );
+      messagePayload =
+        (hydrated as Record<string, unknown>) ??
+        (systemMsg.toObject() as unknown as Record<string, unknown>);
+    } catch (err) {
+      this.log.warn(
+        `[ROOM_EVENT] Pipeline hydration failed for ${String(systemMsg._id)}: ${
+          err instanceof Error ? err.message : String(err)
+        } — emitting raw doc instead`,
+      );
+      messagePayload = systemMsg.toObject() as unknown as Record<
+        string,
+        unknown
+      >;
+    }
+
+    // 6. Broadcast via Redis-backed emitter (apps/socket relays to clients)
+    const namespace = '/chat';
+    this.emitter.broadcastTo(
+      namespace,
+      room.room_id,
+      socketEvent.MSGUPSERT,
+      messagePayload,
+    );
+    this.emitter.broadcastTo(namespace, room.room_id, 'room:update', {
+      roomId: room.room_id,
+      messageId: String(systemMsg._id),
+      eventId: event.event_id,
+      eventType: input.event_type,
+      payload: input.payload ?? {},
+    });
+
+    return event;
   }
-  // handlog not public api
-  async writeLogRoom(CreateRoomEvent: CreateRoomEvent) {
-    return this.roomEvent.create(CreateRoomEvent);
-    // socket các hành động
+
+  /**
+   * Lightweight room notification — emits 'room:update' only (no system
+   * message, no RoomEvent). Use for changes that already produce their own
+   * surface event, e.g. pinning a message: the FE already gets the pin event,
+   * we just need to nudge the room metadata (last activity, pinned list).
+   */
+  notifyRoomChanged(
+    roomIdString: string,
+    payload: Record<string, unknown> = {},
+  ): void {
+    if (!roomIdString) return;
+    this.emitter.broadcastTo('/chat', roomIdString, 'room:update', {
+      roomId: roomIdString,
+      eventType: 'room.refresh',
+      payload,
+    });
   }
+
   private handlePipeline(userId: string): PipelineStage[] {
     const uid = this.utils.convertToObjectIdMongoose(userId);
 
@@ -1194,7 +1300,6 @@ export class RoomsService {
         } as CreateRoomEvent);
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
-        this.emitRoomUpdate(roomId);
         return Response.success('', 'Đã rời khỏi nhóm');
       }
 
@@ -1220,7 +1325,6 @@ export class RoomsService {
         } as CreateRoomEvent);
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
-        this.emitRoomUpdate(roomId);
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const candidates = members
@@ -1282,7 +1386,6 @@ export class RoomsService {
         },
       } as CreateRoomEvent);
 
-      this.emitRoomUpdate(roomId);
       return Response.success({ members: members, roomId }, 'Đã rời khỏi nhóm');
     } catch (err) {
       this.log.error(err);
@@ -1373,7 +1476,6 @@ export class RoomsService {
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
-    this.emitRoomUpdate(roomId);
     return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
@@ -1470,7 +1572,6 @@ export class RoomsService {
     );
     await Promise.all([...PromiseAll, ...addmb, ...addroom, ...newlog]);
 
-    this.emitRoomUpdate(roomId);
     return Response.success(
       { members: roomMember, roomId },
       'Đã thêm thành công',
@@ -1567,7 +1668,6 @@ export class RoomsService {
       targets: roominfo?.room_members.map((m) => m.user_id),
       placeholder: `${userinfor.name} đã cập nhật ảnh đại diện`,
     } as CreateRoomEvent);
-    this.emitRoomUpdate(roomId);
     return Response.success(
       { members: roominfo?.room_members, roomId },
       'đã thay đổi ảnh thành công',
@@ -1618,7 +1718,6 @@ export class RoomsService {
       targets: room.room_members.map((m) => m.user_id),
     } as CreateRoomEvent);
 
-    this.emitRoomUpdate(roomId);
     return Response.success(
       { members: room.room_members, roomId },
       'Đổi tên thành công',
@@ -1744,7 +1843,6 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     } as CreateRoomEvent);
-    this.emitRoomUpdate(roomUpdate.room_id);
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi tên thành công',
@@ -1823,7 +1921,6 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     } as CreateRoomEvent);
-    this.emitRoomUpdate(roomUpdate.room_id);
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi quyền thành công',

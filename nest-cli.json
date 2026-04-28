@@ -100,6 +100,17 @@
         "tsConfigPath": "apps/socket/tsconfig.app.json"
       }
     },
+    "sfu": {
+      "type": "application",
+      "root": "apps/sfu",
+      "entryFile": "main",
+      "sourceRoot": "apps/sfu/src",
+      "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml", "**/*.proto"],
+        "tsConfigPath": "apps/sfu/tsconfig.app.json"
+      }
+    },
     "constants": {
       "type": "library",
       "root": "libs/constants",

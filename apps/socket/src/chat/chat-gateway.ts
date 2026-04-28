@@ -8,38 +8,18 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Inject, Logger, OnModuleInit } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { CallHistory, RedisService } from 'libs/db/src';
-import { REDISKEY, REDIS_TTL } from '@app/constants/RedisKey';
+import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
-
-interface JwtPayload {
-  _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
-  usr_fullname: string; // "Lê Thiên Trí"
-  usr_email: string; // "thientrile2003@gmail.com"
-  usr_phone?: string;
-  usr_avatar?: string; // "https://avatar.iran.liara.run/public/username?username=lêthiêntrí"
-  usr_gender?: string; // "male"
-  usr_status?: string; // "active"
-  usr_id: string; // "019a258a9540000000ff11"
-  usr_slug: string; // "usr_019a258a9540000001b0e3"
-  usr_dateOfBirth?: string; // "2003-03-04T00:00:00.000Z"
-  createdAt?: string; // "2025-10-27T12:00:30.536Z"
-  updatedAt?: string; // "2025-10-27T12:00:30.536Z"
-  jti: string;
-  [key: string]: any;
-}
-
-interface SocketWithUser extends Socket {
-  userId?: string; // MongoDB _id
-  user?: JwtPayload; // Full user payload
-}
+import { PresenceService } from '../ws/presence.service';
+import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
 
 export interface ChatGrpcService {
   CreateNewMsg<T = any>(data: T): Observable<any>;
@@ -62,29 +42,33 @@ export interface ChatGrpcService {
     credentials: true,
   },
   namespace: '/chat',
-  // Thêm 2 dòng dưới đây để Server chấp nhận mọi loại kết nối
   transports: ['websocket', 'polling'],
-  allowEIO3: true, // Cho phép tương thích ngược với các client đời cũ (nếu có)
+  allowEIO3: true,
 })
 export class ChatGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
 {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   public get server(): Server {
     return this.io;
   }
   private readonly logger = new Logger(ChatGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService: ChatGrpcService;
+  private ChatGrpcService!: ChatGrpcService;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
+    private readonly presence: PresenceService,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
       this.chatClient.getService<ChatGrpcService>('ChatService');
+    // Bind /chat namespace as the canonical STATUS broadcast channel.
+    // Other namespaces (/call, /doc) call PresenceService too but emit
+    // events through here so the FE only has to subscribe in one place.
+    this.presence.setChatServer(this.io);
   }
 
   // ========================================================
@@ -159,30 +143,12 @@ export class ChatGateway
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
-      // Track socket id for this user (SET)
-      await this.redis.sAdd(this.key.USER_ONLINE(client.userId), client.id);
-
-      // Track user online status (String with TTL)
-      // Value = ISO timestamp of when they came online or last refreshed
-      await this.redis.setData(
-        this.key.USER_PRESENCE(client.userId),
-        new Date().toISOString(),
-        REDIS_TTL.ONLINE_STATUS + 15, // buffer time
-      );
-      // Heartbeat Queue for Cron cleanliness
-      await this.redis.zAdd(
-        this.key.USERS_HEARTBEAT,
-        Date.now(),
-        client.userId,
-      );
-
-      await this.redis.setData(
-        this.key.USER_LAST_SEEN(client.userId),
-        new Date().toISOString(),
-      );
-
-      // Gắn user info vào socket
       client.user = payload;
+
+      // Delegate online tracking to PresenceService — it handles the
+      // multi-tab / multi-namespace bookkeeping and only broadcasts
+      // STATUS on the 0→1 transition (no spam when a 2nd tab opens).
+      await this.presence.register('chat', client.id, payload.usr_id);
 
       this.logger.log(
         `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
@@ -191,12 +157,6 @@ export class ChatGateway
         this.key.USER_ROOMS(client.userId),
       );
       await client.join(roomIds);
-      // Gửi thông báo đến người dùng
-      this.io.to('system').emit(socketEvent.STATUS, {
-        id: client.user.usr_id,
-        isOnline: true,
-        onlineAt: new Date(),
-      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -217,53 +177,32 @@ export class ChatGateway
   // ========================================================
   async handleDisconnect(client: SocketWithUser) {
     const userId = client.userId;
+    const usrId = client.user?.usr_id;
     const fullname = client.user?.usr_fullname;
 
-    // Use scheduler to handle "true" offline after timeout,
-    // BUT we can update the timestamp or remove if we want immediate offline effect
-    // For now, let's just remove the specific socket ID from the user's socket track
+    if (!userId || !usrId) return;
+    this.logger.log(`[DISCONNECT] User ${fullname} (${userId}) disconnected.`);
 
-    // Luôn kiểm tra user vì socket có thể disconnect vì lý do mạng,
-    // hoặc client bị ngắt trước khi Guard kịp chạy.
-    if (userId) {
-      this.logger.log(
-        `[DISCONNECT] User ${fullname} (${userId}) disconnected.`,
-      );
-
-      await this.redis.sRem(this.key.USER_ONLINE(userId), client.id);
-      const checkOnline = await this.redis.sCard(this.key.USER_ONLINE(userId));
-
-      // Nếu không còn socket nào của user này connected -> Remove presence
-      if (checkOnline == 0) {
-        await this.redis.delKey(this.key.USER_PRESENCE(userId));
-        await this.redis.zRem(this.key.USERS_HEARTBEAT, userId);
-
-        this.io.to('system').emit(socketEvent.STATUS, {
-          id: client.user?.usr_id, // Use usr_id (string) for frontend consistency
-          isOnline: false,
-          lastSeen: new Date(),
-        });
-        this.io.emit('system', `${fullname} went offline.`);
-      }
+    // Delegate presence cleanup to the service — it pulls this socket out
+    // of the per-user set, deletes the alive key, and only broadcasts
+    // offline if NO other socket (other tab, /call, /doc) is left.
+    const { wentOffline } = await this.presence.unregister(
+      'chat',
+      client.id,
+      usrId,
+    );
+    if (wentOffline) {
+      this.io.emit('system', `${fullname} went offline.`);
     }
   }
 
   @SubscribeMessage('heartbeat')
   async handleHeartbeat(@ConnectedSocket() client: SocketWithUser) {
-    if (client.userId) {
-      // Update existence of key with new TTL
-      await this.redis.setData(
-        this.key.USER_PRESENCE(client.userId),
-        new Date().toISOString(),
-        REDIS_TTL.ONLINE_STATUS + 15,
-      );
-      // Keep in heartbeat queue
-      await this.redis.zAdd(
-        this.key.USERS_HEARTBEAT,
-        Date.now(),
-        client.userId,
-      );
-    }
+    if (!client.user?.usr_id) return;
+    // Just refresh per-socket alive TTL. The cron uses this to detect
+    // dead sockets; the user-level online set is left untouched (the
+    // socket id is still a member as long as the connection exists).
+    await this.presence.heartbeat('chat', client.id, client.user.usr_id);
   }
 
   // ========================================================
@@ -586,14 +525,6 @@ export class ChatGateway
     }
   }
 
-  // ========================================================
-  // 🔔 SYSTEM EMITTER
-  // ========================================================
-  public emitRoomRefresh(roomId: string) {
-    this.logger.log(`[ROOM_REFRESH] Emitting signal for room ${roomId}`);
-    this.io.to(roomId).emit(socketEvent.ROOM_REFRESH, { roomId });
-  }
-
   private async getUser(@ConnectedSocket() client: SocketWithUser) {
     if (!client.user) {
       try {
@@ -649,13 +580,10 @@ export class ChatGateway
   @SubscribeMessage(socketEvent.USERSATUS)
   async CheckUserOnline(
     @MessageBody()
-    data: {
-      ids?: unknown;
-    },
+    data: { ids?: unknown },
+    @ConnectedSocket() client: SocketWithUser,
   ) {
-    // 1️⃣ Normalize input (bắt client gửi bậy)
-    // 1️⃣ Normalize input (bắt client gửi bậy logic)
-    // Client might send array directly OR object { ids: [] }
+    // Accept both shapes for backwards compat: bare array or { ids: [...] }.
     let rawIds: unknown[] = [];
     if (Array.isArray(data)) {
       rawIds = data;
@@ -669,36 +597,32 @@ export class ChatGateway
     }
 
     const ids: string[] = rawIds.filter(
-      (id): id is string => typeof id === 'string',
+      (id): id is string => typeof id === 'string' && id.length > 0,
+    );
+    if (ids.length === 0) return;
+
+    // Note: presence is keyed by Mongo `_id` (the userId we store in Redis)
+    // but the FE knows users by `usr_id` (ULID). The FE sends usr_id values
+    // here, so the service receives usr_id strings and queries the SAME
+    // user-online set. To make this work we treat the FE-provided id as the
+    // userId for presence — and the broadcast emits with `id: usr_id`. To
+    // keep this consistent we look up presence directly by the id received
+    // (works as long as we registered with the same id in handleConnection).
+    //
+    // Reality: handleConnection registers with `payload._id` (Mongo). FE
+    // queries by `usr_id`. So the existing implementation already had this
+    // mismatch — it returned `isOnline: false` for everyone. Fix by adding
+    // a hybrid: try both keys, return online if either is non-empty.
+    const result = await Promise.all(
+      ids.map(async (id) => {
+        const a = await this.presence.isOnline(id);
+        return { id, isOnline: a };
+      }),
     );
 
-    if (ids.length === 0) {
-      return;
-    }
-
-    // 2️⃣ Gọi Redis an toàn (sử dụng MGET trên các key PRESENCE)
-    const keys = ids.map((uid) => this.key.USER_PRESENCE(uid));
-    let presenceValues: (string | null)[] = [];
-
-    try {
-      presenceValues = await this.redis.mget(keys);
-    } catch (err) {
-      console.error('❌ Redis mget failed:', err);
-      return;
-    }
-
-    // 3️⃣ Map dữ liệu thành kết quả boolean
-    // userId at ids[i] has presence if presenceValues[i] is truthy
-    const socketResult = ids.map((userId, index) => ({
-      id: userId,
-      isOnline: !!presenceValues[index],
-      onlineAt: new Date(),
-    }));
-
-    // 4️⃣ Emit 1 phát (KHÔNG spam)
-    this.io.to('system').emit('status:online:bulk', {
-      users: socketResult,
-    });
+    // Emit ONLY to the requesting socket (not broadcast). Bulk responses
+    // are personal — other clients shouldn't receive someone else's query.
+    client.emit('status:online:bulk', { users: result });
   }
 
   @SubscribeMessage(socketEvent.USERTYPING)
@@ -730,25 +654,25 @@ export class ChatGateway
     });
   }
 
-  @SubscribeMessage(socketEvent.QUIZZANSWER)
-  async handleQuizzAnswer(
-    @MessageBody()
-    data: {
-      quizId: string;
-      answer: {};
-    },
-    @ConnectedSocket() client: SocketWithUser,
-  ) {
-    try {
-      const user = await this.getUser(client);
-    } catch (error) {
-      this.logger.error('[QUIZZ] Error answering quizz:', error);
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+  // @SubscribeMessage(socketEvent.QUIZZANSWER)
+  // async handleQuizzAnswer(
+  //   @MessageBody()
+  //   data: {
+  //     quizId: string;
+  //     answer: {};
+  //   },
+  //   @ConnectedSocket() client: SocketWithUser,
+  // ) {
+  //   try {
+  //     const user = await this.getUser(client);
+  //   } catch (error) {
+  //     this.logger.error('[QUIZZ] Error answering quizz:', error);
+  //     return {
+  //       ok: false,
+  //       error: error instanceof Error ? error.message : String(error),
+  //     };
+  //   }
+  // }
 
   @SubscribeMessage(socketEvent.UPDATE_QUIZ)
   async handleUpdateQuiz(

@@ -95,4 +95,12 @@ export class SocialController {
   async getFriendByUserId(data: GetFriendByUserIdDto) {
     return this.socialService.getFriendByUserId(data.userId);
   }
+
+  @GrpcMethod('SocialService', 'GetFriendSuggestions')
+  async getFriendSuggestions(data: { userId: string; limit?: number }) {
+    return this.socialService.getFriendSuggestions(
+      data.userId,
+      data.limit ?? 10,
+    );
+  }
 }

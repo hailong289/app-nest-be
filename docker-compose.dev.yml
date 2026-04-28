@@ -1,0 +1,64 @@
+# =============================================================================
+# Local Docker test for the SFU split (apps/socket + apps/sfu).
+#
+# Goal: verify both Dockerfiles BUILD cleanly and the two services can talk
+# to each other via gRPC before pushing to production.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml build        # build only
+#   docker compose -f docker-compose.dev.yml up           # build + run
+#   docker compose -f docker-compose.dev.yml up --build   # force rebuild + run
+#   docker compose -f docker-compose.dev.yml down         # stop
+#
+# Caveats on Windows/macOS (Docker Desktop):
+#   - Mediasoup uses UDP 40000-49999 for media. Mapping that range through
+#     Docker Desktop's port forwarder is EXTREMELY slow (creates ~10k iptables
+#     rules per container). For quick build verification this file maps a
+#     SMALLER range (40000-40099). Do NOT use this range in production —
+#     production should use --network host on a Linux VM (see prod deploy).
+#   - For real call testing, run apps/sfu natively (yarn dev:sfu) instead of
+#     in Docker — UDP works without port mapping overhead.
+# =============================================================================
+
+services:
+  sfu:
+    build:
+      context: .
+      dockerfile: apps/sfu/Dockerfile
+    image: app-sfu:dev
+    env_file:
+      - apps/sfu/.env.local
+    environment:
+      # Inside Docker bridge network, ANNOUNCED_IP can't be the auto-detected
+      # public IP — browsers from outside Docker won't reach the container's
+      # private IP. For build-only smoke test, leave 127.0.0.1; for actual
+      # call testing on Windows host, set to host's LAN IP via env override.
+      MEDIASOUP_ANNOUNCED_IP: 127.0.0.1
+      # Reduce port range for Docker Desktop sanity (see caveat above).
+      MEDIASOUP_RTC_MIN_PORT: 40000
+      MEDIASOUP_RTC_MAX_PORT: 40099
+    ports:
+      # gRPC control plane (apps/socket -> apps/sfu).
+      - "5008:5008"
+      # Mediasoup RTC range (small subset only — see caveat).
+      - "40000-40099:40000-40099/udp"
+    restart: unless-stopped
+
+  socket:
+    build:
+      context: .
+      dockerfile: apps/socket/Dockerfile
+    image: app-socket:dev
+    env_file:
+      - apps/socket/.env.local
+    environment:
+      # Override .env.local: inside the compose network, sfu is reachable by
+      # service name "sfu", not localhost.
+      GATEWAY_SFU_HOST: sfu
+      GATEWAY_SFU_PORT: "5008"
+      GATEWAY_SFU_TLS: "false"
+    ports:
+      - "5006:5006"
+    depends_on:
+      - sfu
+    restart: unless-stopped

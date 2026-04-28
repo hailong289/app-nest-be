@@ -30,6 +30,7 @@ service ChatService {
   rpc RequestCall(RequestCallInput)returns(outputCall);
   rpc AcceptCall(AcceptCallInput)returns(outputCall);
   rpc EndCall(EndCallInput)returns(outputCall);
+  rpc GetCallStatus(GetCallStatusInput)returns(GetCallStatusOutput);
   rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
   rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
@@ -340,6 +341,30 @@ message MessageReadBy {
   ReadByUser user = 2;
 }
 
+/* ===================== Room Event (system message) ===================== */
+message RoomEventActor {
+  string _id = 1;
+  string id = 2;        // usr_id (ULID)
+  string fullname = 3;
+  string avatar = 4;
+}
+
+/**
+ * RoomEvent linked to a system message (member join/leave, call start/end,
+ * group rename, etc.). `payloadJson` holds an arbitrary JSON-encoded blob
+ * because protobuf doesn't natively serialize untyped objects — the chat
+ * service stringifies before send and the FE parses on receive.
+ */
+message RoomEventCore {
+  string event_id = 1;
+  string event_type = 2;     // e.g. "call.started", "member.joined"
+  string placeholder = 3;
+  string payloadJson = 4;    // JSON.stringify(payload object); empty when no payload
+  string createdAt = 5;
+  RoomEventActor actor = 6;
+  repeated RoomEventActor targets = 7;
+}
+
 /* ===================== Core output ===================== */
 /** Message structure theo định dạng mới */
 message MessageCore {
@@ -367,6 +392,7 @@ message MessageCore {
   string documentId=21;
   repeated string hiddenBy = 22;
   QuizCore quiz = 23;                        // Quiz data (nullable)
+  RoomEventCore room_event = 24;             // System-message event metadata (nullable)
 
 }
 
@@ -501,6 +527,24 @@ message GetCallHistoryInput{
   string userId=1;
   string roomId=2;
   string type=3;
+}
+
+message GetCallStatusInput{
+  string callId=1;
+}
+
+message GetCallStatusOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetCallStatusMetadata metadata = 4;
+}
+
+message GetCallStatusMetadata{
+  string call_id = 1;
+  bool exists = 2;       // false → call_id not in DB at all (very stale)
+  bool ended = 3;        // true → call has ended_at OR all members terminal
+  string ended_at = 4;
 }
 
 message outputCall {

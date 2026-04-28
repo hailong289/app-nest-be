@@ -1,4 +1,33 @@
+# Build artifacts
 node_modules
 dist
+*.tsbuildinfo
+
+# Source control
 .git
+.gitignore
+
+# Editor/OS
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Docs (not needed at runtime)
 *.md
+
+# Env files — let docker-compose `env_file:` mount these instead of baking into image.
+# Removing from build context also avoids leaking secrets into image layers.
+.env
+.env.*
+!.env.example
+
+# Local dev artifacts
+apps/*/dist
+libs/*/dist
+coverage
+
+# Docker (avoid recursive copy)
+Dockerfile*
+docker-compose*.yml
+.dockerignore

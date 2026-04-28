@@ -20,7 +20,7 @@ import { WsJwtGuard } from './ws-jwt.guard';
 export abstract class WsBaseGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   protected readonly logger = new Logger(this.constructor.name);
 
   afterInit() {
@@ -35,7 +35,6 @@ export abstract class WsBaseGateway
     this.logger.warn(`Client disconnected: ${client.id}`);
   }
 
-  // ví dụ sự kiện ping/pong dùng chung
   @SubscribeMessage('ping')
   onPing(
     @ConnectedSocket() client: Socket,

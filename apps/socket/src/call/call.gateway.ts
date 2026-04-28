@@ -13,7 +13,7 @@ import {
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -23,29 +23,15 @@ import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
-import { SfuRoomService, UnifiedSignalHandler } from '@app/sfu';
-
-interface JwtPayload {
-  _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
-  usr_fullname: string; // "Lê Thiên Trí"
-  usr_email: string; // "thientrile2003@gmail.com"
-  usr_phone?: string;
-  usr_avatar?: string;
-  usr_gender?: string;
-  usr_status?: string;
-  usr_id: string; // User ID
-  usr_slug: string;
-  usr_dateOfBirth?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  jti: string;
-  [key: string]: any;
-}
-
-interface SocketWithUser extends Socket {
-  userId?: string; // MongoDB _id
-  user?: JwtPayload; // Full user payload
-}
+import { SfuRpcClient, UnifiedSignalHandler } from '@app/sfu';
+import { PresenceService } from '../ws/presence.service';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
+import {
+  CALL_AUTO_MISS_QUEUE,
+  type AutoMissJobData,
+} from './call-auto-miss.processor';
+import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
 
 export interface ChatGrpcService {
   CreateNewMsg<T = any>(data: T): Observable<any>;
@@ -59,6 +45,7 @@ export interface ChatGrpcService {
   RequestCall<T = any>(data: T): Observable<any>;
   AcceptCall<T = any>(data: T): Observable<any>;
   EndCall<T = any>(data: T): Observable<any>;
+  GetCallStatus<T = any>(data: T): Observable<any>;
   SendCandidate<T = any>(data: T): Observable<any>;
 }
 
@@ -75,24 +62,363 @@ export interface ChatGrpcService {
 export class CallGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
 {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   public get server(): Server {
     return this.io;
   }
   private readonly logger = new Logger(CallGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService: ChatGrpcService;
+  private ChatGrpcService!: ChatGrpcService;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly unifiedSignalHandler: UnifiedSignalHandler,
-    private readonly sfuRoomService: SfuRoomService,
+    private readonly sfuRpc: SfuRpcClient,
+    private readonly presence: PresenceService,
+    // Bull queue for the server-side auto-miss timer. Bull persists the
+    // job in Redis and applies a distributed lock so the 30s task
+    // survives pod restarts and runs exactly once across multi-pod
+    // deployments. Workers consume via `CallAutoMissProcessor`.
+    @InjectQueue(CALL_AUTO_MISS_QUEUE)
+    private readonly autoMissQueue: Queue<AutoMissJobData>,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
       this.chatClient.getService<ChatGrpcService>('ChatService');
+  }
+
+  /**
+   * Resolve whether `userUlid`'s `USER_IN_CALL` marker is genuinely live or
+   * stale. Returns:
+   *   - `live`: the marker points at the same call the user is trying to
+   *     enter — no rejection needed (multi-device / renegotiation case).
+   *   - `clear`: the marker is for a DIFFERENT call that the DB confirms has
+   *     ended. We've already cleaned up the stale `USER_IN_CALL` /
+   *     `USER_CALL_SOCKET` keys, caller should proceed.
+   *   - `reject`: the marker is for a different call that is genuinely still
+   *     active — reject with `already_in_call`.
+   *
+   * Used before the `if (inCallId && inCallId !== data.callId)` reject so a
+   * stale marker (popup crash, beforeunload didn't fire EndCall, etc.)
+   * doesn't permanently lock the user out of new calls.
+   */
+  private async validateInCallOrClearStale(
+    userUlid: string,
+    incomingCallId: string,
+  ): Promise<
+    { kind: 'live' } | { kind: 'clear' } | { kind: 'reject'; inCallId: string }
+  > {
+    const inCallId = await this.redis.getData<string>(
+      this.key.USER_IN_CALL(userUlid),
+    );
+    if (!inCallId || inCallId === incomingCallId) {
+      return { kind: 'live' };
+    }
+
+    try {
+      const status = (await Utils.dispatchGrpcRequest(
+        (d) => this.ChatGrpcService.GetCallStatus(d),
+        { callId: inCallId },
+      )) as {
+        statusCode: number;
+        metadata?: { ended?: boolean; exists?: boolean };
+      };
+
+      const ended =
+        status?.statusCode === 200 &&
+        (status.metadata?.ended === true || status.metadata?.exists === false);
+
+      if (ended) {
+        await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
+        await this.redis.delKey(this.key.USER_CALL_SOCKET(userUlid));
+        this.logger.log(
+          `[CALL] Cleared stale USER_IN_CALL for ${userUlid} (DB says ${inCallId} ended)`,
+        );
+        return { kind: 'clear' };
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[CALL] GetCallStatus failed for ${inCallId}: ${
+          err instanceof Error ? err.message : String(err)
+        } — falling back to reject`,
+      );
+    }
+
+    return { kind: 'reject', inCallId };
+  }
+
+  /**
+   * Mark `client.id` as THE active call socket for this user. If a different
+   * socket of the same user was already in the call (other device, other
+   * tab), tell it to gracefully release the call (close popup, clear state).
+   * Returns the previous socketId if a handoff happened, otherwise null.
+   *
+   * Used by every entry point into a call: caller (call:request), callee
+   * (call:accepted), late joiner (call:join). Ensures single-active-device.
+   */
+  private async claimCallSocket(
+    userUlid: string,
+    callId: string,
+    roomId: string,
+    newSocketId: string,
+  ): Promise<string | null> {
+    const previousSocketId = await this.redis.getData<string>(
+      this.key.USER_CALL_SOCKET(userUlid),
+    );
+
+    await this.redis.setData(
+      this.key.USER_CALL_SOCKET(userUlid),
+      newSocketId,
+      REDIS_TTL.CALL_ACTIVE,
+    );
+
+    if (previousSocketId && previousSocketId !== newSocketId) {
+      // Notify the old device to release the call. FE handler closes the
+      // popup window and tears down its local stream / SFU consumers.
+      this.io.to(previousSocketId).emit('call:handoff', {
+        callId,
+        roomId,
+        reason: 'another_device_joined',
+        newSocketId,
+      });
+
+      // Server-side cleanup: drop the old socket from the SFU room so its
+      // transports/producers don't linger until ICE timeout.
+      try {
+        if (await this.sfuRpc.roomExists(roomId)) {
+          await this.sfuRpc.leaveRoom(roomId, userUlid);
+          this.logger.log(
+            `[HANDOFF] SFU cleanup for ${userUlid} (old socket ${previousSocketId})`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[HANDOFF] SFU leaveRoom failed for ${userUlid}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
+      this.logger.log(
+        `[HANDOFF] User ${userUlid} call ${callId} → handed off ${previousSocketId} → ${newSocketId}`,
+      );
+      return previousSocketId;
+    }
+
+    return null;
+  }
+
+  // ========================================================
+  // 📦 ACTIVE-CALL STATE (sharing / camera / mic) — Redis
+  // ========================================================
+  //
+  // Rationale: late-joiners and re-joiners would otherwise have to wait for
+  // the next event toggle to learn who's sharing / cam-off / mic-off. We
+  // mirror those toggle events into per-room Redis sets, then bundle the
+  // current snapshot into call:join / call:accepted responses so the joiner
+  // renders correct UI from the first frame.
+  //
+  // TTL is refreshed on every mutation; sets/hashes auto-delete when the
+  // last member is removed (Redis behavior). When the call genuinely ends
+  // (everyone leaves or call:end status='ended'), explicit cleanup wipes
+  // any stragglers.
+
+  /**
+   * Read the current shared state of a call (everyone, not just the
+   * caller). Used to seed late-joiners' UI.
+   */
+  private async getCallState(roomId: string): Promise<{
+    sharing: Array<{ userId: string; screenProducerId: string | null }>;
+    cameraOff: string[];
+    micOff: string[];
+  }> {
+    const [sharing, producerMap, cameraOff, micOff] = await Promise.all([
+      this.redis.sMembers(this.key.CALL_SHARING(roomId)),
+      this.redis.hGetAll(this.key.CALL_SHARING_PRODUCER(roomId)),
+      this.redis.sMembers(this.key.CALL_CAMERA_OFF(roomId)),
+      this.redis.sMembers(this.key.CALL_MIC_OFF(roomId)),
+    ]);
+    return {
+      sharing: sharing.map((userId) => ({
+        userId,
+        screenProducerId: producerMap[userId] ?? null,
+      })),
+      cameraOff,
+      micOff,
+    };
+  }
+
+  /**
+   * Drop a user from every per-room call state set (sharing, cam-off, mic-
+   * off, share producer hash). Called on partial leave (call:end with peers
+   * remaining) and on socket disconnect mid-call.
+   * Sets/hashes auto-delete when the last member/field is removed, so this
+   * is also the only cleanup needed for the empty-room case.
+   */
+  private async cleanupUserCallState(
+    roomId: string,
+    userId: string,
+  ): Promise<void> {
+    await Promise.all([
+      this.redis.sRem(this.key.CALL_SHARING(roomId), userId),
+      this.redis.hDel(this.key.CALL_SHARING_PRODUCER(roomId), userId),
+      this.redis.sRem(this.key.CALL_CAMERA_OFF(roomId), userId),
+      this.redis.sRem(this.key.CALL_MIC_OFF(roomId), userId),
+    ]);
+  }
+
+  /**
+   * Hard-delete every CALL_* key for a room. Use only on definitive call
+   * end (status='ended' from the chat service or last participant left).
+   * Cheap because key set is small (4 fixed keys).
+   */
+  private async wipeCallState(roomId: string): Promise<void> {
+    await Promise.all([
+      this.redis.delKey(this.key.CALL_SHARING(roomId)),
+      this.redis.delKey(this.key.CALL_SHARING_PRODUCER(roomId)),
+      this.redis.delKey(this.key.CALL_CAMERA_OFF(roomId)),
+      this.redis.delKey(this.key.CALL_MIC_OFF(roomId)),
+    ]);
+  }
+
+  // ========================================================
+  // 📞 PENDING-INVITE REPLAY (race-resilient ringing)
+  // ========================================================
+  //
+  // Problem: `call:request` is fire-and-forget over Socket.IO. If the
+  // callee's socket isn't connected at the moment the caller emits
+  // (logged out, tab not open, mid-reconnect after network blip), the
+  // event is lost and the IncomingCallModal never shows — the call rings
+  // on the caller's side but the callee has no idea.
+  //
+  // Solution: persist a per-(callee, callId) record while ringing. On
+  // socket connect, gateway reads the record and re-emits `call:request`
+  // to the new socket so the modal still shows up.
+
+  /**
+   * Persist a pending invite for one callee. Called from handleCallRequest
+   * for every recipient (free, non-busy room member). TTL is short — the
+   * ringing window. The HASH itself is also TTLd via expire().
+   */
+  private async storePendingInvite(
+    calleeId: string,
+    callId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const key = this.key.CALL_PENDING_INVITES(calleeId);
+    await this.redis.hSet(key, { [callId]: JSON.stringify(payload) });
+    // Refresh TTL on every store — each new invite extends the window.
+    // Older entries get a free extension; fine because they're short-
+    // lived anyway (ringing ~30s, server-side TTL ~60s).
+    await this.redis.expire(key, 60);
+  }
+
+  /** Clear one user's invite for one specific call. */
+  private async clearPendingInvite(
+    calleeId: string,
+    callId: string,
+  ): Promise<void> {
+    await this.redis.hDel(this.key.CALL_PENDING_INVITES(calleeId), callId);
+  }
+
+  /**
+   * Bulk-clear an invite from EVERY recipient. Use on call:end (any
+   * status — once the call is over, no leftover invite should fire).
+   */
+  private async clearPendingInvitesForAll(
+    callId: string,
+    memberIds: string[],
+  ): Promise<void> {
+    if (memberIds.length === 0) return;
+    await Promise.all(
+      memberIds.map((id) => this.clearPendingInvite(id, callId)),
+    );
+  }
+
+  /**
+   * Schedule a server-side auto-miss task. Enqueues a Bull job with a
+   * 30s delay; at fire time, `CallAutoMissProcessor` invokes
+   * `executeAutoMiss` (below) which checks the pending-invites Redis
+   * hash — if the FE already accepted/rejected, it bails; otherwise it
+   * synthesizes `call:end status='missed'` so the caller's UI exits
+   * "ringing" instead of waiting on the 1h USER_IN_CALL TTL.
+   *
+   * Why Bull instead of setTimeout:
+   *   - Persistence: jobs live in Redis, survive pod restarts.
+   *   - Distributed lock: under multi-pod Cloud Run autoscale, exactly
+   *     one worker pod processes each job (no double-fire).
+   *   - jobId scoping: same (callee, callId) can't enqueue twice — Bull
+   *     dedups; relevant if a duplicate call:request somehow gets
+   *     through.
+   */
+  private async scheduleAutoMissInvite(
+    calleeId: string,
+    callId: string,
+    roomId: string,
+  ): Promise<void> {
+    try {
+      await this.autoMissQueue.add(
+        { calleeId, callId, roomId },
+        {
+          delay: 30_000,
+          // Stable jobId to dedupe — Bull rejects duplicate jobIds while
+          // the original is queued/active. If the call ends before the
+          // 30s mark, executeAutoMiss bails on the empty pending-invite
+          // hash; no need to actively `removeJob`.
+          jobId: `auto-miss:${callId}:${calleeId}`,
+        },
+      );
+    } catch (err) {
+      // Don't let queue failures block the call:request response. The FE
+      // 30s timer is still primary; this server-side backup just won't
+      // fire on this particular invite.
+      this.logger.warn(
+        `[CALL] Failed to enqueue auto-miss job for ${callId}/${calleeId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Public entry point invoked by `CallAutoMissProcessor` when the 30s
+   * Bull job fires. Idempotent — bails if the invite has already been
+   * cleared (FE accepted, FE rejected/missed, or another fire already
+   * processed it). gRPC `EndCall` on the chat service is also no-op for
+   * already-ended calls, so a race between the FE emit and this method
+   * is safe.
+   */
+  async executeAutoMiss(
+    calleeId: string,
+    callId: string,
+    roomId: string,
+  ): Promise<void> {
+    const pending = await this.redis.hGetAll(
+      this.key.CALL_PENDING_INVITES(calleeId),
+    );
+    if (!pending[callId]) return;
+
+    await Utils.dispatchGrpcRequest((d) => this.ChatGrpcService.EndCall(d), {
+      actionUserId: calleeId,
+      roomId,
+      callId,
+      status: 'missed',
+    });
+
+    await this.clearPendingInvite(calleeId, callId);
+    this.io.to(roomId).emit('call:end', {
+      roomId,
+      actionUserId: calleeId,
+      callId,
+      status: 'missed',
+      reason: 'auto_miss_timeout',
+    });
+
+    this.logger.log(
+      `[CALL] Auto-missed pending invite ${callId} for ${calleeId} (30s timeout)`,
+    );
   }
 
   // ========================================================
@@ -167,30 +493,14 @@ export class CallGateway
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
-      // Track socket id for this user (SET)
-      await this.redis.sAdd(this.key.USER_ONLINE(client.userId), client.id);
-
-      // Track user online status (String with TTL)
-      // Value = ISO timestamp of when they came online or last refreshed
-      await this.redis.setData(
-        this.key.USER_PRESENCE(client.userId),
-        new Date().toISOString(),
-        REDIS_TTL.ONLINE_STATUS + 15, // buffer time
-      );
-      // Heartbeat Queue for Cron cleanliness
-      await this.redis.zAdd(
-        this.key.USERS_HEARTBEAT,
-        Date.now(),
-        client.userId,
-      );
-
-      await this.redis.setData(
-        this.key.USER_LAST_SEEN(client.userId),
-        new Date().toISOString(),
-      );
-
-      // Gắn user info vào socket
       client.user = payload;
+
+      // Delegate presence to PresenceService — keyed by usr_id, namespace
+      // "call". The /chat gateway already broadcasts STATUS through the
+      // chat namespace; this call-side register only contributes a member
+      // to the user's online set so e.g. a /chat tab disconnect doesn't
+      // mark a user offline if they still have a /call popup open.
+      await this.presence.register('call', client.id, payload.usr_id);
 
       this.logger.log(
         `[CONNECT] User call ${payload.usr_fullname} (${payload._id}) connected.`,
@@ -199,12 +509,43 @@ export class CallGateway
         this.key.USER_ROOMS(client.userId),
       );
       await client.join(roomIds);
-      // Gửi thông báo đến người dùng
-      this.io.to('system').emit(socketEvent.STATUS, {
-        id: client.user.usr_id,
-        isOnline: true,
-        onlineAt: new Date(),
-      });
+
+      // Replay any pending call invites — covers the case where the caller
+      // emitted call:request while this user was offline (logged out, tab
+      // closed, mid-reconnect). Each entry is a serialized historyCall
+      // payload identical in shape to what handleCallRequest emits live.
+      // Cleared on call:accepted / call:end, with a 60s server TTL backup.
+      try {
+        const pendingInvites = await this.redis.hGetAll(
+          this.key.CALL_PENDING_INVITES(payload.usr_id),
+        );
+        for (const [pendingCallId, payloadStr] of Object.entries(
+          pendingInvites,
+        )) {
+          try {
+            const invite = JSON.parse(payloadStr) as Record<string, unknown>;
+            client.emit('call:request', invite);
+            this.logger.log(
+              `[CONNECT] Replayed pending invite ${pendingCallId} → ${payload.usr_id}`,
+            );
+          } catch (err) {
+            this.logger.warn(
+              `[CONNECT] Bad pending invite payload for ${payload.usr_id}/${pendingCallId}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+            // Drop the unparseable entry so it doesn't keep failing on
+            // every reconnect.
+            await this.clearPendingInvite(payload.usr_id, pendingCallId);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[CONNECT] Pending-invite replay failed for ${payload.usr_id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -226,49 +567,127 @@ export class CallGateway
   async handleDisconnect(client: SocketWithUser) {
     const userId = client.userId;
     const fullname = client.user?.usr_fullname;
+    const usrId = client.user?.usr_id;
 
-    // Use scheduler to handle "true" offline after timeout,
-    // BUT we can update the timestamp or remove if we want immediate offline effect
-    // For now, let's just remove the specific socket ID from the user's socket track
-
-    // Luôn kiểm tra user vì socket có thể disconnect vì lý do mạng,
-    // hoặc client bị ngắt trước khi Guard kịp chạy.
     if (userId) {
       this.logger.log(
         `[DISCONNECT] User ${fullname} (${userId}) disconnected.`,
       );
-
-      await this.redis.sRem(this.key.USER_ONLINE(userId), client.id);
-      const checkOnline = await this.redis.sCard(this.key.USER_ONLINE(userId));
 
       // Clean up SFU participant for all rooms this socket was in.
       // Without this, the server-side transports/producers linger until ICE timeout.
       const userUlid = client.user?.usr_id;
       if (userUlid) {
         for (const socketRoom of client.rooms) {
-          if (
-            socketRoom !== client.id &&
-            this.sfuRoomService.getRoom(socketRoom)
-          ) {
-            this.sfuRoomService.leaveRoom(socketRoom, userUlid);
-            this.logger.log(
-              `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+          if (socketRoom === client.id) continue;
+          try {
+            if (await this.sfuRpc.roomExists(socketRoom)) {
+              await this.sfuRpc.leaveRoom(socketRoom, userUlid);
+              this.logger.log(
+                `[DISCONNECT] Cleaned up SFU participant ${userUlid} from room ${socketRoom}`,
+              );
+            }
+          } catch (err) {
+            this.logger.warn(
+              `[DISCONNECT] SFU cleanup failed for ${userUlid} in ${socketRoom}: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
             );
           }
         }
+
+        // If the user was in an active call, mark their participation as ended
+        // in the CallHistory (chat service) so DB stays consistent + notify
+        // remaining members so their UI removes the leaver. Without this, the
+        // member's status sits at 'started' forever and the call never ends
+        // server-side until everyone manually clicks End.
+        try {
+          const activeCallId = await this.redis.getData<string>(
+            this.key.USER_IN_CALL(userUlid),
+          );
+          if (activeCallId) {
+            // Pick the socket room that hosts the SFU session (or any joined
+            // room as fallback for P2P 1-1) — that's the room we end on behalf
+            // of this user.
+            let endRoomId: string | null = null;
+            for (const socketRoom of client.rooms) {
+              if (socketRoom === client.id) continue;
+              if (socketRoom === 'system') continue;
+              if (socketRoom.startsWith('client:')) continue; // ROOM_CLIENT(usr_id)
+              endRoomId = socketRoom;
+              break;
+            }
+
+            if (endRoomId) {
+              // 1. Update CallHistory in DB via gRPC. status='ended' lets the
+              //    chat service compute member.status correctly (ended for
+              //    leavers; ended_at when caller leaves or all members ended).
+              const endResult = (await Utils.dispatchGrpcRequest(
+                (d) => this.ChatGrpcService.EndCall(d),
+                {
+                  actionUserId: userUlid,
+                  roomId: endRoomId,
+                  callId: activeCallId,
+                  status: 'ended',
+                },
+              )) as ChatGatewayCallResponse;
+
+              // 2. Notify remaining members in the room.
+              const members = endResult?.metadata?.history?.members ?? [];
+              this.io.to(endRoomId).except(client.id).emit('call:end', {
+                roomId: endRoomId,
+                actionUserId: userUlid,
+                callId: activeCallId,
+                status: 'ended',
+                members,
+                reason: 'disconnect',
+              });
+
+              // 3. Drop this user from per-room sharing/cam-off/mic-off
+              //    Sets so the next late-joiner's snapshot doesn't include
+              //    a ghost entry for the disconnected user. Auto-deletes
+              //    the key when last member is removed (Redis behavior),
+              //    so no extra "if empty" check needed.
+              await this.cleanupUserCallState(endRoomId, userUlid);
+
+              this.logger.log(
+                `[DISCONNECT] Updated CallHistory + emitted call:end for ${userUlid} in ${endRoomId}`,
+              );
+            }
+
+            // 3. Always clear the in-call flag + active call socket so
+            //    reconnects don't show stale "busy" and handoff state resets.
+            await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
+            // Only clear the call_socket key if THIS socket was the active
+            // one — otherwise we'd wipe out a handoff to another device.
+            const activeSocketId = await this.redis.getData<string>(
+              this.key.USER_CALL_SOCKET(userUlid),
+            );
+            if (!activeSocketId || activeSocketId === client.id) {
+              await this.redis.delKey(this.key.USER_CALL_SOCKET(userUlid));
+            }
+          }
+        } catch (err) {
+          this.logger.error(
+            `[DISCONNECT] Failed to update call state for ${userUlid}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
       }
 
-      // Nếu không còn socket nào của user này connected -> Remove presence
-      if (checkOnline == 0) {
-        await this.redis.delKey(this.key.USER_PRESENCE(userId));
-        await this.redis.zRem(this.key.USERS_HEARTBEAT, userId);
-
-        this.io.to('system').emit(socketEvent.STATUS, {
-          id: client.user?.usr_id, // Use usr_id (string) for frontend consistency
-          isOnline: false,
-          lastSeen: new Date(),
-        });
-        this.io.emit('system', `${fullname} went offline.`);
+      // Delegate presence cleanup to PresenceService — it removes this
+      // /call socket from the user's online set; broadcasts offline only
+      // when no other socket (other tab, /chat, /doc) is left.
+      if (usrId) {
+        const { wentOffline } = await this.presence.unregister(
+          'call',
+          client.id,
+          usrId,
+        );
+        if (wentOffline) {
+          this.io.emit('system', `${fullname} went offline.`);
+        }
       }
     }
   }
@@ -293,23 +712,61 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
-      // Pre-check: for 1-on-1 calls, check if the single target is busy.
-      // This avoids creating a call history record and gives instant feedback.
-      if (data.membersIds && data.membersIds.length === 2) {
-        const targetUserId = data.membersIds.find((id) => id !== user.usr_id);
-        if (targetUserId) {
-          const busyCallId = await this.redis.getData<string>(
-            this.key.USER_IN_CALL(targetUserId),
-          );
-          if (busyCallId) {
-            client.emit('call:busy', {
-              targetUserId,
-              callId: busyCallId,
-              reason: 'busy',
-            });
-            return { ok: false, reason: 'busy' };
+      // ─── Server-side guard 1: caller already in another call ─────────────
+      // Trust Redis as the source of truth — client state can drift (stale
+      // popup window, crashed tab, multi-device). Reject before creating any
+      // CallHistory so DB stays clean. Pass empty incomingCallId so the
+      // helper will validate any existing marker against the DB and clear
+      // it if the call has already ended.
+      const callerValidation = await this.validateInCallOrClearStale(
+        user.usr_id,
+        '',
+      );
+      if (callerValidation.kind === 'reject') {
+        this.logger.warn(
+          `[CALL] Reject request: caller ${user.usr_id} already in call ${callerValidation.inCallId}`,
+        );
+        client.emit('error', {
+          message:
+            'Bạn đang trong cuộc gọi khác, không thể bắt đầu cuộc gọi mới',
+          error: 'caller_already_in_call',
+          callId: callerValidation.inCallId,
+        });
+        return { ok: false, reason: 'caller_already_in_call' };
+      }
+
+      const memberIds = data.membersIds ?? [];
+      const targetIds = memberIds.filter((id) => id !== user.usr_id);
+
+      // ─── Stale-marker recovery for any target ────────────────────────────
+      // If a target's USER_IN_CALL points at a call the DB confirms has
+      // ended (popup crashed, beforeunload didn't fire EndCall), clear it
+      // so the FE doesn't show a "waiting call" banner when in fact no
+      // call exists. We DON'T reject on busy — letting busy users receive
+      // the call:request enables the FE waiting-call UX (notification +
+      // accept-to-switch).
+      for (const targetUserId of targetIds) {
+        await this.validateInCallOrClearStale(targetUserId, '');
+      }
+
+      // ─── Track busy targets (informational only — caller UI may flag) ─────
+      // Previously we used this to skip emitting call:request to busy
+      // members. Now we send to ALL targets so each can individually
+      // decide to switch or stay; busyTargets is kept only for the
+      // response payload so the caller can label them.
+      const busyTargets = new Map<string, string>(); // userId → callId
+      if (targetIds.length > 0) {
+        const busyKeys = targetIds.map((id) => this.key.USER_IN_CALL(id));
+        const busyValues = await this.redis.mget(busyKeys);
+        targetIds.forEach((id, i) => {
+          const v = busyValues[i];
+          if (v) {
+            busyTargets.set(
+              id,
+              typeof v === 'string' ? JSON.parse(v) : String(v),
+            );
           }
-        }
+        });
       }
 
       // bắt đầu tạo lịch sử cuộc gọi
@@ -341,9 +798,28 @@ export class CallGateway
         REDIS_TTL.CALL_ACTIVE,
       );
 
-      const otherMembers = room.room_members
-        .filter((m) => m.id !== user.usr_id)
-        .map((m) => this.key.ROOM_CLIENT(m.id));
+      // Multi-device handoff: claim this socket as the active call socket
+      // (caller starts call from this device → other devices auto-release).
+      await this.claimCallSocket(
+        user.usr_id,
+        history.call_id,
+        room.room_id,
+        client.id,
+      );
+
+      // Skip members already busy in another call — they're tracked in
+      // busyTargets from guard 3 above. Send call:request only to free
+      // members. Busy members are reported back to the caller so the FE can
+      // mark them with a "đang bận" badge.
+      // Send call:request to ALL room members (except caller). Busy
+      // members get the event too — their FE renders a waiting-call
+      // banner and lets them switch by ending their current call.
+      const inviteRecipients = room.room_members.filter(
+        (m) => m.id !== user.usr_id,
+      );
+      const otherMembers = inviteRecipients.map((m) =>
+        this.key.ROOM_CLIENT(m.id),
+      );
       const roomClients = room.room_members.map((m) =>
         this.key.ROOM_CLIENT(m.id),
       );
@@ -360,10 +836,35 @@ export class CallGateway
       this.io.to(otherMembers).emit('call:request', historyCall);
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
+      // Persist a pending invite for every recipient so a callee whose
+      // socket wasn't connected at emit time (logged out / tab not open
+      // yet / network blip) still gets the IncomingCallModal when they
+      // reconnect within the ringing window. Replay happens in
+      // handleConnection. Cleared in handleAccepted / handleEnd.
+      await Promise.all(
+        inviteRecipients.map((m) =>
+          this.storePendingInvite(m.id, history.call_id, historyCall),
+        ),
+      );
+
+      // Schedule a server-side auto-miss timer per recipient as a backup
+      // to the FE 30s decline timer. Covers crashed tabs / never-opened
+      // FE / multi-device cases where no client ever fires the missed
+      // event — without this the caller would ring until their own
+      // USER_IN_CALL TTL (1h) saves them.
+      await Promise.all(
+        inviteRecipients.map((m) =>
+          this.scheduleAutoMissInvite(m.id, history.call_id, room.room_id),
+        ),
+      );
+
       return {
         ok: true,
         room: { room_id: room.room_id },
         startedAt: history.started_at,
+        busyMembers: Array.from(busyTargets.entries()).map(
+          ([userId, callId]) => ({ userId, callId }),
+        ),
       };
     } catch (error) {
       this.logger.error('[CALL] Error starting call:', error);
@@ -403,6 +904,12 @@ export class CallGateway
     }
   }
 
+  @SubscribeMessage('heartbeat')
+  async handleHeartbeat(@ConnectedSocket() client: SocketWithUser) {
+    if (!client.user?.usr_id) return;
+    await this.presence.heartbeat('call', client.id, client.user.usr_id);
+  }
+
   @SubscribeMessage(socketEvent.USERSATUS)
   async handleCheckUserStatus(
     @MessageBody() userIds: string[],
@@ -410,23 +917,12 @@ export class CallGateway
   ) {
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) return;
     try {
-      // Optimized: Check presence keys using MGET
-      const keys = userIds.map((uid) => this.key.USER_PRESENCE(uid));
-      const results = await this.redis.mget(keys);
-
-      results.forEach((val, index) => {
-        if (val) {
-          // val is the ISO string we stored
-          const date = new Date(JSON.parse(val));
-          if (!isNaN(date.getTime())) {
-            client.emit(socketEvent.STATUS, {
-              id: userIds[index],
-              isOnline: true,
-              onlineAt: date,
-            });
-          }
-        }
-      });
+      // Delegate to PresenceService — single canonical "is X online?"
+      // implementation across both /chat and /call namespaces. Returns one
+      // entry per requested id so the FE can apply results in a single pass
+      // (no need to merge multiple per-user STATUS events).
+      const result = await this.presence.getBulkStatus(userIds);
+      client.emit('status:online:bulk', { users: result });
     } catch (error) {
       this.logger.error('[CALL] Error checking user status:', error);
     }
@@ -449,14 +945,67 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      // Renegotiation fast-path: when the FE re-emits `call:accepted` mid-call
+      // to push a new SDP offer (e.g. screen-share starts → addTransceiver →
+      // createOffer), it sets `renegotiate=true`. This is NOT a fresh accept
+      // — the user is already in the call and has a PC. Skip the dedup lock,
+      // the in-call validation, the gRPC AcceptCall (which would re-update
+      // member.status), and the socket-room join. Just relay the offer to
+      // the targeted peer's socket so they can apply it via setRemoteDescription.
+      const renegotiate =
+        (data as { renegotiate?: boolean }).renegotiate === true;
+      if (renegotiate) {
+        const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
+        this.io.to(targetSocketId).emit('call:accepted', {
+          members: (data as { members?: unknown }).members,
+          roomId: data.roomId,
+          actionUserId: data.actionUserId,
+          offer: data.offer,
+          callId: data.callId,
+          renegotiate: true,
+        });
+        return { ok: true };
+      }
+
       // Deduplicate: ignore duplicate call:accepted from same user for same call
       // (caused by socket reconnects re-triggering the frontend useEffect)
       const acceptLockKey = `call:accept:lock:${data.callId}:${data.actionUserId}`;
-      const alreadyAccepted: string | null = await this.redis.getData(acceptLockKey);
+      const alreadyAccepted: string | null =
+        await this.redis.getData(acceptLockKey);
       if (alreadyAccepted) {
         return { ok: true };
       }
+
+      // Server-side guard: reject accept ONLY if user is in a DIFFERENT
+      // active call. Same callId is allowed (multi-device accept) and a
+      // marker pointing at an already-ended call is treated as stale and
+      // cleared instead of blocking forever (popup-crash recovery).
+      const validation = await this.validateInCallOrClearStale(
+        data.actionUserId,
+        data.callId,
+      );
+      if (validation.kind === 'reject') {
+        this.logger.warn(
+          `[CALL] Reject accept: user ${data.actionUserId} already in call ${validation.inCallId}`,
+        );
+        client.emit('error', {
+          message: 'Bạn đang trong cuộc gọi khác',
+          error: 'already_in_call',
+          callId: validation.inCallId,
+        });
+        return { ok: false, reason: 'already_in_call' };
+      }
+
       await this.redis.setData(acceptLockKey, '1', REDIS_TTL.CALL_ACTIVE);
+
+      // Multi-device handoff: if another socket of the same user already
+      // holds this call, tell that socket to release. New socket takes over.
+      await this.claimCallSocket(
+        data.actionUserId,
+        data.callId,
+        data.roomId,
+        client.id,
+      );
 
       // Người nhận tham gia socket room để nhận các sự kiện call:end, call:share-screen, v.v.
       await client.join(data.roomId);
@@ -470,7 +1019,6 @@ export class CallGateway
           callId: data.callId,
         },
       )) as ChatGatewayCallResponse;
-      console.log('🚀 ~ ChatGateway ~ handleAccept ~ result:', result);
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -491,6 +1039,11 @@ export class CallGateway
         data.callId,
         REDIS_TTL.CALL_ACTIVE,
       );
+
+      // Callee has accepted — no longer need their pending invite. Don't
+      // wait for the natural TTL expiry: a user could disconnect right
+      // after accept, reconnect 5s later, and replay the now-stale invite.
+      await this.clearPendingInvite(actionUserId, data.callId);
 
       if (callMode === 'sfu') {
         // SFU calls: the callee should be routing through call:join which already emits
@@ -520,7 +1073,12 @@ export class CallGateway
       );
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-      return { ok: true };
+      // Snapshot the current sharing/camera/mic state for the joiner. Same
+      // rationale as call:join — let the FE render correct UI immediately
+      // instead of waiting for the next toggle event from each peer.
+      const callState = await this.getCallState(room.room_id);
+
+      return { ok: true, callState };
     } catch (error) {
       this.logger.error('[CALL] Error accept call:', error);
       client.emit('error', {
@@ -582,6 +1140,36 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      // Server-side guard: reject join ONLY if user is in a DIFFERENT
+      // active call. Same callId is allowed (multi-device join → handoff).
+      // A marker pointing at an already-ended call (popup crashed without
+      // running EndCall etc.) is treated as stale and cleared instead of
+      // permanently locking the user out.
+      const validation = await this.validateInCallOrClearStale(
+        data.actionUserId,
+        data.callId,
+      );
+      if (validation.kind === 'reject') {
+        this.logger.warn(
+          `[CALL] Reject join: user ${data.actionUserId} already in call ${validation.inCallId}`,
+        );
+        client.emit('error', {
+          message: 'Bạn đang trong cuộc gọi khác',
+          error: 'already_in_call',
+          callId: validation.inCallId,
+        });
+        return { ok: false, reason: 'already_in_call' };
+      }
+
+      // Multi-device handoff: claim this socket as the active call socket.
+      // Old device's popup auto-closes via `call:handoff` event.
+      await this.claimCallSocket(
+        data.actionUserId,
+        data.callId,
+        data.roomId,
+        client.id,
+      );
+
       // Cập nhật trạng thái thành viên sang 'started' qua gRPC
       const result = (await Utils.dispatchGrpcRequest(
         (d) => this.ChatGrpcService.AcceptCall(d),
@@ -629,7 +1217,13 @@ export class CallGateway
       );
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-      return { ok: true, history, room };
+      // Snapshot the per-room sharing/camera/mic state so the late-joiner's
+      // FE can render the correct UI from the first frame instead of
+      // waiting for the next toggle event from each peer (which may never
+      // come during a stable call).
+      const callState = await this.getCallState(room.room_id);
+
+      return { ok: true, history, room, callState };
     } catch (error) {
       this.logger.error('[CALL] Error joining call:', error);
       client.emit('error', {
@@ -699,13 +1293,51 @@ export class CallGateway
 
       const { history, room, msg } = result.metadata;
 
-      // Clear in-call status for all members when call ends
-      if (history?.members) {
+      // ── Clear all pending invites for this call ──────────────────────────
+      // Once the call has ended (rejected/missed/cancelled/ended), no
+      // recipient should still be holding a stale invite. Without this, a
+      // user reconnecting within the 60s TTL window after a cancelled call
+      // would get a phantom IncomingCallModal for a call that no longer
+      // exists. Iterate over history.members (covers everyone originally
+      // invited, including those who already accepted — `hDel` of a
+      // missing field is a no-op).
+      const inviteeIds = (history?.members ?? []).map(
+        (m: { id: string }) => m.id,
+      );
+      await this.clearPendingInvitesForAll(data.callId, inviteeIds);
+
+      // ── Per-user in-call markers ─────────────────────────────────────────
+      // Bug fix: previous code deleted USER_IN_CALL + USER_CALL_SOCKET for
+      // every member on every call:end — but in a group call only the
+      // leaver actually left, so wiping everyone's markers corrupted multi-
+      // device handoff and the busy-check for remaining participants.
+      //
+      // New behavior: ALWAYS clear the leaver's markers; only clear OTHER
+      // members' markers when the call has fully ended (no member is still
+      // in 'started' state, i.e. nobody is actively in the room).
+      const stillActive = (history?.members ?? []).some(
+        (m: { status?: string }) => m.status === 'started',
+      );
+      if (data.actionUserId) {
+        await Promise.all([
+          this.redis.delKey(this.key.USER_IN_CALL(data.actionUserId)),
+          this.redis.delKey(this.key.USER_CALL_SOCKET(data.actionUserId)),
+        ]);
+        // Drop the leaver from the per-room sharing/cam-off/mic-off Sets
+        // so remaining members reading callState don't see ghost entries.
+        // Sets auto-delete on last sRem, so no separate "if empty" check.
+        await this.cleanupUserCallState(room.room_id, data.actionUserId);
+      }
+      if (!stillActive && history?.members) {
         await Promise.all(
-          history.members.map((m: { id: string }) =>
+          history.members.flatMap((m: { id: string }) => [
             this.redis.delKey(this.key.USER_IN_CALL(m.id)),
-          ),
+            this.redis.delKey(this.key.USER_CALL_SOCKET(m.id)),
+          ]),
         );
+        // Defensive wipe of any straggler keys; sets should already be
+        // empty by now since each leaver hit the cleanup branch above.
+        await this.wipeCallState(room.room_id);
       }
 
       // Use client.to() (not this.io.to()) so the broadcast excludes the sender.
@@ -752,12 +1384,36 @@ export class CallGateway
       actionUserId?: string;
       roomId: string;
       isSharing: boolean;
+      // SFU only — producer id of the screen producer, so late-joiners can
+      // pre-populate `screenProducerIds` and route the consumed track to
+      // remoteScreenStreams instead of remoteStreams.
+      screenProducerId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
+
+      // Persist the toggle in Redis so a late-joiner reading callState in
+      // call:join can render the screen-share UI without waiting for the
+      // next toggle (which may never come during a stable share).
+      const sharingKey = this.key.CALL_SHARING(data.roomId);
+      const producerKey = this.key.CALL_SHARING_PRODUCER(data.roomId);
+      if (data.isSharing) {
+        await this.redis.sAdd(sharingKey, data.actionUserId);
+        await this.redis.expire(sharingKey, REDIS_TTL.CALL_ACTIVE);
+        if (data.screenProducerId) {
+          await this.redis.hSet(producerKey, {
+            [data.actionUserId]: data.screenProducerId,
+          });
+          await this.redis.expire(producerKey, REDIS_TTL.CALL_ACTIVE);
+        }
+      } else {
+        await this.redis.sRem(sharingKey, data.actionUserId);
+        await this.redis.hDel(producerKey, data.actionUserId);
+      }
+
       this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
       return { ok: true };
     } catch (error) {
@@ -770,6 +1426,79 @@ export class CallGateway
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  /**
+   * Relay camera on/off notifications between peers. Receivers use this to
+   * swap the participant tile to an avatar immediately when the sender
+   * turns their camera off, without waiting 5-10s for `track.muted` to fire
+   * (Chrome keeps RTP flowing for `track.enabled=false`, sending black
+   * frames, so the receive-side mute event lags or never fires).
+   */
+  @SubscribeMessage('call:camera-state')
+  async handleCameraState(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isCameraOn: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+
+      const cameraOffKey = this.key.CALL_CAMERA_OFF(data.roomId);
+      if (data.isCameraOn) {
+        await this.redis.sRem(cameraOffKey, data.actionUserId);
+      } else {
+        await this.redis.sAdd(cameraOffKey, data.actionUserId);
+        await this.redis.expire(cameraOffKey, REDIS_TTL.CALL_ACTIVE);
+      }
+
+      this.io.to(data.roomId).except(client.id).emit('call:camera-state', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error relaying camera-state:', error);
+      return { ok: false };
+    }
+  }
+
+  /**
+   * Relay mic on/off notifications between peers. Same rationale as
+   * camera-state: receivers can't infer mic state reliably from the audio
+   * track alone (track.enabled=false still flows silent RTP), so we
+   * broadcast an explicit signal for the UI to render a "muted" badge.
+   */
+  @SubscribeMessage('call:mic-state')
+  async handleMicState(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      isMicOn: boolean;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+
+      const micOffKey = this.key.CALL_MIC_OFF(data.roomId);
+      if (data.isMicOn) {
+        await this.redis.sRem(micOffKey, data.actionUserId);
+      } else {
+        await this.redis.sAdd(micOffKey, data.actionUserId);
+        await this.redis.expire(micOffKey, REDIS_TTL.CALL_ACTIVE);
+      }
+
+      this.io.to(data.roomId).except(client.id).emit('call:mic-state', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error relaying mic-state:', error);
+      return { ok: false };
     }
   }
 
