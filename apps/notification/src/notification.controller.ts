@@ -189,4 +189,9 @@ export class NotificationController {
   async markAllNotificationsAsRead(@Payload() data: { userId: string }) {
     return await this.notificationService.markAllNotificationsAsRead(data);
   }
+
+  @GrpcMethod('NotificationService', 'DeleteNotification')
+  async deleteNotification(@Payload() data: { notificationId: string }) {
+    return await this.notificationService.deleteNotification(data);
+  }
 }
