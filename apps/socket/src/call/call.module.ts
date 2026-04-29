@@ -8,10 +8,8 @@ import { SfuRpcModule } from '@app/sfu';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { SharedBullModule } from 'libs/db/src';
-import {
-  CALL_AUTO_MISS_QUEUE,
-  CallAutoMissProcessor,
-} from './call-auto-miss.processor';
+import { CALL_AUTO_MISS_QUEUE } from './call-auto-miss.constants';
+import { CallAutoMissProcessor } from './call-auto-miss.processor';
 
 @Module({
   imports: [

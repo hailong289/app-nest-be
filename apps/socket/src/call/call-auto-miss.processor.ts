@@ -1,22 +1,11 @@
 import { Process, Processor } from '@nestjs/bull';
-import { Inject, Logger, forwardRef } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import type { Job } from 'bull';
 import { CallGateway } from './call.gateway';
-
-/**
- * Queue name. Exported for use in module registration and gateway.
- */
-export const CALL_AUTO_MISS_QUEUE = 'call-auto-miss';
-
-/**
- * Job payload — minimum data needed to fire `call:end status='missed'`
- * on behalf of a callee whose FE never answered.
- */
-export interface AutoMissJobData {
-  calleeId: string;
-  callId: string;
-  roomId: string;
-}
+import {
+  CALL_AUTO_MISS_QUEUE,
+  type AutoMissJobData,
+} from './call-auto-miss.constants';
 
 /**
  * Bull processor for auto-miss jobs. Replaces the in-process setTimeout
@@ -33,20 +22,19 @@ export interface AutoMissJobData {
  *
  * Idempotency: if FE acted first, executeAutoMiss bails out — gRPC
  * EndCall is NOT called twice for the same (callee, callId).
+ *
+ * Note: `forwardRef` was previously used here to inject `CallGateway`
+ * but it's NOT actually needed — the dependency graph is acyclic
+ * (gateway depends on Queue, processor depends on gateway). The
+ * forwardRef + same-file constants caused a real JS module-load cycle
+ * (gateway.ts ↔ processor.ts) which forwardRef does NOT fix. Constants
+ * are now in `call-auto-miss.constants.ts` so the cycle is broken.
  */
 @Processor(CALL_AUTO_MISS_QUEUE)
 export class CallAutoMissProcessor {
   private readonly logger = new Logger(CallAutoMissProcessor.name);
 
-  constructor(
-    // forwardRef avoids the module-level circular dep:
-    //   CallGateway uses Queue (from this module's BullModule.registerQueue)
-    //   This processor uses CallGateway.
-    // Bull's discovery instantiates the processor lazily, so by the time
-    // `process()` runs the gateway is already resolved.
-    @Inject(forwardRef(() => CallGateway))
-    private readonly callGateway: CallGateway,
-  ) {}
+  constructor(private readonly callGateway: CallGateway) {}
 
   @Process()
   async handle(job: Job<AutoMissJobData>): Promise<void> {

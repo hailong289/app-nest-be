@@ -1,17 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { SfuRpcClient } from './rpc/sfu-rpc.client';
 // Type-only import — erased at compile time, so apps/socket bundle won't pull
 // in the mediasoup native module. Only apps/sfu (on the VM) needs the runtime.
 import type { types as MediasoupTypes } from 'mediasoup';
-
-/**
- * Socket with user info (after auth)
- */
-interface SocketWithUser extends Socket {
-  userId?: string; // MongoDB _id (ObjectId)
-  user?: any; // JWT payload — has usr_id (ULID) used for member IDs on FE
-}
+// Shared SocketWithUser type — same definition apps/socket uses, so
+// `client.user?.usr_id` is properly typed as `string | undefined` instead
+// of `any`. Lives in libs/types/ to avoid cross-app imports from libs.
+// Note: import path is `libs/types` (relative-from-baseUrl), matching the
+// project convention used by api-gateway controllers.
+import type { SocketWithUser } from 'libs/types';
 
 /**
  * Unified Signal Payload Interface
@@ -197,7 +195,12 @@ export class UnifiedSignalHandler {
             payload.rtpParameters,
           );
 
-          // Notify others about new producer
+          // Notify others about new producer. Forward `appData` (e.g.
+          // { source: "screen" }) so the receiving FE can pre-flag this
+          // producer as screen BEFORE consume() runs — otherwise the
+          // screen track would be routed to the camera Map.
+          const broadcastAppData: Record<string, unknown> =
+            payload.appData ?? {};
           client.to(roomId).emit('signal', {
             type: 'produce',
             sender: 'sfu',
@@ -206,6 +209,7 @@ export class UnifiedSignalHandler {
             producerId,
             userId: userId,
             kind: payload.kind,
+            appData: broadcastAppData,
           });
 
           client.emit('signal', {
@@ -214,7 +218,7 @@ export class UnifiedSignalHandler {
             target: 'me',
             ok: true,
             producerId,
-            appData: payload.appData || {}, // echo back so FE callback can resolve
+            appData: broadcastAppData, // echo back so FE callback can resolve
           });
           break;
         }

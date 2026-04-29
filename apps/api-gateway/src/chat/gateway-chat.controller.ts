@@ -305,6 +305,9 @@ export class GatewayChatController {
     @Query()
     query: {
       limit?: number;
+      // type=new + msgId → load messages with `_id > msgId` (delta
+      // sync after FE has a local cache). type=old + msgId → load
+      // older for infinite-scroll. No type → return latest `limit`.
       type?: 'new' | 'old';
       msgId?: string;
     },

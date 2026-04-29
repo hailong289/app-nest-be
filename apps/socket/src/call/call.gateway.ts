@@ -30,7 +30,7 @@ import type { Queue } from 'bull';
 import {
   CALL_AUTO_MISS_QUEUE,
   type AutoMissJobData,
-} from './call-auto-miss.processor';
+} from './call-auto-miss.constants';
 import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
 
 export interface ChatGrpcService {
@@ -337,6 +337,116 @@ export class CallGateway
     );
   }
 
+  // ─── Per-call participants tracking ───────────────────────────────
+  // Two Redis keys kept in lockstep:
+  //   call:participants:{mode}:{callId}  → SET<userId>
+  //   call:user_in_calls:{userId}        → SET<participantsKey>
+  //
+  // The reverse index is the missing piece that fixed phantom
+  // participants visible in Redis Insight after browsers crashed.
+  // Without it, a disconnect handler only knew about the ONE
+  // active-call key from `USER_CALL_SOCKET`; if that marker was
+  // already gone or pointed at a different call, the user stayed
+  // in OTHER participant sets forever (until 8h TTL).
+
+  private participantsKeyOf(mode: 'p2p' | 'sfu', callId: string): string {
+    return `call:participants:${mode}:${callId}`;
+  }
+
+  private userInCallsKeyOf(userId: string): string {
+    return `call:user_in_calls:${userId}`;
+  }
+
+  /**
+   * Add user to a call's participants set + the user's reverse index.
+   * Refreshes TTL on both. Idempotent — SADD is a no-op if already in.
+   */
+  private async addCallParticipant(
+    userId: string,
+    mode: 'p2p' | 'sfu',
+    callId: string,
+  ): Promise<void> {
+    const participantsKey = this.participantsKeyOf(mode, callId);
+    const userIndexKey = this.userInCallsKeyOf(userId);
+    await Promise.all([
+      this.redis.sAdd(participantsKey, userId),
+      this.redis.sAdd(userIndexKey, participantsKey),
+    ]);
+    await Promise.all([
+      this.redis.expire(participantsKey, REDIS_TTL.CALL_ACTIVE),
+      this.redis.expire(userIndexKey, REDIS_TTL.CALL_ACTIVE),
+    ]);
+  }
+
+  /**
+   * Remove user from a single call's participants set + drop the
+   * reverse-index entry. If the participants set is now empty, DEL
+   * the key entirely so steady-state Redis stays clean.
+   * Returns the remaining participant count (-1 on error).
+   */
+  private async removeCallParticipant(
+    userId: string,
+    mode: 'p2p' | 'sfu',
+    callId: string,
+  ): Promise<number> {
+    const participantsKey = this.participantsKeyOf(mode, callId);
+    const userIndexKey = this.userInCallsKeyOf(userId);
+    try {
+      await Promise.all([
+        this.redis.sRem(participantsKey, userId),
+        this.redis.sRem(userIndexKey, participantsKey),
+      ]);
+      const remaining = await this.redis.sCard(participantsKey);
+      if (remaining === 0) {
+        await this.redis.delKey(participantsKey);
+      }
+      return remaining;
+    } catch (err) {
+      this.logger.warn(
+        `[CALL] removeCallParticipant failed for ${userId} → ${participantsKey}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return -1;
+    }
+  }
+
+  /**
+   * Disconnect / logout sweep: SREM user from EVERY participant set
+   * they're listed in, then drop the reverse index. Run on socket
+   * disconnect — covers crash / network-drop cases where the FE never
+   * fires an explicit call:end. Without this, phantom participants
+   * accumulate in Redis Insight (`participants > sfu > {callId}`)
+   * across many calls.
+   */
+  private async sweepUserFromAllCalls(userId: string): Promise<void> {
+    const userIndexKey = this.userInCallsKeyOf(userId);
+    try {
+      const participantKeys = await this.redis.sMembers(userIndexKey);
+      if (participantKeys.length === 0) return;
+      // SREM from each + delete empty sets in parallel.
+      await Promise.all(
+        participantKeys.map(async (participantsKey) => {
+          await this.redis.sRem(participantsKey, userId);
+          const remaining = await this.redis.sCard(participantsKey);
+          if (remaining === 0) {
+            await this.redis.delKey(participantsKey);
+          }
+        }),
+      );
+      await this.redis.delKey(userIndexKey);
+      this.logger.log(
+        `[CALL] swept ${userId} from ${participantKeys.length} participant set(s)`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[CALL] sweepUserFromAllCalls failed for ${userId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   /**
    * Schedule a server-side auto-miss task. Enqueues a Bull job with a
    * 30s delay; at fire time, `CallAutoMissProcessor` invokes
@@ -353,6 +463,35 @@ export class CallGateway
    *     dedups; relevant if a duplicate call:request somehow gets
    *     through.
    */
+  private autoMissJobId(callId: string, calleeId: string): string {
+    return `auto-miss:${callId}:${calleeId}`;
+  }
+
+  /**
+   * Cancel a queued auto-miss job for one (callId, calleeId). Called on
+   * accept / join — the user is clearly responsive, no point letting the
+   * 30s timer fire and race with their state. Without this, bugs in the
+   * pending-invite cleanup path could let executeAutoMiss flip a live
+   * participant to `missed` mid-call.
+   */
+  private async cancelAutoMissInvite(
+    calleeId: string,
+    callId: string,
+  ): Promise<void> {
+    try {
+      const job = await this.autoMissQueue.getJob(
+        this.autoMissJobId(callId, calleeId),
+      );
+      if (job) await job.remove();
+    } catch (err) {
+      this.logger.warn(
+        `[CALL] Failed to cancel auto-miss job ${callId}/${calleeId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   private async scheduleAutoMissInvite(
     calleeId: string,
     callId: string,
@@ -363,11 +502,10 @@ export class CallGateway
         { calleeId, callId, roomId },
         {
           delay: 30_000,
-          // Stable jobId to dedupe — Bull rejects duplicate jobIds while
-          // the original is queued/active. If the call ends before the
-          // 30s mark, executeAutoMiss bails on the empty pending-invite
-          // hash; no need to actively `removeJob`.
-          jobId: `auto-miss:${callId}:${calleeId}`,
+          // Stable jobId so cancelAutoMissInvite can find + remove it
+          // on accept/join. Also dedupes — Bull rejects duplicate jobIds
+          // while the original is queued/active.
+          jobId: this.autoMissJobId(callId, calleeId),
         },
       );
     } catch (err) {
@@ -400,12 +538,42 @@ export class CallGateway
     );
     if (!pending[callId]) return;
 
-    await Utils.dispatchGrpcRequest((d) => this.ChatGrpcService.EndCall(d), {
-      actionUserId: calleeId,
-      roomId,
-      callId,
-      status: 'missed',
-    });
+    // Belt-and-suspenders: if the user is already in this call's
+    // participants set (accepted via call:accepted OR joined via
+    // call:join), they are NOT missed regardless of invite state. This
+    // guards against any future code path that adds participants without
+    // clearing the invite + cancelling the job.
+    const sfuParticipants = this.participantsKeyOf('sfu', callId);
+    const p2pParticipants = this.participantsKeyOf('p2p', callId);
+    const [inSfu, inP2p] = await Promise.all([
+      this.redis.sIsMember(sfuParticipants, calleeId),
+      this.redis.sIsMember(p2pParticipants, calleeId),
+    ]);
+    if (inSfu || inP2p) {
+      this.logger.log(
+        `[CALL] AUTO-MISS skipped — user ${calleeId} already a participant of ${callId}`,
+      );
+      // Stale invite → drop it so reconnect doesn't replay.
+      await this.clearPendingInvite(calleeId, callId);
+      return;
+    }
+
+    // Capture history from EndCall — we need `history.members` so the FE
+    // toast handler can tell 1-on-1 (length <= 2 → close call entirely)
+    // from group call (length > 2 → just toast "X didn't answer" and
+    // keep the call running for the people who DID pick up). Without
+    // members in the broadcast, FE would treat every auto-miss as 1-on-1
+    // and show "call will close" even when 3+ people are happily talking.
+    const result = (await Utils.dispatchGrpcRequest(
+      (d) => this.ChatGrpcService.EndCall(d),
+      {
+        actionUserId: calleeId,
+        roomId,
+        callId,
+        status: 'missed',
+      },
+    )) as ChatGatewayCallResponse;
+    const members = result?.metadata?.history?.members ?? [];
 
     await this.clearPendingInvite(calleeId, callId);
     this.io.to(roomId).emit('call:end', {
@@ -413,11 +581,12 @@ export class CallGateway
       actionUserId: calleeId,
       callId,
       status: 'missed',
+      members,
       reason: 'auto_miss_timeout',
     });
 
     this.logger.log(
-      `[CALL] Auto-missed pending invite ${callId} for ${calleeId} (30s timeout)`,
+      `[CALL] AUTO-MISS roomId=${roomId} callId=${callId} callee=${calleeId} (30s timeout, members=${members.length})`,
     );
   }
 
@@ -464,20 +633,15 @@ export class CallGateway
         secret: jwtSecret,
       });
 
-      // Check JTI in Redis
+      // Redis blacklist check — presence at REFRESH_TOKEN(userId, jti)
+      // means the JTI has been revoked. Live tokens are NOT stored, so
+      // ABSENCE = valid (combined with the JWT verify above passing).
       if (payload.jti && payload._id) {
-        const redisResult: string | number | boolean | null =
-          await this.redis.getData(
-            this.key.REFRESH_TOKEN(payload._id, payload.jti),
-          );
-        const isValid =
-          typeof redisResult === 'string' ||
-          typeof redisResult === 'number' ||
-          typeof redisResult === 'boolean'
-            ? Boolean(redisResult)
-            : !!redisResult;
+        const isRevoked = await this.redis.getData<string>(
+          this.key.REFRESH_TOKEN(payload._id, payload.jti),
+        );
 
-        if (!isValid) {
+        if (isRevoked) {
           this.logger.warn(
             `[CONNECT] Token revoked or expired for user ${payload._id}`,
           );
@@ -552,7 +716,7 @@ export class CallGateway
       this.logger.warn(
         `[CONNECT] Authentication failed for client ${client.id}: ${errorMessage}`,
       );
-      client.emit(socketEvent.VERYFIỄPTION, {
+      client.emit(socketEvent.EXCEPTION, {
         status: 'error',
         statusCode: 401,
         message: 'Mã xác thực không hợp lệ hoặc đã hết hạn',
@@ -605,67 +769,81 @@ export class CallGateway
           const activeCallId = await this.redis.getData<string>(
             this.key.USER_IN_CALL(userUlid),
           );
-          if (activeCallId) {
-            // Pick the socket room that hosts the SFU session (or any joined
-            // room as fallback for P2P 1-1) — that's the room we end on behalf
-            // of this user.
-            let endRoomId: string | null = null;
-            for (const socketRoom of client.rooms) {
-              if (socketRoom === client.id) continue;
-              if (socketRoom === 'system') continue;
-              if (socketRoom.startsWith('client:')) continue; // ROOM_CLIENT(usr_id)
-              endRoomId = socketRoom;
-              break;
-            }
 
-            if (endRoomId) {
-              // 1. Update CallHistory in DB via gRPC. status='ended' lets the
-              //    chat service compute member.status correctly (ended for
-              //    leavers; ended_at when caller leaves or all members ended).
-              const endResult = (await Utils.dispatchGrpcRequest(
-                (d) => this.ChatGrpcService.EndCall(d),
-                {
-                  actionUserId: userUlid,
-                  roomId: endRoomId,
-                  callId: activeCallId,
-                  status: 'ended',
-                },
-              )) as ChatGatewayCallResponse;
+          // Decide if this disconnecting socket was actively in a call
+          // by checking ITS OWN socket rooms — the popup window joined
+          // `room.room_id` on accept/start, the chat tab didn't.
+          //   - Popup closed: client.rooms has the call room → cleanup
+          //   - Chat tab closed: only system/client:<id> rooms → skip
+          //
+          // Why this is more reliable than checking USER_CALL_SOCKET
+          // == client.id: the Redis pointer can drift on rare crashes
+          // (claimCallSocket overwrote on multi-device handoff but old
+          // socket never disconnected, etc.). The socket's own room
+          // membership is the ground truth — Socket.IO maintains it
+          // and we can't fake it from outside.
+          let endRoomId: string | null = null;
+          for (const socketRoom of client.rooms) {
+            if (socketRoom === client.id) continue;
+            if (socketRoom === 'system') continue;
+            if (socketRoom.startsWith('client:')) continue; // ROOM_CLIENT(usr_id)
+            endRoomId = socketRoom;
+            break;
+          }
 
-              // 2. Notify remaining members in the room.
-              const members = endResult?.metadata?.history?.members ?? [];
-              this.io.to(endRoomId).except(client.id).emit('call:end', {
-                roomId: endRoomId,
+          if (activeCallId && endRoomId) {
+            // 1. Update CallHistory in DB via gRPC. status='ended' lets
+            //    the chat service compute member.status correctly
+            //    (ended for leavers; ended_at when caller leaves or
+            //    all members ended).
+            const endResult = (await Utils.dispatchGrpcRequest(
+              (d) => this.ChatGrpcService.EndCall(d),
+              {
                 actionUserId: userUlid,
+                roomId: endRoomId,
                 callId: activeCallId,
                 status: 'ended',
-                members,
-                reason: 'disconnect',
-              });
+              },
+            )) as ChatGatewayCallResponse;
 
-              // 3. Drop this user from per-room sharing/cam-off/mic-off
-              //    Sets so the next late-joiner's snapshot doesn't include
-              //    a ghost entry for the disconnected user. Auto-deletes
-              //    the key when last member is removed (Redis behavior),
-              //    so no extra "if empty" check needed.
-              await this.cleanupUserCallState(endRoomId, userUlid);
+            // 2. Notify remaining members in the room.
+            const members = endResult?.metadata?.history?.members ?? [];
+            this.io.to(endRoomId).except(client.id).emit('call:end', {
+              roomId: endRoomId,
+              actionUserId: userUlid,
+              callId: activeCallId,
+              status: 'ended',
+              members,
+              reason: 'disconnect',
+            });
 
-              this.logger.log(
-                `[DISCONNECT] Updated CallHistory + emitted call:end for ${userUlid} in ${endRoomId}`,
-              );
-            }
+            // 3. Drop this user from per-room sharing/cam-off/mic-off
+            //    Sets so the next late-joiner's snapshot doesn't include
+            //    a ghost entry. Auto-deletes the key when last member is
+            //    removed (Redis behavior), so no extra "if empty" check.
+            await this.cleanupUserCallState(endRoomId, userUlid);
 
-            // 3. Always clear the in-call flag + active call socket so
-            //    reconnects don't show stale "busy" and handoff state resets.
+            // 4. Sweep user from EVERY participants set + reverse
+            //    index. Covers the active call AND any phantom entries
+            //    left from past crashes (no graceful endCall fired).
+            await this.sweepUserFromAllCalls(userUlid);
+
+            // 5. Clear the in-call flag + active call socket so
+            //    reconnects don't show stale "busy" + handoff state
+            //    resets. Only delete USER_CALL_SOCKET if THIS socket
+            //    was the active one — otherwise we'd wipe out a
+            //    handoff to another device.
             await this.redis.delKey(this.key.USER_IN_CALL(userUlid));
-            // Only clear the call_socket key if THIS socket was the active
-            // one — otherwise we'd wipe out a handoff to another device.
             const activeSocketId = await this.redis.getData<string>(
               this.key.USER_CALL_SOCKET(userUlid),
             );
             if (!activeSocketId || activeSocketId === client.id) {
               await this.redis.delKey(this.key.USER_CALL_SOCKET(userUlid));
             }
+
+            this.logger.log(
+              `[CALL] LEFT-by-disconnect roomId=${endRoomId} callId=${activeCallId} userId=${userUlid} (socket dropped)`,
+            );
           }
         } catch (err) {
           this.logger.error(
@@ -679,7 +857,7 @@ export class CallGateway
       // Delegate presence cleanup to PresenceService — it removes this
       // /call socket from the user's online set; broadcasts offline only
       // when no other socket (other tab, /chat, /doc) is left.
-      if (usrId) {
+      if (usrId && userUlid) {
         const { wentOffline } = await this.presence.unregister(
           'call',
           client.id,
@@ -687,6 +865,23 @@ export class CallGateway
         );
         if (wentOffline) {
           this.io.emit('system', `${fullname} went offline.`);
+          // Defensive sweep: if every socket of this user is gone
+          // (chat tab, call popup, doc tab — all closed/crashed), the
+          // user can NOT be in any call anymore. Wipe their entries
+          // from every participants set + the reverse index. This is
+          // the safety net for crash scenarios where the active-call-
+          // socket-id check upstream missed (stale USER_CALL_SOCKET
+          // pointing at a long-dead socket, popup OS-killed, etc.) —
+          // without it the user's id lingers in `call:participants:*`
+          // for hours until TTL.
+          await this.sweepUserFromAllCalls(userUlid);
+          // Also clear the per-user in-call markers so a future
+          // `validateInCallOrClearStale` check on this user starts
+          // fresh on next login.
+          await Promise.all([
+            this.redis.delKey(this.key.USER_IN_CALL(userUlid)),
+            this.redis.delKey(this.key.USER_CALL_SOCKET(userUlid)),
+          ]);
         }
       }
     }
@@ -784,6 +979,10 @@ export class CallGateway
 
       const { history, room, callType, callMode, msg } = result.metadata;
 
+      this.logger.log(
+        `[CALL] STARTED roomId=${room.room_id} callId=${history.call_id} caller=${user.usr_id} mode=${callMode} type=${callType} members=${history.members.length}`,
+      );
+
       // Join the canonical socket room (room.room_id) so SFU normalization works correctly.
       // data.roomId may be a MongoDB ObjectId while room.room_id is the custom ULID.
       await client.join(room.room_id);
@@ -796,6 +995,16 @@ export class CallGateway
         this.key.USER_IN_CALL(user.usr_id),
         history.call_id,
         REDIS_TTL.CALL_ACTIVE,
+      );
+
+      // Per-call participant set (mode-segregated) + reverse index.
+      // Caller is the first participant — joiner adds, leaver removes.
+      // SCARD === 0 = call truly empty → key auto-deleted in
+      // removeCallParticipant.
+      await this.addCallParticipant(
+        user.usr_id,
+        callMode === 'sfu' ? 'sfu' : 'p2p',
+        history.call_id,
       );
 
       // Multi-device handoff: claim this socket as the active call socket
@@ -814,8 +1023,20 @@ export class CallGateway
       // Send call:request to ALL room members (except caller). Busy
       // members get the event too — their FE renders a waiting-call
       // banner and lets them switch by ending their current call.
-      const inviteRecipients = room.room_members.filter(
-        (m) => m.id !== user.usr_id,
+      //
+      // De-dupe by user id: if the same member somehow appears twice
+      // in `room_members` (data quality / migration glitch), we'd
+      // schedule TWO Bull jobs with the SAME jobId — one would still
+      // fire, but the audit log + storePendingInvite double-write +
+      // socket-room emit aliasing have caused intermittent
+      // "channel mapping" mismatches between FE/BE for that callee.
+      // Deduping at the source eliminates the whole class of issue.
+      const inviteRecipients = Array.from(
+        new Map(
+          room.room_members
+            .filter((m) => m.id !== user.usr_id)
+            .map((m) => [m.id, m]),
+        ).values(),
       );
       const otherMembers = inviteRecipients.map((m) =>
         this.key.ROOM_CLIENT(m.id),
@@ -945,6 +1166,10 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      this.logger.log(
+        `[CALL] ACCEPT-IN client=${client.id} userId=${user.usr_id} callId=${data.callId} targetUserId=${data.targetUserId} hasOffer=${!!data.offer} renegotiate=${(data as { renegotiate?: boolean }).renegotiate === true}`,
+      );
+
       // Renegotiation fast-path: when the FE re-emits `call:accepted` mid-call
       // to push a new SDP offer (e.g. screen-share starts → addTransceiver →
       // createOffer), it sets `renegotiate=true`. This is NOT a fresh accept
@@ -1028,6 +1253,9 @@ export class CallGateway
       }
 
       const { history, room, msg, callMode } = result.metadata;
+      this.logger.log(
+        `[CALL] ACCEPTED roomId=${room.room_id} callId=${data.callId} callee=${data.actionUserId} caller=${data.targetUserId} mode=${callMode ?? 'undefined(!)'}`,
+      );
 
       // Mark callee as in-call
       if (!data.actionUserId) {
@@ -1040,10 +1268,25 @@ export class CallGateway
         REDIS_TTL.CALL_ACTIVE,
       );
 
+      // Add callee to participants set + reverse index. Helper handles
+      // both keys + TTL refresh in one call.
+      await this.addCallParticipant(
+        actionUserId,
+        callMode === 'sfu' ? 'sfu' : 'p2p',
+        data.callId,
+      );
+
       // Callee has accepted — no longer need their pending invite. Don't
       // wait for the natural TTL expiry: a user could disconnect right
       // after accept, reconnect 5s later, and replay the now-stale invite.
       await this.clearPendingInvite(actionUserId, data.callId);
+      // Also actively remove the queued Bull auto-miss job for this
+      // user. Pending-invite cleanup alone makes executeAutoMiss bail
+      // at line 511, but if anything ever re-seeded the invite (replay
+      // bug, FE retry, etc.) the job would still flip a live participant
+      // to `missed` mid-call. Cancelling the job is the belt to
+      // clearPendingInvite's suspenders.
+      await this.cancelAutoMissInvite(actionUserId, data.callId);
 
       if (callMode === 'sfu') {
         // SFU calls: the callee should be routing through call:join which already emits
@@ -1058,8 +1301,24 @@ export class CallGateway
         });
       } else {
         // P2P calls: forward the offer to the caller.
-        const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
-        this.io.to(targetSocketId).emit('call:accepted', {
+        const targetSocketRoom = this.key.ROOM_CLIENT(data.targetUserId);
+        // Inspect the room: if no socket is currently in it, the
+        // forwarded `call:accepted` will go nowhere — caller will be
+        // stuck on "calling" forever. Logging the size lets us verify
+        // whether the caller's socket actually joined ROOM_CLIENT(<id>)
+        // during handleConnection.
+        // Use the official `in(...).fetchSockets()` API instead of
+        // poking at `adapter.rooms` directly — adapter access is
+        // overloaded (constructor setter / instance getter) in
+        // socket.io v4 types and trips TS, while fetchSockets() is
+        // typed and works the same across namespaces + Redis adapter.
+        const targetSocketCount = (
+          await this.io.in(targetSocketRoom).fetchSockets()
+        ).length;
+        this.logger.log(
+          `[CALL] FORWARD-OFFER (p2p) callId=${data.callId} from=${data.actionUserId} to=${data.targetUserId} targetRoom=${targetSocketRoom} socketsInRoom=${targetSocketCount}`,
+        );
+        this.io.to(targetSocketRoom).emit('call:accepted', {
           members: history.members,
           roomId: room.room_id,
           actionUserId: data.actionUserId,
@@ -1203,6 +1462,15 @@ export class CallGateway
         REDIS_TTL.CALL_ACTIVE,
       );
 
+      // Re-joiners (popup crashed → reopened, network blip, multi-device
+      // handoff) take the call:join path instead of call:accepted, so
+      // we ALSO need to clear their pending invite + cancel the queued
+      // auto-miss job here. Without this, a user who joins via call:join
+      // gets flipped to `missed` 30s after the call started — exactly
+      // the bug seen in production logs.
+      await this.clearPendingInvite(data.actionUserId, data.callId);
+      await this.cancelAutoMissInvite(data.actionUserId, data.callId);
+
       // Thông báo cho tất cả thành viên trong phòng về thành viên mới tham gia
       this.io.to(room.room_id).except(client.id).emit('call:member-joined', {
         members: history.members,
@@ -1246,6 +1514,35 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
+      // Heartbeat: refresh the participants set TTL whenever a signal
+      // flows through. Calls > 1h would otherwise lose their key when
+      // the original SADD's TTL expires — this turns each user's
+      // ongoing SFU/P2P activity into a keep-alive. Best-effort: if
+      // callId/userId aren't on the payload (e.g. legacy signals),
+      // skip silently.
+      try {
+        const userId = client.user?.usr_id ?? client.userId;
+        const callId = (payload as { callId?: string })?.callId;
+        const target = (payload as { target?: string })?.target;
+        if (userId && callId && (target === 'sfu' || target === 'p2p')) {
+          // Refresh BOTH the participants set AND the user reverse
+          // index — both keys share the same 8h TTL, both should
+          // outlive a continuously-active call.
+          await Promise.all([
+            this.redis.expire(
+              this.participantsKeyOf(target, callId),
+              REDIS_TTL.CALL_ACTIVE,
+            ),
+            this.redis.expire(
+              this.userInCallsKeyOf(userId),
+              REDIS_TTL.CALL_ACTIVE,
+            ),
+          ]);
+        }
+      } catch {
+        // never block signal handling on heartbeat refresh
+      }
+
       // Delegate to UnifiedSignalHandler with server instance
       return await this.unifiedSignalHandler.handleSignal(
         payload,
@@ -1306,6 +1603,19 @@ export class CallGateway
       );
       await this.clearPendingInvitesForAll(data.callId, inviteeIds);
 
+      // Clear the per-user accept-lock keys for this call. handleAccept
+      // sets `call:accept:lock:<callId>:<userId>` (TTL=1h) to dedupe
+      // duplicate call:accepted from the same user. Without proactive
+      // cleanup the keys linger in Redis after the call has truly
+      // ended, polluting `KEYS chats:call:accept:lock:*` views even
+      // when the system has zero active calls. They auto-expire in 1h
+      // anyway — this just makes the steady state clean.
+      await Promise.all(
+        inviteeIds.map((id) =>
+          this.redis.delKey(`call:accept:lock:${data.callId}:${id}`),
+        ),
+      );
+
       // ── Per-user in-call markers ─────────────────────────────────────────
       // Bug fix: previous code deleted USER_IN_CALL + USER_CALL_SOCKET for
       // every member on every call:end — but in a group call only the
@@ -1318,6 +1628,24 @@ export class CallGateway
       const stillActive = (history?.members ?? []).some(
         (m: { status?: string }) => m.status === 'started',
       );
+      // SREM actor from the per-call participants set + reverse index
+      // via the helper. Mode-segregated key — matches addCallParticipant
+      // in handleCallRequest / handleAccept.
+      let participantsRemaining = -1;
+      const callModeKey = history?.call_mode === 'sfu' ? 'sfu' : 'p2p';
+      if (data.actionUserId) {
+        participantsRemaining = await this.removeCallParticipant(
+          data.actionUserId,
+          callModeKey,
+          data.callId,
+        );
+        if (participantsRemaining === 0) {
+          this.logger.log(
+            `[CALL] PARTICIPANTS-EMPTY callId=${data.callId} mode=${callModeKey} → key removed`,
+          );
+        }
+      }
+
       if (data.actionUserId) {
         await Promise.all([
           this.redis.delKey(this.key.USER_IN_CALL(data.actionUserId)),
@@ -1339,6 +1667,10 @@ export class CallGateway
         // empty by now since each leaver hit the cleanup branch above.
         await this.wipeCallState(room.room_id);
       }
+
+      this.logger.log(
+        `[CALL] ENDED-by-user roomId=${room.room_id} callId=${data.callId} actor=${data.actionUserId} status=${data.status} stillActive=${stillActive} participantsRemaining=${participantsRemaining} memberCount=${history?.members?.length ?? 0}`,
+      );
 
       // Use client.to() (not this.io.to()) so the broadcast excludes the sender.
       // this.io.to() would echo call:end back to the caller, causing their
@@ -1551,17 +1883,12 @@ export class CallGateway
               secret: jwtSecret,
             });
             if (payload.jti && payload._id) {
-              const redisResult: unknown = await this.redis.getData(
+              // Blacklist check — presence = revoked.
+              const isRevoked = await this.redis.getData<string>(
                 this.key.REFRESH_TOKEN(payload._id, payload.jti),
               );
-              const isValid =
-                typeof redisResult === 'string' ||
-                typeof redisResult === 'number' ||
-                typeof redisResult === 'boolean'
-                  ? Boolean(redisResult)
-                  : !!redisResult;
 
-              if (isValid) {
+              if (!isRevoked) {
                 client.user = payload;
                 client.userId = payload._id;
               }

@@ -18,8 +18,13 @@ export class AuthMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: Request, res: Response, next: NextFunction) {
-    // 1. Lấy token từ header
-    // Ưu tiên 'x-refresh-token' nếu có, không thì lấy 'authorization'
+    // 1. Resolve token. Source priority:
+    //    a. 'x-refresh-token' header → refresh-token flow (e.g. /auth/refresh-token endpoint)
+    //    b. 'Authorization: Bearer …' header → legacy/explicit token
+    //    c. HttpOnly `tokens` cookie (parsed JSON) → primary path post-migration
+    //    Cookie fallback lets the browser auto-send credentials without
+    //    JS-readable cookies — XSS-resistant + works for first-party
+    //    requests that have `withCredentials: true`.
     const refreshTokenHeader = req.headers['x-refresh-token'];
     const authHeader = req.headers['authorization'];
 
@@ -27,31 +32,65 @@ export class AuthMiddleware implements NestMiddleware {
     let secretKey = '';
     let isRefreshToken = false;
 
+    // Helper: pull tokens from the HttpOnly `tokens` cookie (JSON-encoded).
+    // Returns { accessToken, refreshToken } or {} if cookie missing/malformed.
+    const cookieTokens = (() => {
+      const raw = (req as Request & { cookies?: Record<string, string> })
+        .cookies?.tokens;
+      if (!raw) return {} as { accessToken?: string; refreshToken?: string };
+      try {
+        return JSON.parse(raw) as {
+          accessToken?: string;
+          refreshToken?: string;
+        };
+      } catch {
+        return {};
+      }
+    })();
+
     // --- CASE 1: XỬ LÝ REFRESH TOKEN ---
-    if (refreshTokenHeader) {
-      const rawToken = Array.isArray(refreshTokenHeader)
-        ? refreshTokenHeader[0]
-        : refreshTokenHeader;
-
-      // Quan trọng: Remove "Bearer " và khoảng trắng thừa (nếu có)
-      token = rawToken.replace('Bearer ', '').trim();
-
-      // Lấy Secret riêng cho Refresh Token
-      secretKey =
-        this.configService.get<string>('GATEWAY_JWT_REFRESH_SECRET') ?? '';
-      isRefreshToken = true;
+    // Header takes precedence; fall back to cookie's refreshToken when the
+    // FE doesn't (or can't) set the x-refresh-token header anymore.
+    if (refreshTokenHeader || cookieTokens.refreshToken) {
+      // The /auth/refresh-token endpoint is the only consumer of refresh
+      // tokens. Detect it by URL so other endpoints don't accidentally
+      // accept a refresh token where they expect access.
+      const isRefreshEndpoint = req.path?.includes('/auth/refresh-token');
+      if (isRefreshEndpoint) {
+        if (refreshTokenHeader) {
+          const rawToken = Array.isArray(refreshTokenHeader)
+            ? refreshTokenHeader[0]
+            : refreshTokenHeader;
+          token = rawToken.replace('Bearer ', '').trim();
+        } else if (cookieTokens.refreshToken) {
+          token = cookieTokens.refreshToken;
+        }
+        secretKey =
+          this.configService.get<string>('GATEWAY_JWT_REFRESH_SECRET') ?? '';
+        isRefreshToken = true;
+      }
     }
-    // --- CASE 2: XỬ LÝ ACCESS TOKEN ---
-    else if (authHeader) {
-      // Remove "Bearer "
-      token = authHeader.replace('Bearer ', '').trim();
 
-      // Lấy Secret cho Access Token
+    // --- CASE 2: XỬ LÝ ACCESS TOKEN ---
+    if (!token && authHeader) {
+      token = (
+        Array.isArray(authHeader) ? authHeader[0] : authHeader
+      )
+        .replace('Bearer ', '')
+        .trim();
       secretKey =
         this.configService.get<string>('GATEWAY_JWT_ACCESS_SECRET') ?? '';
     }
-    // --- CASE 3: KHÔNG CÓ TOKEN ---
-    else {
+
+    // --- CASE 3: COOKIE FALLBACK (access token) ---
+    if (!token && cookieTokens.accessToken) {
+      token = cookieTokens.accessToken;
+      secretKey =
+        this.configService.get<string>('GATEWAY_JWT_ACCESS_SECRET') ?? '';
+    }
+
+    // --- CASE 4: KHÔNG CÓ TOKEN ---
+    if (!token) {
       return res
         .status(401)
         .json(
@@ -94,30 +133,21 @@ export class AuthMiddleware implements NestMiddleware {
         secret: secretKey,
       });
 
-      // 3. CHECK REDIS (Bảo mật nâng cao)
-      // Kiểm tra xem token này có còn hợp lệ trong Redis không (đặc biệt quan trọng cho Refresh Token)
+      // 3. CHECK REDIS BLACKLIST
+      // Pattern change (April 2026): Redis stores REVOKED JTIs only, not
+      // active ones. Presence at REFRESH_TOKEN(userId, jti) means the
+      // token has been revoked (logout / rotated / admin-banned).
+      // Live tokens are NOT stored — they're considered valid as long
+      // as JWT signature + exp pass + JTI is absent from blacklist.
       if (payload.jti && payload._id) {
-        // Lưu ý: Logic này giả định key Redis lưu state của Refresh Token.
-        // Nếu Access Token không lưu Redis thì logic này có thể skip cho Access Token tuỳ business của ông.
-        // Nhưng ở đây tôi giữ nguyên logic check cho cả 2 như ông yêu cầu.
         const redisKey = REDISKEY.REFRESH_TOKEN(payload._id, payload.jti);
-
-        const redisResult: unknown = await this.redisService.getData(redisKey);
-
-        const isValid =
-          typeof redisResult === 'string' ||
-          typeof redisResult === 'number' ||
-          typeof redisResult === 'boolean'
-            ? Boolean(redisResult)
-            : !!redisResult;
-
-        // Nếu Refresh Token mà không tìm thấy trong Redis -> Coi như đã logout/hết hạn
-        if (!isValid) {
+        const isRevoked = await this.redisService.getData(redisKey);
+        if (isRevoked) {
           return res
             .status(401)
             .json(
               ResponseHelper.error(
-                'Phiên đăng nhập đã hết hạn hoặc đã bị huỷ',
+                'Phiên đăng nhập đã bị huỷ',
                 401,
                 'UNAUTHORIZED',
               ),

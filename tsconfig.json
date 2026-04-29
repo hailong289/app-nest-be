@@ -64,6 +64,18 @@
       ],
       "libs/sfu/*": [
         "./libs/sfu/src/*"
+      ],
+      "libs/types": [
+        "./libs/types/src"
+      ],
+      "libs/types/*": [
+        "./libs/types/src/*"
+      ],
+      "libs/helpers/src": [
+        "./libs/helpers/src"
+      ],
+      "libs/helpers/src/*": [
+        "./libs/helpers/src/*"
       ]
     }
   }

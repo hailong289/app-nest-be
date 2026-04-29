@@ -256,8 +256,7 @@ export const REDISKEY = {
    * Type: HASH<userId, screenProducerId>
    * TTL: REDIS_TTL.CALL_ACTIVE.
    */
-  CALL_SHARING_PRODUCER: (roomId: string) =>
-    `chat:call:${roomId}:share_pid`,
+  CALL_SHARING_PRODUCER: (roomId: string) => `chat:call:${roomId}:share_pid`,
 
   /**
    * Per-room set of userIds whose CAMERA is OFF (Set).
@@ -317,7 +316,13 @@ export const REDIS_TTL = {
   RATE_LIMIT_CONNECT: 60, // 1 minute
   RATE_LIMIT_MESSAGE: 10, // 10 seconds
   SESSION: 86400, // 24 hours
-  CALL_ACTIVE: 3600, // 1 hour max call duration (safety net TTL)
+  // Safety net for call-related Redis keys. Long meetings (1h+) can
+  // legitimately keep a call alive past the old 1h limit — we refresh
+  // this TTL on every join/accept/signal event so the keys outlive
+  // a continuously-active call. The 8h ceiling exists to clean up
+  // truly forgotten zombies (browser frozen for a day, etc.) without
+  // requiring an extra heartbeat ping from the FE.
+  CALL_ACTIVE: 8 * 3600, // 8 hours — refreshed on every meaningful call event
 } as const;
 
 /**

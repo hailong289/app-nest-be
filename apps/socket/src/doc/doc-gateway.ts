@@ -116,20 +116,13 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         secret: jwtSecret,
       });
 
-      // Check JTI in Redis
+      // Redis blacklist check (presence = revoked).
       if (payload.jti && payload._id) {
-        const redisResult: string | number | boolean | null =
-          await this.redis.getData(
-            this.key.REFRESH_TOKEN(payload._id, payload.jti),
-          );
-        const isValid =
-          typeof redisResult === 'string' ||
-          typeof redisResult === 'number' ||
-          typeof redisResult === 'boolean'
-            ? Boolean(redisResult)
-            : !!redisResult;
+        const isRevoked = await this.redis.getData<string>(
+          this.key.REFRESH_TOKEN(payload._id, payload.jti),
+        );
 
-        if (!isValid) {
+        if (isRevoked) {
           this.logger.warn(
             `[CONNECT] Token revoked or expired for user ${payload._id}`,
           );
@@ -185,7 +178,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         code: 401,
       });
 
-      client.emit(socketEvent.VERYFIỄPTION, {
+      client.emit(socketEvent.EXCEPTION, {
         status: 'error',
         statusCode: 401,
         message: 'Mã xác thực không hợp lệ hoặc đã hết hạn',
@@ -228,17 +221,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
               secret: jwtSecret,
             });
             if (payload.jti && payload._id) {
-              const redisResult: unknown = await this.redis.getData(
+              // Blacklist check — presence = revoked.
+              const isRevoked = await this.redis.getData<string>(
                 this.key.REFRESH_TOKEN(payload._id, payload.jti),
               );
-              const isValid =
-                typeof redisResult === 'string' ||
-                typeof redisResult === 'number' ||
-                typeof redisResult === 'boolean'
-                  ? Boolean(redisResult)
-                  : !!redisResult;
 
-              if (isValid) {
+              if (!isRevoked) {
                 client.user = payload;
                 client.userId = payload._id;
               }
