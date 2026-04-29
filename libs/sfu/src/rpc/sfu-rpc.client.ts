@@ -21,11 +21,18 @@ import { SERVICES } from '@app/constants/services';
  * Producer info returned by GetProducers — kept generic to avoid pulling in
  * mediasoup types on the client side (apps/socket will run on Cloud Run
  * without mediasoup native binaries).
+ *
+ * `appData` is parsed from the wire's `appDataJson` (string in proto).
+ * Most commonly contains `{ source: "screen" }` for screen-share
+ * producers — used by FE to pre-flag the producer in
+ * `screenProducerIds` so consume() routes the track to
+ * `remoteScreenStreams` instead of `remoteStreams`.
  */
 export interface RpcProducerInfo {
   producerId: string;
   userId: string;
   kind: string;
+  appData?: Record<string, unknown>;
 }
 
 /**
@@ -71,7 +78,14 @@ interface SfuServiceGrpc {
   GetProducers(
     data: { roomId: string; excludeUserId: string },
     metadata: grpc.Metadata,
-  ): Observable<{ producers: RpcProducerInfo[] }>;
+  ): Observable<{
+    producers: Array<{
+      producerId: string;
+      userId: string;
+      kind: string;
+      appDataJson?: string;
+    }>;
+  }>;
 
   FindProducerOwner(
     data: { roomId: string; producerId: string },
@@ -217,7 +231,26 @@ export class SfuRpcClient implements OnModuleInit {
     const res = await this.invoke(
       this.service.GetProducers({ roomId, excludeUserId }, this.metadata()),
     );
-    return res.producers || [];
+    // Parse wire-format `appDataJson` (string) into typed `appData`
+    // (Record). Empty string means producer was created without
+    // appData — we leave the field undefined so consumers don't need
+    // to special-case "{}" vs missing.
+    return (res.producers || []).map((p) => ({
+      producerId: p.producerId,
+      userId: p.userId,
+      kind: p.kind,
+      appData: p.appDataJson
+        ? (this.safeJsonParse(p.appDataJson) as Record<string, unknown>)
+        : undefined,
+    }));
+  }
+
+  private safeJsonParse(s: string): unknown {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return undefined;
+    }
   }
 
   async findProducerOwner(

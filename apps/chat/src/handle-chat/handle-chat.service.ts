@@ -1131,6 +1131,12 @@ export class HandleChatService {
           history: refreshedHistory,
           room: room,
           msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
+          // Surface call_mode to the gateway so handleAccept can route
+          // correctly (p2p → forward offer to caller, sfu → emit
+          // member-joined). Without this, the field was undefined and
+          // the gateway always took the p2p else-branch, which broke
+          // group-call signal propagation.
+          callMode: refreshedHistory.call_mode,
         },
         'Cuộc gọi đã được trả lời. Bắt đầu cuộc gọi',
       );
@@ -1184,82 +1190,181 @@ export class HandleChatService {
         throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
       }
 
-      const totalMembers = callHistory.members.length;
-      const isCallerEnded = !!callHistory.members.find(
-        (m) => m.id.toString() === actionUser.usr_id.toString() && m.is_caller,
+      // call_mode là single source of truth cho "p2p hay group":
+      //   - sfu  → group call. Cuộc gọi nhóm 2-người-cùng-team vẫn là
+      //           sfu, đếm members.length không đáng tin.
+      //   - p2p  → 1-1 (private room). Bất kỳ ai end là cuộc gọi tắt.
+      const isGroupCall = callHistory.call_mode === 'sfu';
+
+      // Capture actor's status BEFORE the flip — needed to distinguish
+      // "genuinely joined-then-left" from "popup briefly opened but
+      // never accepted into media". Only the former should emit
+      // "X đã rời cuộc gọi" in the chat timeline.
+      const actorPrevStatus = callHistory.members.find(
+        (m) => m.id.toString() === actionUser.usr_id.toString(),
+      )?.status;
+
+      // ─── Phase 1: flip member status atomically ───────────────
+      // Replace-the-whole-array approach (`$set: { members: [...] }`)
+      // proved unreliable — Mongoose subdoc spread + array set
+      // sometimes returned the doc without the new statuses persisted
+      // (likely strict-schema/cast quirk on cloned subdocs).
+      //
+      // Switch to `arrayFilters` — Mongo updates the matching slot in
+      // place. `members.$[].status` for p2p flips ALL slots; the
+      // arrayFilter form for sfu flips only the actor's slot.
+      // Filter by `user_id` (Mongo ObjectId) instead of `id` (string
+      // ULID). The Member schema has `_id: false`, which makes Mongoose
+      // synthesise a virtual `id` getter that can shadow the explicit
+      // string field in arrayFilter resolution under some Mongoose
+      // versions — leading to `actor.id` matching nothing and silent
+      // no-op updates. `user_id` is a real ObjectId field with no
+      // virtual conflict, so the filter is unambiguous.
+      const actorObjectId = actionUser._id;
+      let phase1Result: { matchedCount: number; modifiedCount: number };
+      if (!isGroupCall) {
+        // p2p: end everyone (this and the other peer).
+        phase1Result = await this.callHistoryModel.updateOne(
+          { _id: callHistory._id },
+          { $set: { 'members.$[].status': 'ended' } },
+        );
+      } else {
+        // sfu group: only the actor's slot.
+        phase1Result = await this.callHistoryModel.updateOne(
+          { _id: callHistory._id },
+          { $set: { 'members.$[actor].status': status } },
+          { arrayFilters: [{ 'actor.user_id': actorObjectId }] },
+        );
+      }
+      this.log.log(
+        `[endCall.phase1] callId=${callHistory.call_id} actor=${String(actorObjectId)} status=${status} isGroup=${isGroupCall} matched=${phase1Result.matchedCount} modified=${phase1Result.modifiedCount}`,
       );
 
-      // Cập nhật status cho member hiện tại
-      callHistory.members = callHistory.members.map((m) => {
-        // So sánh ObjectId đúng cách
-        const isMatch = m.id.toString() === actionUser.usr_id.toString();
-        return {
-          ...m,
-          status:
-            totalMembers === 2 || isCallerEnded
-              ? 'ended'
-              : isMatch
-                ? status
-                : m.status,
-        };
-      });
+      // Re-fetch with the post-update statuses so the
+      // shouldEnd-decision uses the freshest state — racing endCall
+      // calls each see the cumulative effect of the others.
+      const afterStatusFlip = await this.callHistoryModel
+        .findById(callHistory._id)
+        .exec();
+      if (!afterStatusFlip) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      }
 
-      // Tính lại totalMembersEnded sau khi cập nhật
-      const totalMembersEnded = callHistory.members.filter(
+      const totalTrulyEnded = afterStatusFlip.members.filter(
+        (m) => m.status === 'ended',
+      ).length;
+      const stillActive = afterStatusFlip.members.filter(
         (m) =>
-          m.status === 'ended' ||
-          m.status === 'missed' ||
-          m.status === 'rejected' ||
-          m.status === 'cancelled',
+          m.status === 'started' ||
+          m.status === 'accepted' ||
+          m.status === 'joined',
       ).length;
 
-      callHistory.ended_at =
-        totalMembersEnded === totalMembers ||
-        isCallerEnded ||
-        totalMembers === 2
-          ? new Date()
-          : null;
+      const shouldEnd =
+        !isGroupCall || (totalTrulyEnded > 0 && stillActive === 0);
 
-      // Đánh dấu mảng members đã thay đổi để Mongoose nhận diện
-      callHistory.markModified('members');
-      await callHistory.save();
+      // ─── Phase 2: atomically set ended_at exactly once ─────────
+      // Race protection: nhiều endCall (caller cancel + auto-miss +
+      // disconnect handler) cùng tới đây. Chỉ writer đầu tiên thấy
+      // `ended_at: null` → set Date. Còn lại condition không match
+      // → callJustEnded stays false → không emit duplicate log.
+      let callJustEnded = false;
+      let updatedHistory = afterStatusFlip;
+      if (shouldEnd) {
+        const winner = await this.callHistoryModel.findOneAndUpdate(
+          { _id: callHistory._id, ended_at: null },
+          { $set: { ended_at: new Date() } },
+          { new: true },
+        );
+        if (winner) {
+          callJustEnded = true;
+          updatedHistory = winner;
+        }
+      }
+      callHistory = updatedHistory;
 
-      // Group call → log either:
-      //   call.ended → cuộc gọi vừa kết thúc với mọi người (ended_at vừa set)
-      //   call.left  → user này rời sớm trong khi cuộc gọi vẫn đang diễn ra
-      // Skip for p2p (1-1) — bữa cuộc gọi đó tự nó đã là tin nhắn 'call'.
+      this.log.log(
+        `[endCall] callId=${callHistory.call_id} actor=${actionUser.usr_id} status=${status} shouldEnd=${shouldEnd} callJustEnded=${callJustEnded} ended_at=${callHistory.ended_at?.toISOString() ?? 'null'} actorStatusAfter=${callHistory.members.find((m) => m.id === actionUser.usr_id.toString())?.status ?? 'NOT_FOUND'} stillActive=${stillActive}`,
+      );
+
+      // Group call → log appropriately based on what just happened.
+      // Skip p2p (1-1) entirely — that conversation IS the call
+      // message itself, no separate "left" / "ended" entry needed.
+      //
+      // Decision matrix (group / sfu):
+      //   call.ended  → ended_at vừa set (cuộc gọi đóng hoàn toàn).
+      //                 Emit ONCE, kể cả khi nhiều endCall fire cùng
+      //                 lúc — `wasAlreadyEnded` chặn duplicate.
+      //   call.left   → user vừa "đã rời" cuộc gọi đang diễn ra. CHỈ
+      //                 emit cho những user thực sự đã join trước đó
+      //                 (status='ended' xác nhận họ join → leave).
+      //                 missed / rejected / cancelled là "không bắt
+      //                 máy / từ chối / huỷ", KHÔNG hiển thị "đã rời"
+      //                 vì họ chưa từng tham gia.
+      //   bỏ log     → status missed / rejected / cancelled mà cuộc
+      //                 gọi vẫn đang diễn ra: silent. UI không cần
+      //                 thông báo từng người không bắt máy.
       if (callHistory.call_mode === 'sfu') {
-        const callJustEnded = !!callHistory.ended_at;
-        await this.roomService
-          .writeLogRoom({
-            event_type: callJustEnded ? 'call.ended' : 'call.left',
-            room_id: room._id,
-            actor_id: actionUser._id,
-            targets: callHistory.members.map((m) => m.user_id),
-            placeholder: callJustEnded
-              ? this.formatCallEndedPlaceholder(callHistory)
-              : `${actionUser.usr_fullname} đã rời cuộc gọi`,
-            payload: {
-              callId: callHistory.call_id,
-              callMode: callHistory.call_mode,
-              callMessageId: callHistory.message_id?.toString(),
-              endStatus: status,
-              startedAt: callHistory.started_at,
-              endedAt: callHistory.ended_at,
-              durationMs:
-                callJustEnded && callHistory.started_at
-                  ? new Date(callHistory.ended_at!).getTime() -
-                    new Date(callHistory.started_at).getTime()
-                  : undefined,
-            },
-          })
-          .catch((err) =>
-            this.log.error(
-              `[CALL_LOG] Failed to log ${
-                callJustEnded ? 'call.ended' : 'call.left'
-              }: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          );
+        // `callJustEnded` được set ở phase atomic update phía trên —
+        // chỉ true cho đúng MỘT writer thắng race condition khi
+        // chuyển ended_at từ null → Date. Mọi caller khác trong cùng
+        // window race đều thấy false → không emit duplicate
+        // "Cuộc gọi đã kết thúc" log.
+        let eventType: 'call.ended' | 'call.left' | null = null;
+        let placeholder = '';
+        if (callJustEnded) {
+          eventType = 'call.ended';
+          placeholder = this.formatCallEndedPlaceholder(callHistory);
+        } else if (
+          !callHistory.ended_at &&
+          status === 'ended' &&
+          (actorPrevStatus === 'started' ||
+            actorPrevStatus === 'accepted' ||
+            actorPrevStatus === 'joined')
+        ) {
+          // Genuine "đã rời":
+          //   - Call still active (no ended_at)
+          //   - Actor sent status='ended'
+          //   - Actor was ACTUALLY in the call (prev status =
+          //     'started' / 'accepted' / 'joined') — this is the
+          //     missing check that caused phantom "X đã rời cuộc gọi"
+          //     logs for users who only briefly opened a popup, never
+          //     accepted into media, then closed the window. Their
+          //     prev status was 'pending' / 'invited' so we skip.
+          eventType = 'call.left';
+          placeholder = `${actionUser.usr_fullname} đã rời cuộc gọi`;
+        }
+
+        if (eventType) {
+          await this.roomService
+            .writeLogRoom({
+              event_type: eventType,
+              room_id: room._id,
+              actor_id: actionUser._id,
+              targets: callHistory.members.map((m) => m.user_id),
+              placeholder,
+              payload: {
+                callId: callHistory.call_id,
+                callMode: callHistory.call_mode,
+                callMessageId: callHistory.message_id?.toString(),
+                endStatus: status,
+                startedAt: callHistory.started_at,
+                endedAt: callHistory.ended_at,
+                durationMs:
+                  callJustEnded && callHistory.started_at
+                    ? new Date(callHistory.ended_at!).getTime() -
+                      new Date(callHistory.started_at).getTime()
+                    : undefined,
+              },
+            })
+            .catch((err) =>
+              this.log.error(
+                `[CALL_LOG] Failed to log ${eventType}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              ),
+            );
+        }
       }
 
       const msg = await this.messageModel.aggregate(

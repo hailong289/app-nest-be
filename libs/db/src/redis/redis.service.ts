@@ -266,6 +266,72 @@ export class RedisService {
     }
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // HASH helpers (used by call invite tracking + per-room call state)
+  // ────────────────────────────────────────────────────────────────
+
+  /**
+   * Set one or more fields on a Redis Hash. Accepts either an object
+   * map (`{ field: value, ... }`) or a flat (field, value) pair.
+   * Values are stored verbatim — caller stringifies if needed.
+   */
+  async hSet(
+    key: string,
+    fieldOrMap: string | Record<string, string>,
+    value?: string,
+  ): Promise<number> {
+    try {
+      if (typeof fieldOrMap === 'string') {
+        return await this.redis.hset(key, fieldOrMap, value ?? '');
+      }
+      // ioredis accepts { f: v, ... } as a single arg.
+      return await this.redis.hset(key, fieldOrMap);
+    } catch (err) {
+      console.error('Redis hSet error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Read all fields of a Redis Hash. Returns `{}` on miss/error so
+   * callers can iterate without null-checks.
+   */
+  async hGetAll(key: string): Promise<Record<string, string>> {
+    try {
+      return (await this.redis.hgetall(key)) ?? {};
+    } catch (err) {
+      console.error('Redis hGetAll error:', err);
+      return {};
+    }
+  }
+
+  /**
+   * Delete one or more fields from a Redis Hash. Returns the number of
+   * fields actually removed (0 on missing key/field — not an error).
+   */
+  async hDel(key: string, ...fields: string[]): Promise<number> {
+    try {
+      if (fields.length === 0) return 0;
+      return await this.redis.hdel(key, ...fields);
+    } catch (err) {
+      console.error('Redis hDel error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Set / refresh TTL on an existing key. No-op if key doesn't exist
+   * (returns 0). Used to extend call-state lifetimes on activity.
+   */
+  async expire(key: string, seconds: number): Promise<number> {
+    try {
+      return await this.redis.expire(key, seconds);
+    } catch (err) {
+      console.error('Redis expire error:', err);
+      return 0;
+    }
+  }
+
   /**
    * Add a member to a sorted set, or update its score if it already exists.
    * @param key - The Redis key.

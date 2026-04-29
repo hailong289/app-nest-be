@@ -7,6 +7,9 @@ import { CallGateway } from './call.gateway';
 import { SfuRpcModule } from '@app/sfu';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { SharedBullModule } from 'libs/db/src';
+import { CALL_AUTO_MISS_QUEUE } from './call-auto-miss.constants';
+import { CallAutoMissProcessor } from './call-auto-miss.processor';
 
 @Module({
   imports: [
@@ -15,6 +18,10 @@ import { JwtModule } from '@nestjs/jwt';
     SfuRpcModule.register(),
     ConfigModule, // WsJwtGuard cần ConfigService
     JwtModule.register({}), // WsJwtGuard cần JwtService
+    // Distributed delayed-job queue for the server-side auto-miss timer.
+    // Replaces in-process setTimeout so the timer survives pod restarts
+    // and is safe under multi-pod Cloud Run autoscale.
+    SharedBullModule.registerQueue(CALL_AUTO_MISS_QUEUE),
     ClientsModule.register([
       {
         name: SERVICES.CHAT,
@@ -49,7 +56,7 @@ import { JwtModule } from '@nestjs/jwt';
       },
     ]),
   ],
-  providers: [CallGateway],
+  providers: [CallGateway, CallAutoMissProcessor],
   exports: [CallGateway],
 })
 export class CallWebSocketModule {}

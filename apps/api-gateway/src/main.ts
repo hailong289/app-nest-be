@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from '../interceptors/response.interceptor';
 import {
@@ -6,12 +7,44 @@ import {
   BadRequestException,
   ValidationError,
 } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Enable CORS
+  // Trust proxy headers — REQUIRED in production behind Cloud Run /
+  // Cloudflare / NGINX / any reverse proxy. Without this, `req.ip`
+  // returns the PROXY's IP (e.g. Google Front End edge node) instead
+  // of the real client IP, breaking:
+  //   - Device tracking (Keys model logs proxy IP not user's)
+  //   - Rate limiting (everyone shares the same ip → false positives)
+  //   - Geo-IP location lookup (returns CDN region not user region)
+  //
+  // `TRUST_PROXY_HOPS` (env): number of trusted proxy hops. Default
+  // `true` means trust all `X-Forwarded-For` entries — fine for Cloud
+  // Run since Google strips/sets the header at the edge. Set to `1`
+  // when behind a single CDN you control, or to a comma-separated
+  // list of CIDR ranges for stricter setups.
+  const trustProxy = process.env.TRUST_PROXY_HOPS;
+  app.set(
+    'trust proxy',
+    trustProxy === undefined
+      ? true
+      : /^\d+$/.test(trustProxy)
+        ? parseInt(trustProxy, 10)
+        : trustProxy,
+  );
+
+  // Parse Cookie header → req.cookies object. Required for the HttpOnly
+  // `tokens` cookie set on login/refresh-token, which auth guards read
+  // server-side instead of accepting Bearer tokens from the FE.
+  app.use(cookieParser());
+
+  // Enable CORS. `credentials: true` is REQUIRED so browsers send the
+  // cookie on cross-origin requests (FE on a different domain). Origin
+  // must NOT be '*' when credentials are sent — browsers reject that
+  // combination. Use the FE origin from env (or list of allowed origins).
   app.enableCors({
-    origin: '*', // Hoặc origin cụ thể
+    origin: process.env.CORS_ORIGIN?.split(',') ?? true,
     credentials: true,
   });
 

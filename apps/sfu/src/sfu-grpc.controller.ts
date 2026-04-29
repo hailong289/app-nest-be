@@ -64,6 +64,7 @@ export class SfuGrpcController {
       producerId: string;
       userId: string;
       kind: string;
+      appDataJson: string;
     }> = [];
 
     if (room) {
@@ -71,10 +72,19 @@ export class SfuGrpcController {
         if (pUserId === data.excludeUserId) return;
         participant.producers.forEach((producer) => {
           if (!producer.closed) {
+            // Forward appData (e.g. { source: "screen" }) so the FE can
+            // pre-populate `screenProducerIds` BEFORE consuming the
+            // producer. Without this, late-joiners route screen tracks
+            // into the camera Map and the share doesn't show up
+            // until the sharer toggles. Empty string for producers
+            // created without appData (regular camera/mic).
             producers.push({
               producerId: producer.id,
               userId: pUserId,
               kind: producer.kind,
+              appDataJson: producer.appData
+                ? JSON.stringify(producer.appData)
+                : '',
             });
           }
         });

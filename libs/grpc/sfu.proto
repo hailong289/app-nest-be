@@ -81,6 +81,10 @@ message ProducerInfo {
   string producerId = 1;
   string userId = 2;
   string kind = 3; // "audio" | "video"
+  // JSON-serialized appData từ mediasoup producer.appData. FE đọc
+  // appData.source === "screen" để phân biệt screen vs camera khi
+  // late-joiner consume các producer đã có sẵn trong room.
+  string appDataJson = 4;
 }
 
 message GetProducersResponse {
