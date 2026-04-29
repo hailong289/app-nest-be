@@ -1,9 +1,4 @@
-export const getFriendsAggregate = (
-  userId: string,
-  page: number,
-  limit: number,
-  search: string,
-) => {
+export const getFriendsBaseAggregate = (userId: string, search: string) => {
   const searchMatch = search
     ? {
         $or: [
@@ -59,14 +54,19 @@ export const getFriendsAggregate = (
         ...searchMatch,
       },
     },
-    {
-      $skip: (page - 1) * limit,
-    },
-    {
-      $limit: limit,
-    },
   ];
 };
+
+export const getFriendsAggregate = (
+  userId: string,
+  page: number,
+  limit: number,
+  search: string,
+) => [
+  ...getFriendsBaseAggregate(userId, search),
+  { $skip: (page - 1) * limit },
+  { $limit: limit },
+];
 
 export const getFriendsRequestAggregate = (
   userId: string,

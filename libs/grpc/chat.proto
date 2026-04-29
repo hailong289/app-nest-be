@@ -393,6 +393,8 @@ message MessageCore {
   repeated string hiddenBy = 22;
   QuizCore quiz = 23;                        // Quiz data (nullable)
   RoomEventCore room_event = 24;             // System-message event metadata (nullable)
+  FlashcardCore flashcard = 25;         // Flashcard data (nullable)
+  TodoProjectCore todoProject = 26;     // Todo project data (nullable)
 
 }
 
@@ -414,6 +416,8 @@ message InputCreateMsg{
   string id=8;
   string documentId=9;
   string quizId=10;
+  string flashcardId=11;
+  string todoProjectId=12;
 }
 
 message CreateMessageOutput{
@@ -645,4 +649,47 @@ message QuizCore {
   string                  quiz_image            = 18;
   string                  createdAt             = 19;
   string                  updatedAt             = 20;
+}
+
+// ===================== Flashcard Messages =====================
+message FlashcardCore {
+  string id = 1; // Mongo ObjectId (string)
+  string card_id = 2;
+  string card_userId = 3;
+  string card_deckId = 4;
+  string card_front = 5;
+  string card_back = 6;
+  string card_hint = 7;
+  repeated string card_tags = 8;
+  string card_image = 9;
+  string card_audio = 10;
+  int32 card_difficulty = 11;
+  int64 card_totalViews = 12;
+  int64 card_totalReviews = 13;
+  bool card_isPublic = 14;
+  bool card_isArchived = 15;
+  string createdAt = 16;
+  string updatedAt = 17;
+}
+
+// ===================== Todo Project Messages =====================
+message TodoProjectStatusCore {
+  string status_id = 1;
+  string status_name = 2;
+  string status_color = 3;
+  int32 status_order = 4;
+}
+
+message TodoProjectCore {
+  string project_id = 1;
+  string project_name = 2;
+  string project_description = 3;
+  string project_color = 4;
+  string project_createdBy = 5;
+  string project_roomId = 6;
+  bool is_default = 7;
+  repeated TodoProjectStatusCore project_statuses = 8;
+  string createdAt = 9;
+  string updatedAt = 10;
+  repeated string project_members = 11;
 }

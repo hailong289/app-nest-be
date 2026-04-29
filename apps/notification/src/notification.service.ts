@@ -108,6 +108,11 @@ export class NotificationService {
     return Response.success(null, 'Đánh dấu thông báo đã đọc thành công');
   }
 
+  async deleteNotification(data: { notificationId: string }) {
+    await this.notificationModel.deleteOne({ noti_id: data.notificationId });
+    return Response.success(null, 'Xóa thông báo thành công');
+  }
+
   async getNotifications(data: { userId: string }) {
     const notifications = await this.notificationModel
       .find({ noti_userId: Utils.convertToObjectIdMongoose(data.userId) })

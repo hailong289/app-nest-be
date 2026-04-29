@@ -13,6 +13,7 @@ import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
   getFriendsAggregate,
+  getFriendsBaseAggregate,
   getFriendsRequestAggregate,
   searchUsersAggregate,
   getBlockedFriendsAggregate,
@@ -380,7 +381,7 @@ export class SocialService {
     );
 
     const sumTotal: { total: number }[] = await this.userModel.aggregate([
-      ...getFriendsAggregate(userId, page, limit, search),
+      ...getFriendsBaseAggregate(userId, search),
       {
         $count: 'total',
       },

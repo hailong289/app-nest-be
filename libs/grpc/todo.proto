@@ -10,9 +10,42 @@ service TodoService {
     rpc DeleteTodo(DeleteTodoRequest) returns (DeleteTodoResponse);
     rpc AssignTodo(AssignTodoRequest) returns (TodoResponse);
     rpc UpdateTodoStatus(UpdateTodoStatusRequest) returns (TodoResponse);
+    rpc CreateProject(CreateProjectRequest) returns (TodoProjectResponse);
+    rpc GetProject(GetProjectRequest) returns (TodoProjectResponse);
+    rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+    rpc UpdateProject(UpdateProjectRequest) returns (TodoProjectResponse);
+    rpc DeleteProject(DeleteProjectRequest) returns (DeleteTodoResponse);
+    rpc AddProjectStatus(AddProjectStatusRequest) returns (TodoProjectResponse);
+    rpc UpdateProjectStatus(UpdateProjectStatusRequest) returns (TodoProjectResponse);
+    rpc DeleteProjectStatus(DeleteProjectStatusRequest) returns (TodoProjectResponse);
+    rpc GetOrCreateDefaultProject(GetOrCreateDefaultProjectRequest) returns (TodoProjectResponse);
+    rpc AddProjectMember(AddProjectMemberRequest) returns (TodoProjectResponse);
+    rpc RemoveProjectMember(RemoveProjectMemberRequest) returns (TodoProjectResponse);
+    rpc GetProjectMembers(GetProjectMembersRequest) returns (GetProjectMembersResponse);
 }
 
 // ─── Shared messages ───────────────────────────────────────────────────────────
+
+message ProjectStatusMetadata {
+    string status_id    = 1;
+    string status_name  = 2;
+    string status_color = 3;
+    int32  status_order = 4;
+}
+
+message TodoProjectMetadata {
+    string project_id          = 1;
+    string project_name        = 2;
+    string project_description = 3;
+    string project_color       = 4;
+    string project_createdBy   = 5;
+    string project_roomId      = 6;
+    bool   is_default          = 7;
+    repeated ProjectStatusMetadata project_statuses = 8;
+    string createdAt           = 9;
+    string updatedAt           = 10;
+    repeated string project_members = 11;
+}
 
 message TodoMetadata {
     string todo_id       = 1;
@@ -24,8 +57,9 @@ message TodoMetadata {
     string todo_roomId   = 7; // empty string = todo cá nhân
     string todo_createdBy = 8;
     repeated string todo_assignees = 9;
-    string createdAt     = 10;
-    string updatedAt     = 11;
+    string todo_projectId = 10;
+    string createdAt     = 11;
+    string updatedAt     = 12;
 }
 
 // ─── CreateTodo ────────────────────────────────────────────────────────────────
@@ -39,6 +73,7 @@ message CreateTodoRequest {
     string todo_roomId      = 6; // optional
     string todo_createdBy   = 7;
     repeated string todo_assignees = 8;
+    string todo_projectId   = 9;
 }
 
 message TodoResponse {
@@ -62,6 +97,7 @@ message ListTodosRequest {
     int32  page     = 3;
     int32  limit    = 4;
     string status   = 5; // optional: filter theo status
+    string projectId = 6; // optional: filter theo project
 }
 
 message ListTodosMetadata {
@@ -87,6 +123,7 @@ message UpdateTodoRequest {
     string todo_status      = 4;
     string todo_priority    = 5;
     string todo_dueDate     = 6;
+    string todo_projectId   = 7;
 }
 
 // ─── DeleteTodo ────────────────────────────────────────────────────────────────
@@ -114,4 +151,119 @@ message AssignTodoRequest {
 message UpdateTodoStatusRequest {
     string todo_id = 1;
     string status  = 2; // todo | in_progress | done | cancelled
+}
+
+message TodoProjectResponse {
+    string message          = 1;
+    int32  statusCode       = 2;
+    string reasonStatusCode = 3;
+    TodoProjectMetadata metadata = 4;
+}
+
+message ListProjectsMetadata {
+    repeated TodoProjectMetadata data = 1;
+    int64 total_item  = 2;
+    int64 total_page  = 3;
+    int64 page        = 4;
+}
+
+message ListProjectsResponse {
+    string message          = 1;
+    int32  statusCode       = 2;
+    string reasonStatusCode = 3;
+    ListProjectsMetadata metadata = 4;
+}
+
+message CreateProjectRequest {
+    string project_name        = 1;
+    string project_description = 2;
+    string project_color       = 3;
+    string project_createdBy   = 4;
+    string project_roomId      = 5;
+    bool   is_default          = 6;
+}
+
+message GetProjectRequest {
+    string project_id = 1;
+    string userId = 2;
+}
+
+message ListProjectsRequest {
+    string userId = 1;
+    string roomId = 2;
+    int32 page = 3;
+    int32 limit = 4;
+}
+
+message UpdateProjectRequest {
+    string project_id          = 1;
+    string project_name        = 2;
+    string project_description = 3;
+    string project_color       = 4;
+}
+
+message DeleteProjectRequest {
+    string project_id = 1;
+}
+
+message AddProjectStatusRequest {
+    string project_id   = 1;
+    string status_name  = 2;
+    string status_color = 3;
+}
+
+message UpdateProjectStatusRequest {
+    string project_id   = 1;
+    string status_id    = 2;
+    string status_name  = 3;
+    string status_color = 4;
+    int32 status_order  = 5;
+}
+
+message DeleteProjectStatusRequest {
+    string project_id = 1;
+    string status_id = 2;
+}
+
+message GetOrCreateDefaultProjectRequest {
+    string userId = 1;
+    string roomId = 2;
+}
+
+message AddProjectMemberRequest {
+    string project_id = 1;
+    string member_id = 2;
+}
+
+message RemoveProjectMemberRequest {
+    string project_id = 1;
+    string member_id = 2;
+}
+
+message GetProjectMembersRequest {
+    string project_id = 1;
+    string search = 2;
+}
+
+message ProjectMemberInfo {
+    string _id        = 1;
+    string usr_id     = 2;
+    string fullname   = 3;
+    string email      = 4;
+    string phone      = 5;
+    string avatar     = 6;
+    bool   is_creator = 7;
+}
+
+message GetProjectMembersMetadata {
+    string project_id = 1;
+    repeated string member_ids = 2;
+    repeated ProjectMemberInfo members = 3;
+}
+
+message GetProjectMembersResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    GetProjectMembersMetadata metadata = 4;
 }
