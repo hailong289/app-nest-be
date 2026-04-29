@@ -49,6 +49,9 @@ export class Todo {
   @Prop({ type: Types.ObjectId, ref: 'Room', default: null, index: true })
   todo_roomId: Types.ObjectId | null; // null = todo cá nhân
 
+  @Prop({ type: String, default: null, index: true })
+  todo_projectId: string | null;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   todo_createdBy: Types.ObjectId;
 
@@ -64,6 +67,7 @@ export const TodoSchema = SchemaFactory.createForClass(Todo);
 TodoSchema.index({ todo_createdBy: 1, createdAt: -1 });
 TodoSchema.index({ todo_roomId: 1, createdAt: -1 });
 TodoSchema.index({ todo_assignees: 1 });
+TodoSchema.index({ todo_projectId: 1, createdAt: -1 });
 
 export default {
   name: Todo.name,

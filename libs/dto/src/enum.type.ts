@@ -18,6 +18,7 @@ export enum socketEvent {
   MSGMARKREAD = 'mark:read',
   QUIZZANSWER = 'quizz:answer',
   UPDATE_QUIZ = 'update:quiz',
+  UPDATE_TODO = 'update:todo',
   ROOM_REFRESH = 'room:refresh',
 }
 

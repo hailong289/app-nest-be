@@ -128,6 +128,8 @@ export class HandleChatService {
       id,
       documentId,
       quizId,
+      flashcardId,
+      todoProjectId,
     } = payload;
 
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
@@ -189,6 +191,12 @@ export class HandleChatService {
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
       quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
+      flashcard_id: flashcardId
+        ? this.utils.convertToObjectIdMongoose(flashcardId)
+        : null,
+      todo_project_id: todoProjectId
+        ? this.utils.convertToObjectIdMongoose(todoProjectId)
+        : null,
     };
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new

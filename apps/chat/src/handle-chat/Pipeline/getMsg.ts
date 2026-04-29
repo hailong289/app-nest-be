@@ -597,6 +597,9 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        // Ensure gRPC string fields get a real string value (not raw ObjectId/null)
+        flashcardId: { $ifNull: [{ $toString: '$flashcard_id' }, ''] },
+        todoProjectId: { $ifNull: [{ $toString: '$todo_project_id' }, ''] },
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         // Summary cấp độ message để null, vì giờ dùng summary của attachment
@@ -949,6 +952,8 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        flashcardId: { $ifNull: [{ $toString: '$flashcard_id' }, ''] },
+        todoProjectId: { $ifNull: [{ $toString: '$todo_project_id' }, ''] },
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         summary: { $literal: null },
@@ -1299,6 +1304,8 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        flashcardId: { $ifNull: [{ $toString: '$flashcard_id' }, ''] },
+        todoProjectId: { $ifNull: [{ $toString: '$todo_project_id' }, ''] },
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         summary: { $literal: null },

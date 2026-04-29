@@ -393,6 +393,8 @@ message MessageCore {
   repeated string hiddenBy = 22;
   QuizCore quiz = 23;                        // Quiz data (nullable)
   RoomEventCore room_event = 24;             // System-message event metadata (nullable)
+  string flashcardId = 25;
+  string todoProjectId = 26;
 
 }
 
@@ -414,6 +416,8 @@ message InputCreateMsg{
   string id=8;
   string documentId=9;
   string quizId=10;
+  string flashcardId=11;
+  string todoProjectId=12;
 }
 
 message CreateMessageOutput{

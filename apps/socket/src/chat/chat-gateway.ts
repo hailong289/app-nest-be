@@ -243,6 +243,8 @@ export class ChatGateway
       replyTo: string;
       id?: string;
       quizId?: string;
+      flashcardId?: string;
+      todoProjectId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
@@ -701,6 +703,38 @@ export class ChatGateway
       .to(roomId)
       .except(client.id)
       .emit(socketEvent.UPDATE_QUIZ, { roomId, quizId, payload });
+    return { ok: true };
+  }
+
+  @SubscribeMessage(socketEvent.UPDATE_TODO)
+  async handleUpdateTodo(
+    @MessageBody()
+    data: {
+      projectId: string;
+      todoId: string;
+      payload: Record<string, any>;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      await this.getUser(client);
+    } catch {
+      client.emit('error', { message: 'Unauthorized' });
+      return { ok: false };
+    }
+
+    const { projectId, todoId, payload } = data;
+    if (!projectId || !todoId) {
+      client.emit('error', {
+        message: 'projectId và todoId là bắt buộc',
+      });
+      return { ok: false };
+    }
+
+    this.io
+      .to(projectId)
+      .except(client.id)
+      .emit(socketEvent.UPDATE_TODO, { projectId, todoId, payload });
     return { ok: true };
   }
 }
