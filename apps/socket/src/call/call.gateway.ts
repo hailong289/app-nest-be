@@ -25,13 +25,10 @@ import { socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
 import { SfuRpcClient, UnifiedSignalHandler } from '@app/sfu';
 import { PresenceService } from '../ws/presence.service';
-import { InjectQueue } from '@nestjs/bull';
-import type { Queue } from 'bull';
-import {
-  CALL_AUTO_MISS_QUEUE,
-  type AutoMissJobData,
-} from './call-auto-miss.processor';
-import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
+import type {
+  JwtPayload,
+  SocketWithUser,
+} from '../ws/socket-user.types';
 
 export interface ChatGrpcService {
   CreateNewMsg<T = any>(data: T): Observable<any>;
@@ -77,12 +74,6 @@ export class CallGateway
     private readonly unifiedSignalHandler: UnifiedSignalHandler,
     private readonly sfuRpc: SfuRpcClient,
     private readonly presence: PresenceService,
-    // Bull queue for the server-side auto-miss timer. Bull persists the
-    // job in Redis and applies a distributed lock so the 30s task
-    // survives pod restarts and runs exactly once across multi-pod
-    // deployments. Workers consume via `CallAutoMissProcessor`.
-    @InjectQueue(CALL_AUTO_MISS_QUEUE)
-    private readonly autoMissQueue: Queue<AutoMissJobData>,
   ) {}
   onModuleInit() {
     this.ChatGrpcService =
@@ -211,217 +202,6 @@ export class CallGateway
   }
 
   // ========================================================
-  // 📦 ACTIVE-CALL STATE (sharing / camera / mic) — Redis
-  // ========================================================
-  //
-  // Rationale: late-joiners and re-joiners would otherwise have to wait for
-  // the next event toggle to learn who's sharing / cam-off / mic-off. We
-  // mirror those toggle events into per-room Redis sets, then bundle the
-  // current snapshot into call:join / call:accepted responses so the joiner
-  // renders correct UI from the first frame.
-  //
-  // TTL is refreshed on every mutation; sets/hashes auto-delete when the
-  // last member is removed (Redis behavior). When the call genuinely ends
-  // (everyone leaves or call:end status='ended'), explicit cleanup wipes
-  // any stragglers.
-
-  /**
-   * Read the current shared state of a call (everyone, not just the
-   * caller). Used to seed late-joiners' UI.
-   */
-  private async getCallState(roomId: string): Promise<{
-    sharing: Array<{ userId: string; screenProducerId: string | null }>;
-    cameraOff: string[];
-    micOff: string[];
-  }> {
-    const [sharing, producerMap, cameraOff, micOff] = await Promise.all([
-      this.redis.sMembers(this.key.CALL_SHARING(roomId)),
-      this.redis.hGetAll(this.key.CALL_SHARING_PRODUCER(roomId)),
-      this.redis.sMembers(this.key.CALL_CAMERA_OFF(roomId)),
-      this.redis.sMembers(this.key.CALL_MIC_OFF(roomId)),
-    ]);
-    return {
-      sharing: sharing.map((userId) => ({
-        userId,
-        screenProducerId: producerMap[userId] ?? null,
-      })),
-      cameraOff,
-      micOff,
-    };
-  }
-
-  /**
-   * Drop a user from every per-room call state set (sharing, cam-off, mic-
-   * off, share producer hash). Called on partial leave (call:end with peers
-   * remaining) and on socket disconnect mid-call.
-   * Sets/hashes auto-delete when the last member/field is removed, so this
-   * is also the only cleanup needed for the empty-room case.
-   */
-  private async cleanupUserCallState(
-    roomId: string,
-    userId: string,
-  ): Promise<void> {
-    await Promise.all([
-      this.redis.sRem(this.key.CALL_SHARING(roomId), userId),
-      this.redis.hDel(this.key.CALL_SHARING_PRODUCER(roomId), userId),
-      this.redis.sRem(this.key.CALL_CAMERA_OFF(roomId), userId),
-      this.redis.sRem(this.key.CALL_MIC_OFF(roomId), userId),
-    ]);
-  }
-
-  /**
-   * Hard-delete every CALL_* key for a room. Use only on definitive call
-   * end (status='ended' from the chat service or last participant left).
-   * Cheap because key set is small (4 fixed keys).
-   */
-  private async wipeCallState(roomId: string): Promise<void> {
-    await Promise.all([
-      this.redis.delKey(this.key.CALL_SHARING(roomId)),
-      this.redis.delKey(this.key.CALL_SHARING_PRODUCER(roomId)),
-      this.redis.delKey(this.key.CALL_CAMERA_OFF(roomId)),
-      this.redis.delKey(this.key.CALL_MIC_OFF(roomId)),
-    ]);
-  }
-
-  // ========================================================
-  // 📞 PENDING-INVITE REPLAY (race-resilient ringing)
-  // ========================================================
-  //
-  // Problem: `call:request` is fire-and-forget over Socket.IO. If the
-  // callee's socket isn't connected at the moment the caller emits
-  // (logged out, tab not open, mid-reconnect after network blip), the
-  // event is lost and the IncomingCallModal never shows — the call rings
-  // on the caller's side but the callee has no idea.
-  //
-  // Solution: persist a per-(callee, callId) record while ringing. On
-  // socket connect, gateway reads the record and re-emits `call:request`
-  // to the new socket so the modal still shows up.
-
-  /**
-   * Persist a pending invite for one callee. Called from handleCallRequest
-   * for every recipient (free, non-busy room member). TTL is short — the
-   * ringing window. The HASH itself is also TTLd via expire().
-   */
-  private async storePendingInvite(
-    calleeId: string,
-    callId: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    const key = this.key.CALL_PENDING_INVITES(calleeId);
-    await this.redis.hSet(key, { [callId]: JSON.stringify(payload) });
-    // Refresh TTL on every store — each new invite extends the window.
-    // Older entries get a free extension; fine because they're short-
-    // lived anyway (ringing ~30s, server-side TTL ~60s).
-    await this.redis.expire(key, 60);
-  }
-
-  /** Clear one user's invite for one specific call. */
-  private async clearPendingInvite(
-    calleeId: string,
-    callId: string,
-  ): Promise<void> {
-    await this.redis.hDel(this.key.CALL_PENDING_INVITES(calleeId), callId);
-  }
-
-  /**
-   * Bulk-clear an invite from EVERY recipient. Use on call:end (any
-   * status — once the call is over, no leftover invite should fire).
-   */
-  private async clearPendingInvitesForAll(
-    callId: string,
-    memberIds: string[],
-  ): Promise<void> {
-    if (memberIds.length === 0) return;
-    await Promise.all(
-      memberIds.map((id) => this.clearPendingInvite(id, callId)),
-    );
-  }
-
-  /**
-   * Schedule a server-side auto-miss task. Enqueues a Bull job with a
-   * 30s delay; at fire time, `CallAutoMissProcessor` invokes
-   * `executeAutoMiss` (below) which checks the pending-invites Redis
-   * hash — if the FE already accepted/rejected, it bails; otherwise it
-   * synthesizes `call:end status='missed'` so the caller's UI exits
-   * "ringing" instead of waiting on the 1h USER_IN_CALL TTL.
-   *
-   * Why Bull instead of setTimeout:
-   *   - Persistence: jobs live in Redis, survive pod restarts.
-   *   - Distributed lock: under multi-pod Cloud Run autoscale, exactly
-   *     one worker pod processes each job (no double-fire).
-   *   - jobId scoping: same (callee, callId) can't enqueue twice — Bull
-   *     dedups; relevant if a duplicate call:request somehow gets
-   *     through.
-   */
-  private async scheduleAutoMissInvite(
-    calleeId: string,
-    callId: string,
-    roomId: string,
-  ): Promise<void> {
-    try {
-      await this.autoMissQueue.add(
-        { calleeId, callId, roomId },
-        {
-          delay: 30_000,
-          // Stable jobId to dedupe — Bull rejects duplicate jobIds while
-          // the original is queued/active. If the call ends before the
-          // 30s mark, executeAutoMiss bails on the empty pending-invite
-          // hash; no need to actively `removeJob`.
-          jobId: `auto-miss:${callId}:${calleeId}`,
-        },
-      );
-    } catch (err) {
-      // Don't let queue failures block the call:request response. The FE
-      // 30s timer is still primary; this server-side backup just won't
-      // fire on this particular invite.
-      this.logger.warn(
-        `[CALL] Failed to enqueue auto-miss job for ${callId}/${calleeId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
-
-  /**
-   * Public entry point invoked by `CallAutoMissProcessor` when the 30s
-   * Bull job fires. Idempotent — bails if the invite has already been
-   * cleared (FE accepted, FE rejected/missed, or another fire already
-   * processed it). gRPC `EndCall` on the chat service is also no-op for
-   * already-ended calls, so a race between the FE emit and this method
-   * is safe.
-   */
-  async executeAutoMiss(
-    calleeId: string,
-    callId: string,
-    roomId: string,
-  ): Promise<void> {
-    const pending = await this.redis.hGetAll(
-      this.key.CALL_PENDING_INVITES(calleeId),
-    );
-    if (!pending[callId]) return;
-
-    await Utils.dispatchGrpcRequest((d) => this.ChatGrpcService.EndCall(d), {
-      actionUserId: calleeId,
-      roomId,
-      callId,
-      status: 'missed',
-    });
-
-    await this.clearPendingInvite(calleeId, callId);
-    this.io.to(roomId).emit('call:end', {
-      roomId,
-      actionUserId: calleeId,
-      callId,
-      status: 'missed',
-      reason: 'auto_miss_timeout',
-    });
-
-    this.logger.log(
-      `[CALL] Auto-missed pending invite ${callId} for ${calleeId} (30s timeout)`,
-    );
-  }
-
-  // ========================================================
   // 🟢 HÀM XỬ LÝ KẾT NỐI (HANDLING CONNECTION)
   // ========================================================
   async handleConnection(client: SocketWithUser) {
@@ -509,43 +289,6 @@ export class CallGateway
         this.key.USER_ROOMS(client.userId),
       );
       await client.join(roomIds);
-
-      // Replay any pending call invites — covers the case where the caller
-      // emitted call:request while this user was offline (logged out, tab
-      // closed, mid-reconnect). Each entry is a serialized historyCall
-      // payload identical in shape to what handleCallRequest emits live.
-      // Cleared on call:accepted / call:end, with a 60s server TTL backup.
-      try {
-        const pendingInvites = await this.redis.hGetAll(
-          this.key.CALL_PENDING_INVITES(payload.usr_id),
-        );
-        for (const [pendingCallId, payloadStr] of Object.entries(
-          pendingInvites,
-        )) {
-          try {
-            const invite = JSON.parse(payloadStr) as Record<string, unknown>;
-            client.emit('call:request', invite);
-            this.logger.log(
-              `[CONNECT] Replayed pending invite ${pendingCallId} → ${payload.usr_id}`,
-            );
-          } catch (err) {
-            this.logger.warn(
-              `[CONNECT] Bad pending invite payload for ${payload.usr_id}/${pendingCallId}: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
-            // Drop the unparseable entry so it doesn't keep failing on
-            // every reconnect.
-            await this.clearPendingInvite(payload.usr_id, pendingCallId);
-          }
-        }
-      } catch (err) {
-        this.logger.warn(
-          `[CONNECT] Pending-invite replay failed for ${payload.usr_id}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -643,13 +386,6 @@ export class CallGateway
                 reason: 'disconnect',
               });
 
-              // 3. Drop this user from per-room sharing/cam-off/mic-off
-              //    Sets so the next late-joiner's snapshot doesn't include
-              //    a ghost entry for the disconnected user. Auto-deletes
-              //    the key when last member is removed (Redis behavior),
-              //    so no extra "if empty" check needed.
-              await this.cleanupUserCallState(endRoomId, userUlid);
-
               this.logger.log(
                 `[DISCONNECT] Updated CallHistory + emitted call:end for ${userUlid} in ${endRoomId}`,
               );
@@ -738,35 +474,55 @@ export class CallGateway
       const memberIds = data.membersIds ?? [];
       const targetIds = memberIds.filter((id) => id !== user.usr_id);
 
-      // ─── Stale-marker recovery for any target ────────────────────────────
-      // If a target's USER_IN_CALL points at a call the DB confirms has
-      // ended (popup crashed, beforeunload didn't fire EndCall), clear it
-      // so the FE doesn't show a "waiting call" banner when in fact no
-      // call exists. We DON'T reject on busy — letting busy users receive
-      // the call:request enables the FE waiting-call UX (notification +
-      // accept-to-switch).
-      for (const targetUserId of targetIds) {
-        await this.validateInCallOrClearStale(targetUserId, '');
+      // ─── Server-side guard 2: 1-1 — target busy → instant reject ─────────
+      // Same stale-marker recovery as guard 1: if the target's USER_IN_CALL
+      // points at a call the DB confirms has ended, clear it and let the
+      // request through (target was probably stuck because their previous
+      // popup crashed).
+      if (targetIds.length === 1) {
+        const targetUserId = targetIds[0];
+        const targetValidation = await this.validateInCallOrClearStale(
+          targetUserId,
+          '',
+        );
+        if (targetValidation.kind === 'reject') {
+          client.emit('call:busy', {
+            targetUserId,
+            callId: targetValidation.inCallId,
+            reason: 'busy',
+          });
+          return { ok: false, reason: 'busy' };
+        }
       }
 
-      // ─── Track busy targets (informational only — caller UI may flag) ─────
-      // Previously we used this to skip emitting call:request to busy
-      // members. Now we send to ALL targets so each can individually
-      // decide to switch or stay; busyTargets is kept only for the
-      // response payload so the caller can label them.
+      // ─── Server-side guard 3: group call — pre-compute busy/free targets ──
+      // Allow the call to proceed even if some members are busy (other members
+      // can still join), but track busy ones so we don't spam them with
+      // call:request and so the caller's UI can flag them.
       const busyTargets = new Map<string, string>(); // userId → callId
-      if (targetIds.length > 0) {
+      const freeTargets: string[] = [];
+      if (targetIds.length > 1) {
         const busyKeys = targetIds.map((id) => this.key.USER_IN_CALL(id));
         const busyValues = await this.redis.mget(busyKeys);
         targetIds.forEach((id, i) => {
           const v = busyValues[i];
-          if (v) {
+          if (v)
             busyTargets.set(
               id,
               typeof v === 'string' ? JSON.parse(v) : String(v),
             );
-          }
+          else freeTargets.push(id);
         });
+
+        // If everyone is busy → abort to avoid an empty group call.
+        if (freeTargets.length === 0) {
+          client.emit('error', {
+            message: 'Tất cả thành viên đang trong cuộc gọi khác',
+            error: 'all_targets_busy',
+            busyMembers: Array.from(busyTargets.keys()),
+          });
+          return { ok: false, reason: 'all_targets_busy' };
+        }
       }
 
       // bắt đầu tạo lịch sử cuộc gọi
@@ -811,15 +567,9 @@ export class CallGateway
       // busyTargets from guard 3 above. Send call:request only to free
       // members. Busy members are reported back to the caller so the FE can
       // mark them with a "đang bận" badge.
-      // Send call:request to ALL room members (except caller). Busy
-      // members get the event too — their FE renders a waiting-call
-      // banner and lets them switch by ending their current call.
-      const inviteRecipients = room.room_members.filter(
-        (m) => m.id !== user.usr_id,
-      );
-      const otherMembers = inviteRecipients.map((m) =>
-        this.key.ROOM_CLIENT(m.id),
-      );
+      const otherMembers = room.room_members
+        .filter((m) => m.id !== user.usr_id && !busyTargets.has(m.id))
+        .map((m) => this.key.ROOM_CLIENT(m.id));
       const roomClients = room.room_members.map((m) =>
         this.key.ROOM_CLIENT(m.id),
       );
@@ -835,28 +585,6 @@ export class CallGateway
       };
       this.io.to(otherMembers).emit('call:request', historyCall);
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
-
-      // Persist a pending invite for every recipient so a callee whose
-      // socket wasn't connected at emit time (logged out / tab not open
-      // yet / network blip) still gets the IncomingCallModal when they
-      // reconnect within the ringing window. Replay happens in
-      // handleConnection. Cleared in handleAccepted / handleEnd.
-      await Promise.all(
-        inviteRecipients.map((m) =>
-          this.storePendingInvite(m.id, history.call_id, historyCall),
-        ),
-      );
-
-      // Schedule a server-side auto-miss timer per recipient as a backup
-      // to the FE 30s decline timer. Covers crashed tabs / never-opened
-      // FE / multi-device cases where no client ever fires the missed
-      // event — without this the caller would ring until their own
-      // USER_IN_CALL TTL (1h) saves them.
-      await Promise.all(
-        inviteRecipients.map((m) =>
-          this.scheduleAutoMissInvite(m.id, history.call_id, room.room_id),
-        ),
-      );
 
       return {
         ok: true,
@@ -1040,11 +768,6 @@ export class CallGateway
         REDIS_TTL.CALL_ACTIVE,
       );
 
-      // Callee has accepted — no longer need their pending invite. Don't
-      // wait for the natural TTL expiry: a user could disconnect right
-      // after accept, reconnect 5s later, and replay the now-stale invite.
-      await this.clearPendingInvite(actionUserId, data.callId);
-
       if (callMode === 'sfu') {
         // SFU calls: the callee should be routing through call:join which already emits
         // call:member-joined.  But if the callee sent call:accepted first (e.g. due to a
@@ -1073,12 +796,7 @@ export class CallGateway
       );
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-      // Snapshot the current sharing/camera/mic state for the joiner. Same
-      // rationale as call:join — let the FE render correct UI immediately
-      // instead of waiting for the next toggle event from each peer.
-      const callState = await this.getCallState(room.room_id);
-
-      return { ok: true, callState };
+      return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error accept call:', error);
       client.emit('error', {
@@ -1217,13 +935,7 @@ export class CallGateway
       );
       this.io.to(roomClients).emit(socketEvent.MSGUPSERT, msg);
 
-      // Snapshot the per-room sharing/camera/mic state so the late-joiner's
-      // FE can render the correct UI from the first frame instead of
-      // waiting for the next toggle event from each peer (which may never
-      // come during a stable call).
-      const callState = await this.getCallState(room.room_id);
-
-      return { ok: true, history, room, callState };
+      return { ok: true, history, room };
     } catch (error) {
       this.logger.error('[CALL] Error joining call:', error);
       client.emit('error', {
@@ -1293,51 +1005,14 @@ export class CallGateway
 
       const { history, room, msg } = result.metadata;
 
-      // ── Clear all pending invites for this call ──────────────────────────
-      // Once the call has ended (rejected/missed/cancelled/ended), no
-      // recipient should still be holding a stale invite. Without this, a
-      // user reconnecting within the 60s TTL window after a cancelled call
-      // would get a phantom IncomingCallModal for a call that no longer
-      // exists. Iterate over history.members (covers everyone originally
-      // invited, including those who already accepted — `hDel` of a
-      // missing field is a no-op).
-      const inviteeIds = (history?.members ?? []).map(
-        (m: { id: string }) => m.id,
-      );
-      await this.clearPendingInvitesForAll(data.callId, inviteeIds);
-
-      // ── Per-user in-call markers ─────────────────────────────────────────
-      // Bug fix: previous code deleted USER_IN_CALL + USER_CALL_SOCKET for
-      // every member on every call:end — but in a group call only the
-      // leaver actually left, so wiping everyone's markers corrupted multi-
-      // device handoff and the busy-check for remaining participants.
-      //
-      // New behavior: ALWAYS clear the leaver's markers; only clear OTHER
-      // members' markers when the call has fully ended (no member is still
-      // in 'started' state, i.e. nobody is actively in the room).
-      const stillActive = (history?.members ?? []).some(
-        (m: { status?: string }) => m.status === 'started',
-      );
-      if (data.actionUserId) {
-        await Promise.all([
-          this.redis.delKey(this.key.USER_IN_CALL(data.actionUserId)),
-          this.redis.delKey(this.key.USER_CALL_SOCKET(data.actionUserId)),
-        ]);
-        // Drop the leaver from the per-room sharing/cam-off/mic-off Sets
-        // so remaining members reading callState don't see ghost entries.
-        // Sets auto-delete on last sRem, so no separate "if empty" check.
-        await this.cleanupUserCallState(room.room_id, data.actionUserId);
-      }
-      if (!stillActive && history?.members) {
+      // Clear in-call status + active call socket for all members when call ends
+      if (history?.members) {
         await Promise.all(
           history.members.flatMap((m: { id: string }) => [
             this.redis.delKey(this.key.USER_IN_CALL(m.id)),
             this.redis.delKey(this.key.USER_CALL_SOCKET(m.id)),
           ]),
         );
-        // Defensive wipe of any straggler keys; sets should already be
-        // empty by now since each leaver hit the cleanup branch above.
-        await this.wipeCallState(room.room_id);
       }
 
       // Use client.to() (not this.io.to()) so the broadcast excludes the sender.
@@ -1384,36 +1059,12 @@ export class CallGateway
       actionUserId?: string;
       roomId: string;
       isSharing: boolean;
-      // SFU only — producer id of the screen producer, so late-joiners can
-      // pre-populate `screenProducerIds` and route the consumed track to
-      // remoteScreenStreams instead of remoteStreams.
-      screenProducerId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-
-      // Persist the toggle in Redis so a late-joiner reading callState in
-      // call:join can render the screen-share UI without waiting for the
-      // next toggle (which may never come during a stable share).
-      const sharingKey = this.key.CALL_SHARING(data.roomId);
-      const producerKey = this.key.CALL_SHARING_PRODUCER(data.roomId);
-      if (data.isSharing) {
-        await this.redis.sAdd(sharingKey, data.actionUserId);
-        await this.redis.expire(sharingKey, REDIS_TTL.CALL_ACTIVE);
-        if (data.screenProducerId) {
-          await this.redis.hSet(producerKey, {
-            [data.actionUserId]: data.screenProducerId,
-          });
-          await this.redis.expire(producerKey, REDIS_TTL.CALL_ACTIVE);
-        }
-      } else {
-        await this.redis.sRem(sharingKey, data.actionUserId);
-        await this.redis.hDel(producerKey, data.actionUserId);
-      }
-
       this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
       return { ok: true };
     } catch (error) {
@@ -1449,15 +1100,6 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-
-      const cameraOffKey = this.key.CALL_CAMERA_OFF(data.roomId);
-      if (data.isCameraOn) {
-        await this.redis.sRem(cameraOffKey, data.actionUserId);
-      } else {
-        await this.redis.sAdd(cameraOffKey, data.actionUserId);
-        await this.redis.expire(cameraOffKey, REDIS_TTL.CALL_ACTIVE);
-      }
-
       this.io.to(data.roomId).except(client.id).emit('call:camera-state', data);
       return { ok: true };
     } catch (error) {
@@ -1485,15 +1127,6 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-
-      const micOffKey = this.key.CALL_MIC_OFF(data.roomId);
-      if (data.isMicOn) {
-        await this.redis.sRem(micOffKey, data.actionUserId);
-      } else {
-        await this.redis.sAdd(micOffKey, data.actionUserId);
-        await this.redis.expire(micOffKey, REDIS_TTL.CALL_ACTIVE);
-      }
-
       this.io.to(data.roomId).except(client.id).emit('call:mic-state', data);
       return { ok: true };
     } catch (error) {
