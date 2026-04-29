@@ -50,6 +50,7 @@ import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
+import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
 
 @Injectable()
 export class HandleChatService {
@@ -88,6 +89,8 @@ export class HandleChatService {
     private readonly notificationClient: ClientKafka,
     @InjectModel(Quiz.name)
     private readonly quizModel: Model<Quiz>,
+    @InjectModel(TodoProject.name)
+    private readonly todoProjectModel: Model<TodoProject>,
   ) {}
 
   /**
@@ -194,10 +197,18 @@ export class HandleChatService {
       flashcard_id: flashcardId
         ? this.utils.convertToObjectIdMongoose(flashcardId)
         : null,
-      todo_project_id: todoProjectId
-        ? this.utils.convertToObjectIdMongoose(todoProjectId)
-        : null,
+      todo_project_id: null as Types.ObjectId | null,
     };
+
+    if (todoProjectId) {
+      const todoProject = await this.todoProjectModel.findOne({
+        project_id: todoProjectId,
+      });
+      if (!todoProject) {
+        throw new NotFoundException('Dự án không tồn tại');
+      }
+      updatePayload.todo_project_id = todoProject._id;
+    }
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new
     const createNewMsg = await this.messageModel.findOneAndUpdate(

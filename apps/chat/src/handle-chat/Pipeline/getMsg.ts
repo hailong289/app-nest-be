@@ -103,6 +103,107 @@ function buildQuizProjection() {
 }
 
 /**
+ * Build a MongoDB projection expression for a flashcard document stored at `$flashcardDoc`.
+ * Converts ObjectId fields to strings and Date fields to ISO strings.
+ */
+function buildFlashcardProjection() {
+  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
+
+  const toIso = (field: string) => ({
+    $dateToString: { date: field, format: isoFmt },
+  });
+
+  const toIsoIfNotNull = (field: string) => ({
+    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
+  });
+
+  return {
+    $cond: [
+      { $ifNull: ['$flashcardDoc', false] },
+      {
+        id: { $toString: '$flashcardDoc._id' },
+        card_id: '$flashcardDoc.card_id',
+        card_userId: { $toString: '$flashcardDoc.card_userId' },
+        card_deckId: {
+          $ifNull: [{ $toString: '$flashcardDoc.card_deckId' }, ''],
+        },
+        card_front: '$flashcardDoc.card_front',
+        card_back: '$flashcardDoc.card_back',
+        card_hint: '$flashcardDoc.card_hint',
+        card_tags: { $ifNull: ['$flashcardDoc.card_tags', []] },
+        card_image: '$flashcardDoc.card_image',
+        card_audio: '$flashcardDoc.card_audio',
+        card_difficulty: { $ifNull: ['$flashcardDoc.card_difficulty', 0] },
+        card_totalViews: { $ifNull: ['$flashcardDoc.card_totalViews', 0] },
+        card_totalReviews: { $ifNull: ['$flashcardDoc.card_totalReviews', 0] },
+        card_isPublic: { $ifNull: ['$flashcardDoc.card_isPublic', false] },
+        card_isArchived: { $ifNull: ['$flashcardDoc.card_isArchived', false] },
+        createdAt: toIso('$flashcardDoc.createdAt'),
+        updatedAt: toIsoIfNotNull('$flashcardDoc.updatedAt'),
+      },
+      null,
+    ],
+  };
+}
+
+/**
+ * Build a MongoDB projection expression for a todo project document stored at `$todoProjectDoc`.
+ * Converts ObjectId fields to strings and maps nested project_statuses to the proto format.
+ */
+function buildTodoProjectProjection() {
+  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
+
+  const toIso = (field: string) => ({
+    $dateToString: { date: field, format: isoFmt },
+  });
+
+  const toIsoIfNotNull = (field: string) => ({
+    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
+  });
+
+  return {
+    $cond: [
+      { $ifNull: ['$todoProjectDoc', false] },
+      {
+        project_id: '$todoProjectDoc.project_id',
+        project_name: '$todoProjectDoc.project_name',
+        project_description: '$todoProjectDoc.project_description',
+        project_color: '$todoProjectDoc.project_color',
+        project_createdBy: {
+          $ifNull: [{ $toString: '$todoProjectDoc.project_createdBy' }, ''],
+        },
+        project_roomId: {
+          $ifNull: [{ $toString: '$todoProjectDoc.project_roomId' }, ''],
+        },
+        is_default: { $ifNull: ['$todoProjectDoc.is_default', false] },
+        project_statuses: {
+          $map: {
+            input: { $ifNull: ['$todoProjectDoc.project_statuses', []] },
+            as: 's',
+            in: {
+              status_id: { $ifNull: ['$$s.status_id', ''] },
+              status_name: { $ifNull: ['$$s.status_name', ''] },
+              status_color: { $ifNull: ['$$s.status_color', ''] },
+              status_order: { $ifNull: ['$$s.status_order', 0] },
+            },
+          },
+        },
+        createdAt: toIso('$todoProjectDoc.createdAt'),
+        updatedAt: toIsoIfNotNull('$todoProjectDoc.updatedAt'),
+        project_members: {
+          $map: {
+            input: { $ifNull: ['$todoProjectDoc.project_members', []] },
+            as: 'm',
+            in: { $ifNull: [{ $toString: '$$m' }, ''] },
+          },
+        },
+      },
+      null,
+    ],
+  };
+}
+
+/**
  * Stages that hydrate a system message with its RoomEvent + denormalized
  * actor / target user info. Use right before the final `$project` of any
  * message pipeline (Core / Detail / MultipleDetail).
@@ -522,6 +623,72 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
+    /** 7.1b) Flashcard */
+    {
+      $lookup: {
+        from: 'Flashcards',
+        localField: 'flashcard_id',
+        foreignField: '_id',
+        as: 'flashcardDoc',
+      },
+    },
+    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
+    /** 7.1b) Flashcard */
+    {
+      $lookup: {
+        from: 'Flashcards',
+        localField: 'flashcard_id',
+        foreignField: '_id',
+        as: 'flashcardDoc',
+      },
+    },
+    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
+    /** 7.1b) Flashcard */
+    {
+      $lookup: {
+        from: 'Flashcards',
+        localField: 'flashcard_id',
+        foreignField: '_id',
+        as: 'flashcardDoc',
+      },
+    },
+    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -597,9 +764,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
-        // Ensure gRPC string fields get a real string value (not raw ObjectId/null)
-        flashcardId: { $ifNull: [{ $toString: '$flashcard_id' }, ''] },
-        todoProjectId: { $ifNull: [{ $toString: '$todo_project_id' }, ''] },
+        flashcard: buildFlashcardProjection(),
+        todoProject: buildTodoProjectProjection(),
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         // Summary cấp độ message để null, vì giờ dùng summary của attachment
@@ -952,8 +1118,8 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
-        flashcardId: { $ifNull: [{ $toString: '$flashcard_id' }, ''] },
-        todoProjectId: { $ifNull: [{ $toString: '$todo_project_id' }, ''] },
+        flashcard: buildFlashcardProjection(),
+        todoProject: buildTodoProjectProjection(),
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         summary: { $literal: null },
@@ -1304,8 +1470,8 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
-        flashcardId: { $ifNull: [{ $toString: '$flashcard_id' }, ''] },
-        todoProjectId: { $ifNull: [{ $toString: '$todo_project_id' }, ''] },
+        flashcard: buildFlashcardProjection(),
+        todoProject: buildTodoProjectProjection(),
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         summary: { $literal: null },

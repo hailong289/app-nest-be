@@ -24,6 +24,8 @@ import {
   attachmentModel,
   notificationModel,
 } from './model';
+import todoProjectModel from './model/todo-project.model';
+import todoModel from './model/todo.model';
 
 @Global()
 @Module({
@@ -68,6 +70,8 @@ import {
       aIEmbeddingModel,
       aIUsageLogModel,
       notificationModel,
+      todoModel,
+      todoProjectModel,
     ]),
   ],
   exports: [

@@ -315,9 +315,21 @@ export class TodoProjectService {
       if (!Types.ObjectId.isValid(data.member_id)) {
         return Response.error('Invalid member id', 400, 'BAD_REQUEST');
       }
+      // project_id là business id (string). Hỗ trợ thêm trường hợp FE gửi Mongo _id
+      // bằng cách check ObjectId hợp lệ và match theo _id.
+      const projectFilter: Record<string, any> = Types.ObjectId.isValid(
+        data.project_id,
+      )
+        ? {
+            $or: [
+              { project_id: data.project_id },
+              { _id: new Types.ObjectId(data.project_id) },
+            ],
+          }
+        : { project_id: data.project_id };
       const project = await this.todoProjectModel
         .findOneAndUpdate(
-          { project_id: data.project_id },
+          projectFilter,
           {
             $addToSet: { project_members: new Types.ObjectId(data.member_id) },
           },
