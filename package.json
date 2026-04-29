@@ -21,7 +21,7 @@
     "build:learning": "nest build learning",
     "build:socket": "nest build socket",
     "build:sfu": "nest build sfu",
-    "build:all": "nest build api-gateway && nest build auth && nest build chat && nest build notification && nest build filesystem && nest build learning && nest build sfu",
+    "build:all": "nest build api-gateway && nest build auth && nest build chat && nest build notification && nest build filesystem && nest build ai && nest build learning && nest build socket && nest build sfu",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\" kafka.topic.ts",
     "start": "nest start",
     "start:gateway": "nest start api-gateway",

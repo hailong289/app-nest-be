@@ -1611,6 +1611,17 @@ export class RoomsService {
         },
       },
       ...this.handlePipeline(userId),
+      // Drop rooms with no resolvable name BEFORE pagination — happens
+      // when a private counterpart was deleted (pipeline leaves `name`
+      // empty) or a group room has no title + no derivable fallback.
+      // Doing it at the DB layer (instead of post-fetch JS .filter)
+      // keeps `$skip/$limit` accurate: the page size reflects only
+      // displayable rooms.
+      {
+        $match: {
+          name: { $type: 'string', $nin: [null, ''] },
+        },
+      },
       { $skip: Number(offset || 0) },
       { $limit: Number(limit || 1000) },
       ...(q
