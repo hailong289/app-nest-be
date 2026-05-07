@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { useSharedRedisAdapter } from 'libs/ws/src';
+import { useSharedRedisAdapter } from './ws';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

@@ -47,6 +47,11 @@ export class SfuRoomService {
   }
 
   async joinRoom(roomId: string, userId: string): Promise<SFURoom> {
+    // Cancel any pending grace-period close — we have a real joiner
+    // again. Without this, a rejoiner would set up transports just in
+    // time for the timer to fire and tear everything down under them.
+    this.cancelPendingClose(roomId);
+
     let room = this.rooms.get(roomId);
     if (!room) {
       room = await this.createRoom(roomId);
@@ -86,6 +91,20 @@ export class SfuRoomService {
     return room;
   }
 
+  /**
+   * Grace period before tearing down an empty SFU room. Lets a user
+   * leave + rejoin (or other invitees join late) without losing the
+   * mediasoup router. Without this, group calls that briefly empty
+   * out (last person reloads / Tauri window restart / quick step away)
+   * would force everyone to start a fresh call from scratch even
+   * though the call.history record is still active.
+   *
+   * 60s matches the FE auto-miss timer + a small buffer so the
+   * "Tham gia lại" button can still land in the same room.
+   */
+  private static readonly EMPTY_ROOM_GRACE_MS = 60_000;
+  private readonly pendingCloses = new Map<string, NodeJS.Timeout>();
+
   leaveRoom(roomId: string, userId: string): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
@@ -100,10 +119,47 @@ export class SfuRoomService {
     }
 
     if (room.participants.size === 0) {
+      // Schedule grace-period close instead of tearing down immediately.
+      // If anyone joins back inside the window, joinRoom() cancels the
+      // timer (see cancelPendingClose).
+      this.schedulePendingClose(roomId);
+    }
+  }
+
+  /**
+   * Arm a delayed close. Multiple back-to-back leaves (e.g. last user
+   * leaves, comes back, leaves again) reset the timer each time so the
+   * grace period is "from last activity", not "from first emptied".
+   */
+  private schedulePendingClose(roomId: string): void {
+    this.cancelPendingClose(roomId);
+    const timer = setTimeout(() => {
+      this.pendingCloses.delete(roomId);
+      const room = this.rooms.get(roomId);
+      // Re-check inside the timer — someone may have joined back in
+      // the grace window without explicitly clearing the timer (race
+      // window). Don't tear down a populated room.
+      if (!room || room.participants.size > 0) return;
       room.router.close();
       this.rooms.delete(roomId);
       this.sfuService.deleteRouter(roomId);
-      this.logger.log(`SFU Room ${roomId} closed (empty)`);
+      this.logger.log(
+        `SFU Room ${roomId} closed (empty for ${SfuRoomService.EMPTY_ROOM_GRACE_MS}ms)`,
+      );
+    }, SfuRoomService.EMPTY_ROOM_GRACE_MS);
+    this.pendingCloses.set(roomId, timer);
+  }
+
+  /**
+   * Cancel a pending close. Called on any new joinRoom so a rejoiner
+   * doesn't get blown away by a stale timer firing immediately after
+   * they connect.
+   */
+  cancelPendingClose(roomId: string): void {
+    const timer = this.pendingCloses.get(roomId);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingCloses.delete(roomId);
     }
   }
 
@@ -182,6 +238,14 @@ export class SfuRoomService {
       throw new NotFoundException(`Participant ${userId} not found`);
     }
     participant.consumers.set(consumerId, consumer);
+  }
+
+  getConsumer(
+    roomId: string,
+    userId: string,
+    consumerId: string,
+  ): Consumer | undefined {
+    return this.getParticipant(roomId, userId)?.consumers.get(consumerId);
   }
 
   getRoomsCount(): number {

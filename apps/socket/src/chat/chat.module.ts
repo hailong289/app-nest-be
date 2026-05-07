@@ -6,8 +6,6 @@ import { join } from 'node:path';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import * as grpc from '@grpc/grpc-js';
-import { ChatConsumer } from './chat.consumer';
-import { SharedBullModule } from 'libs/db/src';
 import { OnlineStatusTask } from '../tasks/online-status.task';
 
 @Module({
@@ -47,10 +45,9 @@ import { OnlineStatusTask } from '../tasks/online-status.task';
         },
       },
     ]),
-    SharedBullModule.registerQueue('room_updates'),
   ],
   controllers: [],
-  providers: [ChatGateway, ChatConsumer, OnlineStatusTask],
+  providers: [ChatGateway, OnlineStatusTask],
   exports: [ChatGateway],
 })
 export class ChatWebSocketModule {}

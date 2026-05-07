@@ -1,5 +1,5 @@
 import { REDISKEY } from '@app/constants/RedisKey';
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { RedisService, Key, Notification, NotificationType } from 'libs/db/src';
@@ -8,8 +8,8 @@ import { Model } from 'mongoose';
 import { NotificationService } from './notification.service';
 
 @Injectable()
-export class FirebaseService implements OnModuleInit {
-  private app: admin.app.App;
+export class FirebaseService {
+  private app!: admin.app.App;
   private readonly key = REDISKEY;
 
   constructor(
@@ -19,44 +19,37 @@ export class FirebaseService implements OnModuleInit {
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<Notification>,
     private readonly notificationService: NotificationService,
-  ) {}
-
-  onModuleInit() {
+  ) {
     if (!admin.apps.length) {
-      try {
-        this.app = admin.initializeApp({
-          credential: admin.credential.cert({
-            projectId: this.configService.get<string>('firebase.projectId'),
-            clientEmail: this.configService.get<string>('firebase.clientEmail'),
-            privateKey: this.configService.get<string>('firebase.privateKey'),
-          }),
-          storageBucket: this.configService.get<string>(
-            'firebase.storageBucket',
-          ),
-        });
-        console.log('🔥 Firebase initialized');
-      } catch (error) {
-        console.log('🔥 Firebase initialization error:', error);
-      }
+      this.app = admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: this.configService.get<string>('firebase.projectId'),
+          clientEmail: this.configService.get<string>('firebase.clientEmail'),
+          privateKey: this.configService
+            .get<string>('firebase.privateKey')
+            ?.replace(/\\n/g, '\n'), // Lưu ý replace \n
+        }),
+        storageBucket: this.configService.get<string>('firebase.storageBucket'),
+      });
     } else {
       this.app = admin.app();
     }
   }
 
   getAuth() {
-    return admin.auth(this.app);
+    return admin.auth(this.app || admin.app());
   }
 
   getFirestore() {
-    return admin.firestore(this.app);
+    return admin.firestore(this.app || admin.app());
   }
 
   getStorage() {
-    return admin.storage(this.app);
+    return admin.storage(this.app || admin.app());
   }
 
   getMessaging() {
-    return admin.messaging(this.app);
+    return admin.messaging(this.app || admin.app());
   }
 
   getApp() {
@@ -96,7 +89,7 @@ export class FirebaseService implements OnModuleInit {
         await Promise.all(
           userIds.map((uid) =>
             this.notificationService.createNotification({
-              userId: uid,
+              userId: uid as unknown as string,
               push_type: (data?.push_type as NotificationType) || 'other',
               title,
               message,
@@ -147,6 +140,7 @@ export class FirebaseService implements OnModuleInit {
     };
     try {
       await this.getMessaging().sendEachForMulticast(payload);
+      console.log('🔥 Firebase Cloud Messaging sent successfully');
     } catch (error) {
       console.error('🔥 Firebase Cloud Messaging error:', error);
     }
@@ -212,6 +206,5 @@ export class FirebaseService implements OnModuleInit {
         skipSaveToDb: true,
       });
     }
-    console.log('đã gửi thông báo cho ', userIds);
   }
 }

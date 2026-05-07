@@ -8,7 +8,10 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import type { TodoPriority, TodoStatus } from 'libs/db/src/mongo/model/todo.model';
+import type {
+  TodoPriority,
+  TodoStatus,
+} from 'libs/db/src/mongo/model/todo.model';
 
 export class CreateTodoDto {
   @IsNotEmpty({ message: 'Tiêu đề không để trống' })
@@ -34,6 +37,10 @@ export class CreateTodoDto {
   @IsOptional()
   @IsString({ message: 'ID phòng phải là chuỗi' })
   todo_roomId?: string;
+
+  @IsOptional()
+  @IsString({ message: 'ID project phải là chuỗi' })
+  todo_projectId?: string;
 
   @IsNotEmpty({ message: 'ID người tạo không để trống' })
   @IsString({ message: 'ID người tạo phải là chuỗi' })
@@ -63,6 +70,10 @@ export class ListTodosDto {
   @IsOptional()
   @IsString({ message: 'Trạng thái phải là chuỗi' })
   status?: TodoStatus;
+
+  @IsOptional()
+  @IsString({ message: 'projectId phải là chuỗi' })
+  projectId?: string;
 
   @IsNotEmpty({ message: 'Trang không để trống' })
   @IsNumber({}, { message: 'Trang phải là số' })
@@ -95,6 +106,10 @@ export class UpdateTodoDto {
   @IsOptional()
   @IsDateString({}, { message: 'Ngày hết hạn không hợp lệ' })
   todo_dueDate?: string;
+
+  @IsOptional()
+  @IsString({ message: 'ID project phải là chuỗi' })
+  todo_projectId?: string;
 }
 
 export class DeleteTodoDto {
@@ -108,9 +123,10 @@ export class AssignTodoDto {
   @IsString({ message: 'ID todo phải là chuỗi' })
   todo_id: string;
 
+  @IsOptional()
   @IsArray({ message: 'Danh sách assignees phải là mảng' })
   @IsString({ each: true, message: 'Mỗi assignee ID phải là chuỗi' })
-  assignee_ids: string[];
+  assignee_ids?: string[];
 }
 
 export class UpdateTodoStatusDto {

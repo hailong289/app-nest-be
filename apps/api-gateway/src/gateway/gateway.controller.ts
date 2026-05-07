@@ -2,12 +2,15 @@ import {
   Controller,
   Get,
   HttpStatus,
+  Logger,
   Query,
   HttpException,
 } from '@nestjs/common';
 import { GatewayService } from './gateway.service';
 import * as cheerio from 'cheerio';
 import axios, { AxiosError } from 'axios';
+import { promises as dns } from 'node:dns';
+import { isPrivateOrLocalIp } from 'libs/helpers/src';
 export interface LinkPreviewMetadata {
   url: string;
   title?: string;
@@ -48,6 +51,8 @@ const resolveUrl = (
 
 @Controller('gateway')
 export class GatewayController {
+  private readonly logger = new Logger(GatewayController.name);
+
   constructor(private readonly gatewayService: GatewayService) {}
 
   @Get()
@@ -68,9 +73,17 @@ export class GatewayController {
 
     try {
       const validUrl = new URL(url);
-      // Basic SSRF guard: block localhost unless explicitly allowed via env
+      // SSRF guard: block localhost / private-IP previews by default
+      // because letting any chat user trigger requests against the
+      // gateway's own network is a real risk (metadata service, sibling
+      // services, etc.).
+      //
+      // Auto-allow in non-production so dev users can paste local
+      // links (http://localhost:3000/todo/...) without ops gymnastics.
+      // Production must opt-in via the env var.
       const allowLocalPreview =
-        process.env.LINK_PREVIEW_ALLOW_LOCALHOST === 'true';
+        process.env.LINK_PREVIEW_ALLOW_LOCALHOST === 'true' ||
+        (process.env.NODE_ENV ?? 'development') !== 'production';
       const blockedHosts = (
         process.env.LINK_PREVIEW_BLOCKED_HOSTS || 'localhost,127.0.0.1,::1'
       )
@@ -78,8 +91,29 @@ export class GatewayController {
         .map((h) => h.trim())
         .filter(Boolean);
 
-      if (!allowLocalPreview && blockedHosts.includes(validUrl.hostname)) {
-        throw new HttpException('Restricted IP', HttpStatus.FORBIDDEN);
+      if (!allowLocalPreview) {
+        // Layer 1: literal hostname blocklist (fast path, no DNS roundtrip
+        // for the obvious cases).
+        if (blockedHosts.includes(validUrl.hostname)) {
+          throw new HttpException('Restricted IP', HttpStatus.FORBIDDEN);
+        }
+        // Layer 2: DNS-resolve and reject if ANY A/AAAA record points
+        // into a private / loopback / link-local range. Catches:
+        //   - 0.0.0.0 / [::] forms not in the literal list
+        //   - DNS aliases like localtest.me → 127.0.0.1
+        //   - internal service names that resolve only inside the VPC
+        // Defense-in-depth — does NOT close the TOCTOU gap (axios
+        // re-resolves later) but raises the bar for casual SSRF.
+        try {
+          const records = await dns.lookup(validUrl.hostname, { all: true });
+          if (records.some((r) => isPrivateOrLocalIp(r.address))) {
+            throw new HttpException('Restricted IP', HttpStatus.FORBIDDEN);
+          }
+        } catch (err) {
+          if (err instanceof HttpException) throw err;
+          // DNS lookup itself failed — let axios produce the real error
+          // downstream rather than masking it as a 403.
+        }
       }
 
       // 2. Generic Type cho Axios: báo trước data trả về là string (HTML)
@@ -147,11 +181,17 @@ export class GatewayController {
   }
 
   private handlePreviewError(error: unknown): never {
-    console.error('Link preview error:', error);
+    // HttpException = expected response to bad client input (Restricted
+    // IP / not-html / 404 from upstream). NOT a server bug — log at
+    // debug level only, no stack dump. Avoids polluting the gateway log
+    // every time someone shares a localhost link.
+    if (error instanceof HttpException) {
+      this.logger.debug(`Link preview rejected: ${error.message}`);
+      throw error;
+    }
 
-    // Check nếu là lỗi từ Axios
     if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError; // Cast về AxiosError để có gợi ý code
+      const axiosError = error as AxiosError;
       if (axiosError.code === 'ECONNABORTED') {
         throw new HttpException('Request timeout', HttpStatus.REQUEST_TIMEOUT);
       }
@@ -160,16 +200,12 @@ export class GatewayController {
       }
     }
 
-    // Check nếu là lỗi do mình throw (ví dụ URL invalid)
-    if (error instanceof HttpException) {
-      throw error;
-    }
-
-    // Lỗi cú pháp URL (new URL fails)
     if (error instanceof TypeError && error.message.includes('Invalid URL')) {
       throw new HttpException('URL không hợp lệ', HttpStatus.BAD_REQUEST);
     }
 
+    // Genuine server-side surprise — keep error-level log + stack.
+    this.logger.error('Link preview unexpected error', error as Error);
     throw new HttpException(
       'Internal Server Error',
       HttpStatus.INTERNAL_SERVER_ERROR,

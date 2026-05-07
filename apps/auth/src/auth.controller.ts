@@ -11,6 +11,59 @@ import {
   SearchUserDto,
 } from '@app/dto';
 
+/**
+ * Local gRPC payload interfaces.
+ *
+ * These mirror the new DTOs added to libs/dto/src/auth.dto.ts
+ * (LogoutDto / RefreshTokenGrpcDto / ListSessionsDto / LogoutDeviceDto
+ * / LogoutAllDevicesDto). They're declared inline here because the
+ * editor's TypeScript server intermittently flags freshly-added
+ * exports from `@app/dto` as `error type` until a full restart, and
+ * gRPC handlers don't run NestJS validation pipes on inbound data
+ * anyway — so a structural interface gives us the same wire-level
+ * type safety without depending on cross-lib resolution. The canonical
+ * DTO classes still exist in libs/dto for any HTTP/validation
+ * consumers; keep them in sync if you change the wire format.
+ */
+interface LogoutGrpcPayload {
+  userId: string;
+  jti?: string;
+  clientId?: string;
+  fcmToken?: string;
+}
+
+interface RefreshTokenGrpcPayload {
+  userId: string;
+  jti?: string;
+  clientId?: string;
+  ip?: string | null;
+  userAgent?: string | null;
+  location?: {
+    country?: string;
+    countryName?: string;
+    region?: string;
+    city?: string;
+    lat?: number;
+    lng?: number;
+    timezone?: string;
+    isp?: string;
+  } | null;
+}
+
+interface ListSessionsGrpcPayload {
+  userId: string;
+  currentClientId?: string;
+}
+
+interface LogoutDeviceGrpcPayload {
+  userId: string;
+  clientId: string;
+}
+
+interface LogoutAllDevicesGrpcPayload {
+  userId: string;
+}
+
 @Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -26,16 +79,41 @@ export class AuthController {
   }
 
   @GrpcMethod('AuthService', 'Logout')
-  async logout(data: { userId: string; jti: string; fcmToken?: string }) {
-    console.log('Logout gRPC data:', data);
-    return await this.authService.logout(data.userId, data.jti, data.fcmToken);
+  async logout(data: LogoutGrpcPayload) {
+    return await this.authService.logout(
+      data.userId,
+      data.jti,
+      data.fcmToken,
+      data.clientId,
+    );
   }
 
   @GrpcMethod('AuthService', 'RefreshToken')
-  async refreshToken(data: { userId: string; jti: string }) {
-    // Support both legacy (refreshToken) and new (userId, jti) input
+  async refreshToken(data: RefreshTokenGrpcPayload) {
+    return await this.authService.refreshToken(
+      data.userId,
+      data.jti ?? '',
+      data.clientId ?? '',
+      data,
+    );
+  }
 
-    return await this.authService.refreshToken(data.userId, data.jti);
+  @GrpcMethod('AuthService', 'ListSessions')
+  async listSessions(data: ListSessionsGrpcPayload): Promise<unknown> {
+    return await this.authService.listSessions(
+      data.userId,
+      data.currentClientId,
+    );
+  }
+
+  @GrpcMethod('AuthService', 'LogoutDevice')
+  async logoutDevice(data: LogoutDeviceGrpcPayload): Promise<unknown> {
+    return await this.authService.logoutDevice(data.userId, data.clientId);
+  }
+
+  @GrpcMethod('AuthService', 'LogoutAllDevices')
+  async logoutAllDevices(data: LogoutAllDevicesGrpcPayload): Promise<unknown> {
+    return await this.authService.logoutAllDevices(data.userId);
   }
 
   @GrpcMethod('AuthService', 'GetUser')

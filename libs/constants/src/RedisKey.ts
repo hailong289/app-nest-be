@@ -104,30 +104,44 @@ export const REDISKEY = {
   // USERS_ONLINE: 'chat:users:online:v2',
 
   /**
-   * ZSET tracking heartbeat timestamps for Cron job
-   * Format: chat:users:heartbeat
-   * Type: ZSET
-   * Score: Timestamp (ms)
-   * Member: userId
+   * @deprecated Replaced by per-socket SOCKET_ALIVE TTL keys. Kept for
+   * legacy reads during the rolling deploy; PresenceService no longer
+   * writes to it.
    */
   USERS_HEARTBEAT: 'chat:users:heartbeat',
 
   /**
-   * Online Presence của 1 user (String với TTL)
-   * Format: chat:user:{userId}:presence
-   * Type: STRING
-   * Value: timestamp của lần ping cuối
-   * TTL: 45s (heartbeat + buffer)
+   * @deprecated User presence is now derived from `USER_ONLINE` set
+   * cardinality. Kept here only so old code still compiles; new code reads
+   * from `USER_ONLINE` via PresenceService.
    */
   USER_PRESENCE: (userId: string) => `chat:user:${userId}:presence`,
 
   /**
-   * Online status set of sockets (Set of socketIds)
+   * Set of currently-connected socket descriptors for this user.
    * Format: chat:user:{userId}:online
    * Type: SET
-   * TTL: 30s (heartbeat)
+   * Members: `<ns>:<socketId>` (e.g. `chat:abc123`, `call:xyz789`).
+   *
+   * Online check: `sCard > 0` → user is online on at least one device.
+   * Multi-device / multi-namespace safe: each tab+namespace contributes
+   * exactly one entry, so a /chat tab disconnect doesn't mark the user
+   * offline if their /call tab is still connected.
    */
   USER_ONLINE: (userId: string) => `chat:user:${userId}:online`,
+
+  /**
+   * Per-socket liveness key with TTL, refreshed by client heartbeat.
+   * Format: chat:socket:{ns}:{socketId}:alive
+   * Type: STRING
+   * TTL: 45s (heartbeat every 15s + buffer)
+   *
+   * Used by the cleanup cron: a `<ns>:<sid>` member of `USER_ONLINE` set
+   * whose corresponding alive key has expired is treated as a dead socket
+   * and removed. When the set transitions to empty, broadcasts offline.
+   */
+  SOCKET_ALIVE: (ns: string, socketId: string) =>
+    `chat:socket:${ns}:${socketId}:alive`,
 
   /**
    * Last seen timestamp của user (String)
@@ -211,6 +225,81 @@ export const REDISKEY = {
    */
   USER_IN_CALL: (userId: string) => `chat:user:${userId}:in_call`,
 
+  /**
+   * Tracks WHICH socket of the user is the active call socket (String)
+   * Format: chat:user:{userId}:call_socket
+   * Type: STRING
+   * Value: socketId currently holding the call (most recent device)
+   * TTL: 3600s (matches USER_IN_CALL)
+   *
+   * Use case: multi-device handoff. When user accepts/joins from device B
+   * while device A still has the call open → server emits `call:handoff` to
+   * A's socketId, A closes its popup; this key flips to B's socketId.
+   */
+  USER_CALL_SOCKET: (userId: string) => `chat:user:${userId}:call_socket`,
+
+  /**
+   * Per-room runtime state for active group calls (Set).
+   * Members = userIds currently SHARING SCREEN.
+   * Format: chat:call:{roomId}:sharing
+   * Type: SET<userId>
+   * TTL: REDIS_TTL.CALL_ACTIVE — refreshed on every state change.
+   * Auto-deletes when last member is sRem'd.
+   */
+  CALL_SHARING: (roomId: string) => `chat:call:${roomId}:sharing`,
+
+  /**
+   * Map of userId → screenProducerId for SFU mode (Hash).
+   * Lets late-joiners pre-populate `screenProducerIds` so consume() routes
+   * the screen track to remoteScreenStreams instead of remoteStreams.
+   * Format: chat:call:{roomId}:share_pid
+   * Type: HASH<userId, screenProducerId>
+   * TTL: REDIS_TTL.CALL_ACTIVE.
+   */
+  CALL_SHARING_PRODUCER: (roomId: string) => `chat:call:${roomId}:share_pid`,
+
+  /**
+   * Per-room set of userIds whose CAMERA is OFF (Set).
+   * Maintained by call:camera-state events. Late-joiners read this to
+   * render avatar tiles immediately for users with camera off, instead of
+   * showing a black box until the next event toggle.
+   * Format: chat:call:{roomId}:camera_off
+   * Type: SET<userId>
+   * TTL: REDIS_TTL.CALL_ACTIVE.
+   */
+  CALL_CAMERA_OFF: (roomId: string) => `chat:call:${roomId}:camera_off`,
+
+  /**
+   * Per-room set of userIds whose MIC is MUTED (Set).
+   * Same rationale as CALL_CAMERA_OFF — late-joiners need explicit state
+   * because Chrome keeps RTP flowing on track.enabled=false (silent
+   * audio), so receiver-side mute events can't be relied on.
+   * Format: chat:call:{roomId}:mic_off
+   * Type: SET<userId>
+   * TTL: REDIS_TTL.CALL_ACTIVE.
+   */
+  CALL_MIC_OFF: (roomId: string) => `chat:call:${roomId}:mic_off`,
+
+  /**
+   * Pending incoming-call invites for a user (Hash). Stored when the
+   * caller emits call:request — each invitee gets an entry so that if
+   * they were socket-offline at emit time (logged out, tab not open, or
+   * mid network blip) and reconnect during the ringing window, the
+   * gateway can replay `call:request` to their new socket and surface
+   * the IncomingCallModal.
+   *
+   * Format: chat:user:{userId}:pending_invites
+   * Type: HASH<callId, JSON-serialized historyCall payload>
+   * TTL: ~60s — ringing window (FE auto-declines at 30s, server buffer).
+   *
+   * Cleared on:
+   *   - call:accepted by the recipient (they don't need the invite anymore)
+   *   - call:end (any status — rejected/missed/cancelled/ended) for every
+   *     invited member, since the call is over.
+   */
+  CALL_PENDING_INVITES: (userId: string) =>
+    `chat:user:${userId}:pending_invites`,
+
   // ==========================================
   // 📢 PUBSUB CHANNELS
   // ==========================================
@@ -227,7 +316,13 @@ export const REDIS_TTL = {
   RATE_LIMIT_CONNECT: 60, // 1 minute
   RATE_LIMIT_MESSAGE: 10, // 10 seconds
   SESSION: 86400, // 24 hours
-  CALL_ACTIVE: 3600, // 1 hour max call duration (safety net TTL)
+  // Safety net for call-related Redis keys. Long meetings (1h+) can
+  // legitimately keep a call alive past the old 1h limit — we refresh
+  // this TTL on every join/accept/signal event so the keys outlive
+  // a continuously-active call. The 8h ceiling exists to clean up
+  // truly forgotten zombies (browser frozen for a day, etc.) without
+  // requiring an extra heartbeat ping from the FE.
+  CALL_ACTIVE: 8 * 3600, // 8 hours — refreshed on every meaningful call event
 } as const;
 
 /**

@@ -42,6 +42,8 @@ export class CreateMessage {
   replyTo: string | null;
   documentId?: string;
   quizId?: string;
+  flashcardId?: string;
+  todoProjectId?: string;
   // pinned?: boolean;
 }
 

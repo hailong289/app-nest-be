@@ -4,6 +4,13 @@
     "declaration": false,
     "outDir": "../../dist/apps/auth"
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*",
+    "../../libs/types/src/**/*",
+    "../../libs/helpers/src/**/*",
+    "../../libs/dto/src/**/*",
+    "../../libs/db/src/**/*",
+    "../../libs/constants/src/**/*"
+  ],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

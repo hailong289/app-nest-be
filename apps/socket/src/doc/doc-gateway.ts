@@ -8,32 +8,18 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Inject, Logger } from '@nestjs/common';
-import { Server, Socket } from 'socket.io';
+import { Server } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src';
-import { REDISKEY, REDIS_TTL } from '@app/constants/RedisKey';
+import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { socketEvent } from '@app/dto/enum.type';
 import { Observable } from 'rxjs';
 import Utils from 'libs/helpers/src/utils';
-
-interface JwtPayload {
-  _id: string;
-  usr_fullname: string;
-  usr_email: string;
-  usr_avatar?: string;
-  usr_id: string;
-  usr_slug: string;
-  jti: string;
-  [key: string]: any;
-}
-
-interface SocketWithUser extends Socket {
-  userId?: string;
-  user?: JwtPayload;
-}
+import { PresenceService } from '../ws/presence.service';
+import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
 
 interface DocumentMetadata {
   _id: string;
@@ -66,18 +52,21 @@ interface DocumentService {
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/doc',
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
 })
 export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() io: Server;
+  @WebSocketServer() io!: Server;
   private readonly logger = new Logger(DocGateway.name);
   private readonly key = REDISKEY;
-  private DocGrpcService: DocumentService;
+  private DocGrpcService!: DocumentService;
 
   constructor(
     @Inject(SERVICES.FILESYSTEM) private readonly docClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
+    private readonly presence: PresenceService,
   ) {}
 
   onModuleInit() {
@@ -127,20 +116,13 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         secret: jwtSecret,
       });
 
-      // Check JTI in Redis
+      // Redis blacklist check (presence = revoked).
       if (payload.jti && payload._id) {
-        const redisResult: string | number | boolean | null =
-          await this.redis.getData(
-            this.key.REFRESH_TOKEN(payload._id, payload.jti),
-          );
-        const isValid =
-          typeof redisResult === 'string' ||
-          typeof redisResult === 'number' ||
-          typeof redisResult === 'boolean'
-            ? Boolean(redisResult)
-            : !!redisResult;
+        const isRevoked = await this.redis.getData<string>(
+          this.key.REFRESH_TOKEN(payload._id, payload.jti),
+        );
 
-        if (!isValid) {
+        if (isRevoked) {
           this.logger.warn(
             `[CONNECT] Token revoked or expired for user ${payload._id}`,
           );
@@ -169,23 +151,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // tham gia vào các room của hệ thống
       await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
-
-      await this.redis.sAdd(this.key.USER_ONLINE(client.userId), client.id);
-
-      // Track user online status (String with TTL)
-      await this.redis.setData(
-        this.key.USER_PRESENCE(client.userId),
-        new Date().toISOString(),
-        REDIS_TTL.ONLINE_STATUS + 15,
-      );
-      // Heartbeat Queue
-      await this.redis.zAdd(
-        this.key.USERS_HEARTBEAT,
-        Date.now(),
-        client.userId,
-      );
-      // Gắn user info vào socket
       client.user = payload;
+
+      // Delegate presence tracking to PresenceService — keyed by usr_id,
+      // namespace "doc". Broadcasts STATUS only when this is the user's
+      // first live socket across all namespaces (chat / call / doc).
+      await this.presence.register('doc', client.id, payload.usr_id);
 
       this.logger.log(
         `[DOC-CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
@@ -194,12 +165,6 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.key.USER_ROOMS(client.userId),
       );
       await client.join(roomIds);
-      // Gửi thông báo đến người dùng
-      this.io.to('system').emit(socketEvent.STATUS, {
-        id: client.user.usr_id,
-        isOnline: true,
-        onlineAt: new Date(),
-      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -213,7 +178,7 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         code: 401,
       });
 
-      client.emit(socketEvent.VERYFIỄPTION, {
+      client.emit(socketEvent.EXCEPTION, {
         status: 'error',
         statusCode: 401,
         message: 'Mã xác thực không hợp lệ hoặc đã hết hạn',
@@ -223,27 +188,18 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: SocketWithUser) {
-    if (client.userId) {
-      this.logger.log(
-        `[DOC-DISCONNECT] User ${client.user?.usr_fullname} (${client.userId}) disconnected`,
-      );
-      await this.redis.sRem(this.key.USER_ONLINE(client.userId), client.id);
+    const usrId = client.user?.usr_id;
+    if (!client.userId || !usrId) return;
+    this.logger.log(
+      `[DOC-DISCONNECT] User ${client.user?.usr_fullname} (${client.userId}) disconnected`,
+    );
+    await this.presence.unregister('doc', client.id, usrId);
+  }
 
-      const checkOnline = await this.redis.sCard(
-        this.key.USER_ONLINE(client.userId),
-      );
-      if (checkOnline == 0) {
-        await this.redis.delKey(this.key.USER_PRESENCE(client.userId));
-        await this.redis.zRem(this.key.USERS_HEARTBEAT, client.userId);
-
-        // Notify system (optional, as ChatGateway usually handles this, but good for completeness)
-        this.io.to('system').emit(socketEvent.STATUS, {
-          id: client.userId,
-          isOnline: false,
-          lastSeen: new Date(),
-        });
-      }
-    }
+  @SubscribeMessage('heartbeat')
+  async handleHeartbeat(@ConnectedSocket() client: SocketWithUser) {
+    if (!client.user?.usr_id) return;
+    await this.presence.heartbeat('doc', client.id, client.user.usr_id);
   }
   private async getUser(@ConnectedSocket() client: SocketWithUser) {
     if (!client.user) {
@@ -265,17 +221,12 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
               secret: jwtSecret,
             });
             if (payload.jti && payload._id) {
-              const redisResult: unknown = await this.redis.getData(
+              // Blacklist check — presence = revoked.
+              const isRevoked = await this.redis.getData<string>(
                 this.key.REFRESH_TOKEN(payload._id, payload.jti),
               );
-              const isValid =
-                typeof redisResult === 'string' ||
-                typeof redisResult === 'number' ||
-                typeof redisResult === 'boolean'
-                  ? Boolean(redisResult)
-                  : !!redisResult;
 
-              if (isValid) {
+              if (!isRevoked) {
                 client.user = payload;
                 client.userId = payload._id;
               }

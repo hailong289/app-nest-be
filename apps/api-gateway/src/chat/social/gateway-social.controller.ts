@@ -41,6 +41,10 @@ interface SocialGrpcService {
   OpenBlockedFriend(data: OpenBlockedFriendDto): Observable<any>;
   GetBlockedFriends(data: GetBlockedFriendsDto): Observable<any>;
   GetFriendByUserId(data: GetFriendByUserIdDto): Observable<any>;
+  GetFriendSuggestions(data: {
+    userId: string;
+    limit?: number;
+  }): Observable<any>;
 }
 
 @Controller('social')
@@ -261,6 +265,30 @@ export class GatewaySocialController {
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.GetFriendByUserId.bind(this.socialService),
       { userId: req.user._id },
+    );
+  }
+
+  /**
+   * People-You-May-Know list ranked by mutual-friend count.
+   *
+   * Algorithm: friends-of-friends with score = #mutual; excludes self,
+   * existing accepted friends, and any pending/rejected/blocked edge.
+   * See `aggregates/getFriendSuggestions.ts` for the full pipeline.
+   *
+   * @example GET /social/users/suggestions?limit=10
+   */
+  @Get('users/suggestions')
+  async getFriendSuggestions(
+    @Req() req: AuthenticatedRequest,
+    @Query('limit') limit?: number,
+  ) {
+    const parsed = Number(limit);
+    return this.gatewayService.dispatchGrpcRequest(
+      this.socialService.GetFriendSuggestions.bind(this.socialService),
+      {
+        userId: req.user.usr_id,
+        limit: Number.isFinite(parsed) && parsed > 0 ? parsed : 10,
+      },
     );
   }
 }

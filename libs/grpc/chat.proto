@@ -30,6 +30,7 @@ service ChatService {
   rpc RequestCall(RequestCallInput)returns(outputCall);
   rpc AcceptCall(AcceptCallInput)returns(outputCall);
   rpc EndCall(EndCallInput)returns(outputCall);
+  rpc GetCallStatus(GetCallStatusInput)returns(GetCallStatusOutput);
   rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
   rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
@@ -340,6 +341,30 @@ message MessageReadBy {
   ReadByUser user = 2;
 }
 
+/* ===================== Room Event (system message) ===================== */
+message RoomEventActor {
+  string _id = 1;
+  string id = 2;        // usr_id (ULID)
+  string fullname = 3;
+  string avatar = 4;
+}
+
+/**
+ * RoomEvent linked to a system message (member join/leave, call start/end,
+ * group rename, etc.). `payloadJson` holds an arbitrary JSON-encoded blob
+ * because protobuf doesn't natively serialize untyped objects — the chat
+ * service stringifies before send and the FE parses on receive.
+ */
+message RoomEventCore {
+  string event_id = 1;
+  string event_type = 2;     // e.g. "call.started", "member.joined"
+  string placeholder = 3;
+  string payloadJson = 4;    // JSON.stringify(payload object); empty when no payload
+  string createdAt = 5;
+  RoomEventActor actor = 6;
+  repeated RoomEventActor targets = 7;
+}
+
 /* ===================== Core output ===================== */
 /** Message structure theo định dạng mới */
 message MessageCore {
@@ -367,6 +392,9 @@ message MessageCore {
   string documentId=21;
   repeated string hiddenBy = 22;
   QuizCore quiz = 23;                        // Quiz data (nullable)
+  RoomEventCore room_event = 24;             // System-message event metadata (nullable)
+  FlashcardCore flashcard = 25;         // Flashcard data (nullable)
+  TodoProjectCore todoProject = 26;     // Todo project data (nullable)
 
 }
 
@@ -388,6 +416,8 @@ message InputCreateMsg{
   string id=8;
   string documentId=9;
   string quizId=10;
+  string flashcardId=11;
+  string todoProjectId=12;
 }
 
 message CreateMessageOutput{
@@ -503,6 +533,24 @@ message GetCallHistoryInput{
   string type=3;
 }
 
+message GetCallStatusInput{
+  string callId=1;
+}
+
+message GetCallStatusOutput{
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  GetCallStatusMetadata metadata = 4;
+}
+
+message GetCallStatusMetadata{
+  string call_id = 1;
+  bool exists = 2;       // false → call_id not in DB at all (very stale)
+  bool ended = 3;        // true → call has ended_at OR all members terminal
+  string ended_at = 4;
+}
+
 message outputCall {
   string message = 1;
   int32 statusCode = 2;
@@ -601,4 +649,47 @@ message QuizCore {
   string                  quiz_image            = 18;
   string                  createdAt             = 19;
   string                  updatedAt             = 20;
+}
+
+// ===================== Flashcard Messages =====================
+message FlashcardCore {
+  string id = 1; // Mongo ObjectId (string)
+  string card_id = 2;
+  string card_userId = 3;
+  string card_deckId = 4;
+  string card_front = 5;
+  string card_back = 6;
+  string card_hint = 7;
+  repeated string card_tags = 8;
+  string card_image = 9;
+  string card_audio = 10;
+  int32 card_difficulty = 11;
+  int64 card_totalViews = 12;
+  int64 card_totalReviews = 13;
+  bool card_isPublic = 14;
+  bool card_isArchived = 15;
+  string createdAt = 16;
+  string updatedAt = 17;
+}
+
+// ===================== Todo Project Messages =====================
+message TodoProjectStatusCore {
+  string status_id = 1;
+  string status_name = 2;
+  string status_color = 3;
+  int32 status_order = 4;
+}
+
+message TodoProjectCore {
+  string project_id = 1;
+  string project_name = 2;
+  string project_description = 3;
+  string project_color = 4;
+  string project_createdBy = 5;
+  string project_roomId = 6;
+  bool is_default = 7;
+  repeated TodoProjectStatusCore project_statuses = 8;
+  string createdAt = 9;
+  string updatedAt = 10;
+  repeated string project_members = 11;
 }

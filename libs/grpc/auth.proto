@@ -15,12 +15,33 @@ service AuthService {
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
   rpc SearchUser(SearchUserRequest) returns (SearchUserResponse);
   rpc RefreshToken(RefreshRequest) returns (RefreshResponse);
+  // Device-session management for the "Quản lý thiết bị" settings page.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc LogoutDevice(LogoutDeviceRequest) returns (LogoutResponse);
+  rpc LogoutAllDevices(LogoutAllDevicesRequest) returns (LogoutResponse);
+}
+
+// Geo location (best-effort, populated by api-gateway via geoip-lite).
+// All fields optional: lookup may fail for private IPs / unmapped ranges.
+message DeviceLocation {
+  string country     = 1; // ISO-3166-1 alpha-2: 'VN', 'US'
+  string region      = 2; // 'Hồ Chí Minh', 'California'
+  string city        = 3;
+  double lat         = 4;
+  double lng         = 5;
+  string timezone    = 6; // 'Asia/Ho_Chi_Minh'
 }
 
 message LoginRequest {
-  string username = 1;
-  string password = 2;
-  string fcmToken = 3; // Thêm trường fcmToken
+  string         username  = 1;
+  string         password  = 2;
+  string         fcmToken  = 3; // Thêm trường fcmToken
+  // Device-origin fields populated by gateway from headers + geoip-lite.
+  // All optional — auth.service tolerates missing values for backward
+  // compat with older callers (e.g. internal tests).
+  string         ip        = 4;
+  string         userAgent = 5;
+  DeviceLocation location  = 6;
 }
 
 message LoginResponse {
@@ -37,14 +58,18 @@ message RefreshResponse {
 }
 
 message RegisterRequest {
-  string fullname    = 1;
-  string email       = 2;
-  string phone       = 3;
-  string password    = 4;
-  string type        = 5;
-  string gender      = 6;
-  string dateOfBirth = 7;
-  string fcmToken    = 8; // Thêm trường fcmToken
+  string         fullname    = 1;
+  string         email       = 2;
+  string         phone       = 3;
+  string         password    = 4;
+  string         type        = 5;
+  string         gender      = 6;
+  string         dateOfBirth = 7;
+  string         fcmToken    = 8; // Thêm trường fcmToken
+  // Device-origin fields — same as LoginRequest, see comments there.
+  string         ip          = 9;
+  string         userAgent   = 10;
+  DeviceLocation location    = 11;
 }
 
 message RegisterResponse {
@@ -55,12 +80,25 @@ message RegisterResponse {
 }
 
 message LogoutRequest {
-  string jti    = 1;
-  string userId = 2;
+  string jti      = 1;
+  string userId   = 2;
+  // clientId from the access token — scopes Keys cleanup to JUST this
+  // device. Without it, logout-all-devices would be the only option.
+  string clientId = 3;
+  string fcmToken = 4;
 }
 message RefreshRequest {
-  string jti    = 1;
-  string userId = 2;
+  string         jti       = 1;
+  string         userId    = 2;
+  // Update Keys.tkn_lastSeen* + tkn_location on every refresh — lets us
+  // show "active sessions" + detect session-stealing (refresh from a
+  // wildly different country than original login).
+  string         ip        = 3;
+  string         userAgent = 4;
+  DeviceLocation location  = 5;
+  // clientId from the OLD refresh token — auth.service preserves it in
+  // the new token pair so device identity persists across rotations.
+  string         clientId  = 6;
 }
 message LogoutResponse {
   string         message          = 1;
@@ -121,6 +159,61 @@ message ForgotPasswordResponse {
 
 message LogoutMetadata {
   // Empty for now, can add fields if needed
+}
+
+// ── Device-session management ──────────────────────────────────────
+// Backs the "Quản lý thiết bị" settings page. ListSessions returns
+// every Keys row for the user (active + history). LogoutDevice /
+// LogoutAllDevices soft-revoke without hard-deleting so the row stays
+// as an audit-trail entry.
+
+message ListSessionsRequest {
+  string userId          = 1;
+  // clientId of the requesting browser — auth.service marks the matching
+  // session as `isCurrent: true` so the FE can disable its own
+  // "logout this device" button (suicide → stuck UI).
+  string currentClientId = 2;
+}
+
+// Geo location duplicated here to avoid forcing the FE through the
+// Mongoose-flavoured TknLocation. Mirrors `DeviceLocation` above.
+message DeviceSessionInfo {
+  string clientId      = 1;
+  string ip            = 2;
+  string userAgent     = 3;
+  string lastSeenAt    = 4;
+  string lastSeenIp    = 5;
+  string revokedAt     = 6;
+  string revokedReason = 7;
+  string createdAt     = 8;
+  bool   isCurrent     = 9;
+  // Inline location (subset). Empty strings when GeoIP couldn't resolve
+  // (private IP, unmapped range).
+  string country       = 10;
+  string region        = 11;
+  string city          = 12;
+  string timezone      = 13;
+  // Parsed UA — nullable on the wire via empty-string sentinel because
+  // proto3 has no native null. FE treats "" as missing.
+  string browser       = 14;
+  string os            = 15;
+  string deviceType    = 16;
+}
+
+message ListSessionsResponse {
+  string                     message          = 1;
+  int32                      statusCode       = 2;
+  string                     reasonStatusCode = 3;
+  repeated DeviceSessionInfo metadata         = 4;
+}
+
+message LogoutDeviceRequest {
+  string userId   = 1;
+  string clientId = 2;
+}
+
+message LogoutAllDevicesRequest {
+  string userId = 1;
 }
 
 message GetUserMetadata {

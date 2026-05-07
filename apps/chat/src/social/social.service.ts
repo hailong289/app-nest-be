@@ -13,10 +13,12 @@ import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
   getFriendsAggregate,
+  getFriendsBaseAggregate,
   getFriendsRequestAggregate,
   searchUsersAggregate,
   getBlockedFriendsAggregate,
 } from './aggregates/getFriends';
+import { getFriendSuggestionsAggregate } from './aggregates/getFriendSuggestions';
 import roomModel, { Room } from 'libs/db/src/mongo/model/room.model';
 import { SERVICES } from '@app/constants';
 import { ClientKafka } from '@nestjs/microservices';
@@ -326,6 +328,48 @@ export class SocialService {
     );
   }
 
+  /**
+   * Friend-of-friend suggestions for `userId`. Returns up to `limit`
+   * candidates ranked by mutual-friend count, descending. Self / existing
+   * friends / blocked / pending / rejected relationships are excluded.
+   *
+   * The pipeline is non-trivial — see
+   * `aggregates/getFriendSuggestions.ts` for the per-stage rationale.
+   * Caller is the gRPC controller which wraps this in a Response envelope.
+   */
+  async getFriendSuggestions(userId: string, limit = 10) {
+    if (!userId) {
+      return Response.success({ suggestions: [], total: 0 }, 'Empty');
+    }
+    type SuggestionRow = {
+      _id: string;
+      id: string;
+      fullname: string;
+      avatar: string;
+      email: string;
+      mutualFriendsCount: number;
+      mutualSamples: string[];
+    };
+    const suggestions: SuggestionRow[] = await this.userModel.aggregate(
+      getFriendSuggestionsAggregate(userId, limit),
+    );
+    return Response.success(
+      {
+        suggestions: suggestions.map((s) => ({
+          _id: s._id ?? '',
+          id: s.id ?? '',
+          fullname: s.fullname ?? '',
+          avatar: s.avatar ?? '',
+          email: s.email ?? '',
+          mutualFriendsCount: s.mutualFriendsCount ?? 0,
+          mutualSamples: Array.isArray(s.mutualSamples) ? s.mutualSamples : [],
+        })),
+        total: suggestions.length,
+      },
+      'Lấy gợi ý kết bạn thành công',
+    );
+  }
+
   async getFriends(
     userId: string,
     page: number,
@@ -337,7 +381,7 @@ export class SocialService {
     );
 
     const sumTotal: { total: number }[] = await this.userModel.aggregate([
-      ...getFriendsAggregate(userId, page, limit, search),
+      ...getFriendsBaseAggregate(userId, search),
       {
         $count: 'total',
       },

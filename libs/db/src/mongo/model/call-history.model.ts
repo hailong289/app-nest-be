@@ -17,7 +17,9 @@ export type MemberStatus =
   | 'cancelled' // người gọi đã hủy cuộc gọi
   | 'rejected' // người nhận đã từ chối cuộc gọi
   | 'missed' // người nhận đã bỏ qua cuộc gọi
-  | 'ended'; // người nhận hoặc người gọi đã kết thúc cuộc gọi
+  | 'ended' // người nhận hoặc người gọi đã kết thúc cuộc gọi
+  | 'joined'
+  | 'accepted';
 
 @Schema({ _id: false })
 export class Member {

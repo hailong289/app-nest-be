@@ -5,28 +5,28 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Socket } from 'socket.io';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
+import * as NestConfig from '@nestjs/config';
+import * as NestJwt from '@nestjs/jwt';
 
 interface JwtPayload {
-  _id: string; // MongoDB _id: "68ff5ede5903ab252a84b117"
-  usr_fullname: string; // "Lê Thiên Trí"
-  usr_email: string; // "thientrile2003@gmail.com"
+  _id: string; // MongoDB _id
+  usr_fullname: string;
+  usr_email: string;
   usr_phone?: string;
-  usr_avatar?: string; // "https://avatar.iran.liara.run/public/username?username=lêthiêntrí"
-  usr_gender?: string; // "male"
-  usr_status?: string; // "active"
-  usr_id: string; // "019a258a9540000000ff11"
-  usr_slug: string; // "usr_019a258a9540000001b0e3"
-  usr_dateOfBirth?: string; // "2003-03-04T00:00:00.000Z"
-  createdAt?: string; // "2025-10-27T12:00:30.536Z"
-  updatedAt?: string; // "2025-10-27T12:00:30.536Z"
+  usr_avatar?: string;
+  usr_gender?: string;
+  usr_status?: string;
+  usr_id: string;
+  usr_slug: string;
+  usr_dateOfBirth?: string;
+  createdAt?: string;
+  updatedAt?: string;
   [key: string]: any;
 }
 
 interface SocketWithUser extends Socket {
-  userId?: string; // Sẽ lưu _id từ MongoDB
-  user?: JwtPayload; // Full payload
+  userId?: string;
+  user?: JwtPayload;
 }
 
 @Injectable()
@@ -34,18 +34,17 @@ export class WsJwtGuard implements CanActivate {
   private readonly logger = new Logger(WsJwtGuard.name);
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly jwtService: JwtService,
+    private readonly configService: NestConfig.ConfigService,
+    private readonly jwtService: NestJwt.JwtService,
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const client: SocketWithUser = context.switchToWs().getClient<Socket>();
 
-    // Lấy token từ nhiều nguồn: auth object, query params, hoặc headers
     let token: string | undefined =
-      (client.handshake.auth?.token as string) || // Socket.IO auth object (recommended)
-      (client.handshake.query?.token as string) || // Query params
-      (client.handshake.headers?.authorization as string); // Authorization header
+      (client.handshake.auth?.token as string) ||
+      (client.handshake.query?.token as string) ||
+      (client.handshake.headers?.authorization as string);
 
     if (!token) {
       this.logger.warn(
@@ -58,7 +57,6 @@ export class WsJwtGuard implements CanActivate {
       return false;
     }
 
-    // Nếu token có prefix "Bearer ", loại bỏ nó
     if (token.startsWith('Bearer ')) {
       token = token.replace('Bearer ', '');
     }
@@ -77,9 +75,8 @@ export class WsJwtGuard implements CanActivate {
         secret: jwtSecret,
       });
 
-      // Gắn toàn bộ payload vào socket
-      client.userId = payload._id; // MongoDB _id
-      client.user = payload; // Full user info
+      client.userId = payload._id;
+      client.user = payload;
 
       this.logger.log(
         `[WsJwtGuard] Authentication successful for user ${payload._id} (${payload.usr_fullname})`,

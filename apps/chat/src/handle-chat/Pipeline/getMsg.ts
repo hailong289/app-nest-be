@@ -102,6 +102,206 @@ function buildQuizProjection() {
   };
 }
 
+/**
+ * Build a MongoDB projection expression for a flashcard document stored at `$flashcardDoc`.
+ * Converts ObjectId fields to strings and Date fields to ISO strings.
+ */
+function buildFlashcardProjection() {
+  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
+
+  const toIso = (field: string) => ({
+    $dateToString: { date: field, format: isoFmt },
+  });
+
+  const toIsoIfNotNull = (field: string) => ({
+    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
+  });
+
+  return {
+    $cond: [
+      { $ifNull: ['$flashcardDoc', false] },
+      {
+        id: { $toString: '$flashcardDoc._id' },
+        card_id: '$flashcardDoc.card_id',
+        card_userId: { $toString: '$flashcardDoc.card_userId' },
+        card_deckId: {
+          $ifNull: [{ $toString: '$flashcardDoc.card_deckId' }, ''],
+        },
+        card_front: '$flashcardDoc.card_front',
+        card_back: '$flashcardDoc.card_back',
+        card_hint: '$flashcardDoc.card_hint',
+        card_tags: { $ifNull: ['$flashcardDoc.card_tags', []] },
+        card_image: '$flashcardDoc.card_image',
+        card_audio: '$flashcardDoc.card_audio',
+        card_difficulty: { $ifNull: ['$flashcardDoc.card_difficulty', 0] },
+        card_totalViews: { $ifNull: ['$flashcardDoc.card_totalViews', 0] },
+        card_totalReviews: { $ifNull: ['$flashcardDoc.card_totalReviews', 0] },
+        card_isPublic: { $ifNull: ['$flashcardDoc.card_isPublic', false] },
+        card_isArchived: { $ifNull: ['$flashcardDoc.card_isArchived', false] },
+        createdAt: toIso('$flashcardDoc.createdAt'),
+        updatedAt: toIsoIfNotNull('$flashcardDoc.updatedAt'),
+      },
+      null,
+    ],
+  };
+}
+
+/**
+ * Build a MongoDB projection expression for a todo project document stored at `$todoProjectDoc`.
+ * Converts ObjectId fields to strings and maps nested project_statuses to the proto format.
+ */
+function buildTodoProjectProjection() {
+  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
+
+  const toIso = (field: string) => ({
+    $dateToString: { date: field, format: isoFmt },
+  });
+
+  const toIsoIfNotNull = (field: string) => ({
+    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
+  });
+
+  return {
+    $cond: [
+      { $ifNull: ['$todoProjectDoc', false] },
+      {
+        project_id: '$todoProjectDoc.project_id',
+        project_name: '$todoProjectDoc.project_name',
+        project_description: '$todoProjectDoc.project_description',
+        project_color: '$todoProjectDoc.project_color',
+        project_createdBy: {
+          $ifNull: [{ $toString: '$todoProjectDoc.project_createdBy' }, ''],
+        },
+        project_roomId: {
+          $ifNull: [{ $toString: '$todoProjectDoc.project_roomId' }, ''],
+        },
+        is_default: { $ifNull: ['$todoProjectDoc.is_default', false] },
+        project_statuses: {
+          $map: {
+            input: { $ifNull: ['$todoProjectDoc.project_statuses', []] },
+            as: 's',
+            in: {
+              status_id: { $ifNull: ['$$s.status_id', ''] },
+              status_name: { $ifNull: ['$$s.status_name', ''] },
+              status_color: { $ifNull: ['$$s.status_color', ''] },
+              status_order: { $ifNull: ['$$s.status_order', 0] },
+            },
+          },
+        },
+        createdAt: toIso('$todoProjectDoc.createdAt'),
+        updatedAt: toIsoIfNotNull('$todoProjectDoc.updatedAt'),
+        project_members: {
+          $map: {
+            input: { $ifNull: ['$todoProjectDoc.project_members', []] },
+            as: 'm',
+            in: { $ifNull: [{ $toString: '$$m' }, ''] },
+          },
+        },
+      },
+      null,
+    ],
+  };
+}
+
+/**
+ * Stages that hydrate a system message with its RoomEvent + denormalized
+ * actor / target user info. Use right before the final `$project` of any
+ * message pipeline (Core / Detail / MultipleDetail).
+ *
+ * Output fields added:
+ *   - $roomEventDoc:  the RoomEvent document (or null)
+ *   - $roomEventActor: actor user (slim: _id, fullname, avatar, usr_id)
+ *   - $roomEventTargets: array of slim users for `targets`
+ *
+ * The downstream `$project` should expose them via `room_event` (see
+ * `buildRoomEventProjection`).
+ */
+function roomEventLookupStages(): PipelineStage[] {
+  return [
+    {
+      $lookup: {
+        from: 'RoomEvents',
+        let: { mid: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$message_id', '$$mid'] } } },
+          { $sort: { createdAt: -1 } },
+          { $limit: 1 },
+        ],
+        as: 'roomEventDoc',
+      },
+    },
+    { $addFields: { roomEventDoc: { $first: '$roomEventDoc' } } },
+    {
+      $lookup: {
+        from: 'Users',
+        localField: 'roomEventDoc.actor_id',
+        foreignField: '_id',
+        pipeline: [
+          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
+        ],
+        as: 'roomEventActor',
+      },
+    },
+    { $addFields: { roomEventActor: { $first: '$roomEventActor' } } },
+    {
+      $lookup: {
+        from: 'Users',
+        localField: 'roomEventDoc.targets',
+        foreignField: '_id',
+        pipeline: [
+          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
+        ],
+        as: 'roomEventTargets',
+      },
+    },
+  ];
+}
+
+/**
+ * Projection expression for `room_event` field. Returns null when the message
+ * has no linked RoomEvent (i.e. not a system message). Use inside `$project`:
+ *   room_event: buildRoomEventProjection(),
+ */
+function buildRoomEventProjection() {
+  return {
+    $cond: [
+      { $ifNull: ['$roomEventDoc', false] },
+      {
+        event_id: '$roomEventDoc.event_id',
+        event_type: '$roomEventDoc.event_type',
+        placeholder: '$roomEventDoc.placeholder',
+        payload: '$roomEventDoc.payload',
+        createdAt: '$roomEventDoc.createdAt',
+        actor: {
+          $cond: [
+            { $ifNull: ['$roomEventActor', false] },
+            {
+              _id: '$roomEventActor._id',
+              fullname: '$roomEventActor.usr_fullname',
+              avatar: '$roomEventActor.usr_avatar',
+              id: '$roomEventActor.usr_id',
+            },
+            null,
+          ],
+        },
+        targets: {
+          $map: {
+            input: { $ifNull: ['$roomEventTargets', []] },
+            as: 't',
+            in: {
+              _id: '$$t._id',
+              fullname: '$$t.usr_fullname',
+              avatar: '$$t.usr_avatar',
+              id: '$$t.usr_id',
+            },
+          },
+        },
+      },
+      null,
+    ],
+  };
+}
+
 export function buildMessageCorePipeline(userId: string): PipelineStage[] {
   const uid = Utils.convertToObjectIdMongoose(userId);
 
@@ -423,6 +623,75 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
+    /** 7.1b) Flashcard */
+    {
+      $lookup: {
+        from: 'Flashcards',
+        localField: 'flashcard_id',
+        foreignField: '_id',
+        as: 'flashcardDoc',
+      },
+    },
+    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
+    /** 7.1b) Flashcard */
+    {
+      $lookup: {
+        from: 'Flashcards',
+        localField: 'flashcard_id',
+        foreignField: '_id',
+        as: 'flashcardDoc',
+      },
+    },
+    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
+    /** 7.1b) Flashcard */
+    {
+      $lookup: {
+        from: 'Flashcards',
+        localField: 'flashcard_id',
+        foreignField: '_id',
+        as: 'flashcardDoc',
+      },
+    },
+    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
+    /** 7.2) Room event (for system messages) */
+    ...roomEventLookupStages(),
+
     /** 7) Project */
     {
       $project: {
@@ -443,6 +712,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         deletedAt: '$deletedAt',
         isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
+        placeholder: '$placeholder',
 
         // denormalized
         sender: {
@@ -494,6 +764,10 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        flashcard: buildFlashcardProjection(),
+        todoProject: buildTodoProjectProjection(),
+        // System message context (member added/left, call started/ended, ...)
+        room_event: buildRoomEventProjection(),
         // Summary cấp độ message để null, vì giờ dùng summary của attachment
         summary: { $literal: null },
       },
@@ -775,6 +1049,9 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
+    /** 7.2) Room event (for system messages) */
+    ...roomEventLookupStages(),
+
     /** 8) Project Final */
     {
       $project: {
@@ -790,6 +1067,7 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         deletedAt: '$deletedAt',
         isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
+        placeholder: '$placeholder',
 
         // denormalized
         sender: {
@@ -840,6 +1118,10 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        flashcard: buildFlashcardProjection(),
+        todoProject: buildTodoProjectProjection(),
+        // System message context (member added/left, call started/ended, ...)
+        room_event: buildRoomEventProjection(),
         summary: { $literal: null },
       },
     },
@@ -1118,6 +1400,10 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         quizDoc: { $first: '$quizDoc' },
       },
     },
+
+    /** 7.2) Room event (for system messages) */
+    ...roomEventLookupStages(),
+
     /** 8) Project Final */
     {
       $project: {
@@ -1133,6 +1419,7 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         deletedAt: '$deletedAt',
         isDeleted: { $toBool: '$deletedAt' },
         pinned: '$pinned',
+        placeholder: '$placeholder',
 
         // denormalized
         sender: {
@@ -1183,6 +1470,10 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
+        flashcard: buildFlashcardProjection(),
+        todoProject: buildTodoProjectProjection(),
+        // System message context (member added/left, call started/ended, ...)
+        room_event: buildRoomEventProjection(),
         summary: { $literal: null },
       },
     },
