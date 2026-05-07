@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Response } from '@app/helpers/response';
 import type { MulterFile } from '@app/dto';
+import { Observable } from 'rxjs';
 import {
   generateFlashcardPrompt,
   generateQuizzPrompt,
@@ -177,6 +178,81 @@ export class GoogleModerationProvider {
       );
       throw err;
     }
+  }
+
+  generateContentStreamObservable(
+    contents: GenerateContentRequest | string | Array<string | Part>,
+    userId: string,
+    service: string,
+    model?: string | null,
+  ): Observable<string> {
+    const start = Date.now();
+    const defaultModel =
+      this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite';
+    const modelName = model || defaultModel;
+    const activeModel = this.getModel(modelName);
+
+    return new Observable<string>((subscriber) => {
+      let fullText = '';
+      activeModel
+        .generateContentStream(contents)
+        .then(async (result) => {
+          try {
+            for await (const chunk of result.stream) {
+              const chunkText = chunk.text();
+              fullText += chunkText;
+              subscriber.next(chunkText);
+            }
+
+            const response = await result.response;
+            const latencyMs = Date.now() - start;
+            const parsedResult = this.safeParseJson<Record<string, unknown>>(
+              fullText,
+              {},
+            );
+            const tokenInput = response.usageMetadata?.promptTokenCount || 0;
+            const tokenOutput =
+              response.usageMetadata?.candidatesTokenCount || 0;
+            const costUsd = await this.calculateAicost(
+              response.usageMetadata,
+              modelName,
+            );
+
+            this.aiLogUseService.createLogUsage(
+              'google',
+              modelName,
+              service,
+              userId,
+              tokenInput,
+              tokenOutput,
+              latencyMs,
+              costUsd,
+              'success',
+              parsedResult,
+            );
+
+            subscriber.complete();
+          } catch (err) {
+            subscriber.error(err);
+          }
+        })
+        .catch((err) => {
+          const latencyMs = Date.now() - start;
+          this.aiLogUseService.createLogUsage(
+            'google',
+            modelName,
+            service,
+            userId,
+            0,
+            0,
+            latencyMs,
+            0,
+            'error',
+            err,
+          );
+          subscriber.error(err);
+        });
+    });
   }
 
   /**
@@ -349,7 +425,12 @@ export class GoogleModerationProvider {
     }
   }
 
-  async translation(text: string, from: string, to: string, model?: string | null) {
+  async translation(
+    text: string,
+    from: string,
+    to: string,
+    model?: string | null,
+  ) {
     const prompt = translationPrompt(text, from, to);
 
     try {
@@ -544,5 +625,119 @@ export class GoogleModerationProvider {
         'Bad input',
       );
     }
+  }
+
+  generateFlashcardStream(
+    topic: string,
+    type: 'text' | 'document' | 'file_url',
+    card_count: number,
+    difficulty: number,
+    language: string,
+    file?: MulterFile,
+    model?: string | null,
+  ): Observable<string> {
+    const prompt = generateFlashcardPrompt(
+      topic,
+      type,
+      card_count,
+      difficulty,
+      language,
+    );
+
+    const parts: Array<
+      { text: string } | { inlineData: { mimeType: string; data: string } }
+    > = [{ text: prompt }];
+
+    if ((type === 'document' || type === 'file_url') && file) {
+      parts.push({
+        inlineData: {
+          mimeType: file.mimetype,
+          data: Buffer.from(file.buffer).toString('base64'),
+        },
+      });
+    }
+
+    return this.generateContentStreamObservable(
+      {
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseMimeType: 'application/json' },
+      },
+      'system',
+      'generate-flashcard',
+      model,
+    );
+  }
+
+  generateQuizzStream(
+    file: MulterFile,
+    text: string,
+    type: 'text' | 'document',
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
+    question_max: number,
+    question_max_points: number,
+    model?: string | null,
+  ): Observable<string> {
+    const prompt = generateQuizzPrompt(
+      text,
+      type,
+      question_type,
+      question_max,
+      question_max_points,
+    );
+
+    return this.generateContentStreamObservable(
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              type === 'document'
+                ? {
+                    inlineData: {
+                      mimeType: file.mimetype,
+                      data: Buffer.from(file.buffer).toString('base64'),
+                    },
+                  }
+                : { text: text },
+            ],
+          },
+        ],
+        generationConfig: { responseMimeType: 'application/json' },
+      },
+      'system',
+      'generate-quizz',
+      model,
+    );
+  }
+
+  summaryDocumentStream(
+    file?: MulterFile,
+    model?: string | null,
+  ): Observable<string> {
+    const prompt = summaryDocumentPrompt();
+
+    const parts: Array<
+      { text: string } | { inlineData: { mimeType: string; data: string } }
+    > = [{ text: prompt }];
+
+    if (file) {
+      parts.push({
+        inlineData: {
+          mimeType: file.mimetype,
+          data: Buffer.from(file.buffer).toString('base64'),
+        },
+      });
+    }
+
+    return this.generateContentStreamObservable(
+      {
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseMimeType: 'application/json' },
+      },
+      'system',
+      'summary-document',
+      model,
+    );
   }
 }

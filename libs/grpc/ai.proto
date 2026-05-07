@@ -14,6 +14,15 @@ service AIService {
   rpc Translation(TranslationRequest) returns (TranslationResponse);
   rpc Quizz(QuizzRequest) returns (QuizzResponse);
   rpc GenerateFlashcard(GenerateFlashcardRequest) returns (GenerateFlashcardResponse);
+  
+  // Streaming Endpoints
+  rpc SummaryDocumentStream(SummaryDocumentRequest) returns (stream AiStreamResponse);
+  rpc QuizzStream(QuizzRequest) returns (stream AiStreamResponse);
+  rpc GenerateFlashcardStream(GenerateFlashcardRequest) returns (stream AiStreamResponse);
+}
+
+message AiStreamResponse {
+  string chunk = 1;
 }
 
 message FileRequest {

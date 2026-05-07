@@ -7,6 +7,7 @@ import { SearchMessagesDto } from '@app/dto/ai.dto';
 import type { MulterFile } from '@app/dto';
 import { AiLogUseService } from './ai-log-use.service';
 import type { AiLogUsagePayload } from './ai-log-use.service';
+import { map } from 'rxjs/operators';
 
 interface IAIService {
   suggestReplies(messages: string[]): Promise<{
@@ -205,6 +206,57 @@ export class AIController {
       data.file_url,
       data.model,
     );
+  }
+
+  @GrpcMethod('AIService', 'SummaryDocumentStream')
+  async summaryDocumentStream(data: {
+    type: 'document' | 'file_url';
+    file?: MulterFile;
+    file_url?: string;
+    model?: string | null;
+  }) {
+    const observable = await this.service.summaryDocumentStream(data.type, data.file, data.file_url, data.model);
+    return observable.pipe(map(chunk => ({ chunk })));
+  }
+
+  @GrpcMethod('AIService', 'QuizzStream')
+  async quizzStream(data: {
+    file: MulterFile;
+    text: string;
+    type: 'text' | 'document';
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
+    question_max: number;
+    question_max_points: number;
+    model?: string | null;
+  }) {
+    const observable = this.service.generateQuizzStream(
+      data.file, data.text || '', data.type, data.question_type, data.question_max, data.question_max_points, data.model
+    );
+    return observable.pipe(map(chunk => ({ chunk })));
+  }
+
+  @GrpcMethod('AIService', 'GenerateFlashcardStream')
+  async generateFlashcardStream(data: {
+    topic: string;
+    type: 'text' | 'document' | 'file_url';
+    card_count: number;
+    difficulty: number;
+    language: string;
+    file?: MulterFile;
+    file_url?: string;
+    model?: string | null;
+  }) {
+    const observable = await this.service.generateFlashcardStream(
+      data.topic,
+      data.type,
+      data.card_count ?? 10,
+      data.difficulty ?? 3,
+      data.language ?? 'vi',
+      data.file,
+      data.file_url,
+      data.model,
+    );
+    return observable.pipe(map(chunk => ({ chunk })));
   }
 
   @MessagePattern(KafkaEvent.AI_LOG_USAGE)

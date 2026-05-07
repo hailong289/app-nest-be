@@ -118,6 +118,68 @@ export class AIService {
     );
   }
 
+  async summaryDocumentStream(
+    type: 'document' | 'file_url',
+    file?: MulterFile,
+    file_url?: string,
+    model?: string | null,
+  ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
+    return this.googleProvider.summaryDocumentStream(inputFile, model);
+  }
+
+  generateQuizzStream(
+    file: MulterFile,
+    text: string,
+    type: 'text' | 'document',
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
+    question_max: number,
+    question_max_points: number,
+    model?: string | null,
+  ) {
+    return this.googleProvider.generateQuizzStream(
+      file,
+      text,
+      type,
+      question_type,
+      question_max,
+      question_max_points,
+      model,
+    );
+  }
+
+  async generateFlashcardStream(
+    topic: string,
+    type: 'text' | 'document' | 'file_url',
+    card_count: number,
+    difficulty: number,
+    language: string,
+    file?: MulterFile,
+    file_url?: string,
+    model?: string | null,
+  ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
+    return this.googleProvider.generateFlashcardStream(
+      topic,
+      type,
+      card_count,
+      difficulty,
+      language,
+      inputFile,
+      model,
+    );
+  }
+
   private async downloadFileFromUrl(fileUrl: string): Promise<MulterFile> {
     const response = await axios.get(fileUrl, { responseType: 'stream' });
     const chunks: Buffer[] = [];

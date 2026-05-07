@@ -11,6 +11,8 @@ import {
   Post,
   Query,
   Req,
+  Sse,
+  MessageEvent,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -28,6 +30,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { MulterFile } from '@app/dto';
 import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 interface AiGrpcService {
   // Define AI service methods here
   moderation(data: ModerationDto): Observable<unknown>;
@@ -55,6 +58,18 @@ interface AiGrpcService {
     file_url?: string;
     model?: string | null;
   }): Observable<unknown>;
+  summaryDocumentStream(data: SummaryDocumentDto): Observable<{ chunk: string }>;
+  quizzStream(data: QuizzDto): Observable<{ chunk: string }>;
+  generateFlashcardStream(data: {
+    topic: string;
+    type: 'text' | 'document' | 'file_url';
+    card_count: number;
+    difficulty: number;
+    language: string;
+    file?: unknown;
+    file_url?: string;
+    model?: string | null;
+  }): Observable<{ chunk: string }>;
 }
 
 @Controller('ai')
@@ -238,6 +253,89 @@ export class GatewayAiController {
         }),
       { ...body, file, file_url: body.file_url, model: body.model },
       180000, // 3 minutes timeout (AI cần thời gian tạo nhiều thẻ)
+    );
+  }
+
+  @Post('stream/summary-document')
+  @UseInterceptors(FileInterceptor('file'))
+  @Sse()
+  summaryDocumentStream(
+    @UploadedFile() file: MulterFile,
+    @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
+  ): Observable<MessageEvent> {
+    const stream = this.aiService.summaryDocumentStream({ file, type: body.type, file_url: body.file_url, model: body.model } as SummaryDocumentDto);
+    return stream.pipe(
+      map((res: { chunk: string }) => ({
+        data: res.chunk,
+      }))
+    );
+  }
+
+  @Post('stream/quizz')
+  @UseInterceptors(FileInterceptor('file'))
+  @Sse()
+  quizzStream(
+    @UploadedFile() file: MulterFile,
+    @Body()
+    body: {
+      text: string;
+      type: 'text' | 'document';
+      question_type:
+        | 'single_choice'
+        | 'multiple_choice'
+        | 'true_false'
+        | 'text';
+      question_max: number;
+      question_max_points: number;
+      model?: string | null;
+    },
+  ): Observable<MessageEvent> {
+    const stream = this.aiService.quizzStream({
+      file: file,
+      text: body?.text || '',
+      type: body.type,
+      question_type: body.question_type,
+      question_max: Number(body.question_max),
+      question_max_points: Number(body.question_max_points),
+      model: body.model,
+    } as any);
+    return stream.pipe(
+      map((res: { chunk: string }) => ({
+        data: res.chunk,
+      }))
+    );
+  }
+
+  @Post('stream/generate-flashcard')
+  @UseInterceptors(FileInterceptor('file'))
+  @Sse()
+  generateFlashcardStream(
+    @UploadedFile() file: MulterFile,
+    @Body()
+    body: {
+      topic: string;
+      type: 'text' | 'document' | 'file_url';
+      card_count: number;
+      difficulty: number;
+      language: string;
+      file_url?: string;
+      model?: string | null;
+    },
+  ): Observable<MessageEvent> {
+    const stream = this.aiService.generateFlashcardStream({
+      topic: body.topic ?? '',
+      type: body.type,
+      card_count: Number(body.card_count) || 10,
+      difficulty: Number(body.difficulty) || 3,
+      language: body.language || 'vi',
+      file: file as any,
+      file_url: body.file_url,
+      model: body.model,
+    });
+    return stream.pipe(
+      map((res: { chunk: string }) => ({
+        data: res.chunk,
+      }))
     );
   }
 }
