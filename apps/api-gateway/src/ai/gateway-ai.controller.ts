@@ -53,6 +53,7 @@ interface AiGrpcService {
     language: string;
     file?: unknown;
     file_url?: string;
+    model?: string | null;
   }): Observable<unknown>;
 }
 
@@ -131,12 +132,15 @@ export class GatewayAiController {
 
   @Post('summary-document')
   @UseInterceptors(FileInterceptor('file'))
-  async summaryDocument(@UploadedFile() file: MulterFile) {
-    console.log('SummaryDocument request:', file);
+  async summaryDocument(
+    @UploadedFile() file: MulterFile,
+    @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
+  ) {
+    console.log('SummaryDocument request:', { file, body });
     // Tăng timeout lên 2 phút (120000ms) cho xử lý document lớn
     return this.gatewayService.dispatchGrpcRequest(
       (data: SummaryDocumentDto) => this.aiService.summaryDocument(data),
-      { file },
+      { file, type: body.type, file_url: body.file_url, model: body.model },
       120000, // 2 minutes timeout
     );
   }
@@ -165,6 +169,7 @@ export class GatewayAiController {
         | 'text';
       question_max: number;
       question_max_points: number;
+      model?: string | null;
     },
   ) {
     console.log('Quizz request:', { file, body });
@@ -177,6 +182,7 @@ export class GatewayAiController {
         question_type: body.question_type,
         question_max: body.question_max,
         question_max_points: body.question_max_points,
+        model: body.model,
       },
       100000, // 1 minute timeout
     );
@@ -206,6 +212,7 @@ export class GatewayAiController {
       difficulty: number;
       language: string;
       file_url?: string;
+      model?: string | null;
     },
   ) {
     return this.gatewayService.dispatchGrpcRequest(
@@ -217,6 +224,7 @@ export class GatewayAiController {
         language?: string;
         file?: MulterFile;
         file_url?: string;
+        model?: string | null;
       }) =>
         this.aiService.generateFlashcard({
           topic: data.topic ?? '',
@@ -226,8 +234,9 @@ export class GatewayAiController {
           language: data.language || 'vi',
           file: data.file,
           file_url: data.file_url,
+          model: data.model,
         }),
-      { ...body, file, file_url: body.file_url },
+      { ...body, file, file_url: body.file_url, model: body.model },
       180000, // 3 minutes timeout (AI cần thời gian tạo nhiều thẻ)
     );
   }

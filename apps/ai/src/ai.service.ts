@@ -49,13 +49,24 @@ export class AIService {
     return messages;
   }
 
-  async summaryDocument(file: MulterFile) {
-    const result = await this.googleProvider.summaryDocument(file);
+  async summaryDocument(
+    type: 'document' | 'file_url',
+    file?: MulterFile,
+    file_url?: string,
+    model?: string | null,
+  ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
+    const result = await this.googleProvider.summaryDocument(inputFile, model);
     return result;
   }
 
-  async translation(text: string, from: string, to: string) {
-    const result = await this.googleProvider.translation(text, from, to);
+  async translation(text: string, from: string, to: string, model?: string | null) {
+    const result = await this.googleProvider.translation(text, from, to, model);
     return result;
   }
 
@@ -66,6 +77,7 @@ export class AIService {
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
     question_max: number,
     question_max_points: number,
+    model?: string | null,
   ) {
     const result = await this.googleProvider.generateQuizz(
       file,
@@ -74,6 +86,7 @@ export class AIService {
       question_type,
       question_max,
       question_max_points,
+      model,
     );
     return result;
   }
@@ -86,6 +99,7 @@ export class AIService {
     language: string,
     file?: MulterFile,
     file_url?: string,
+    model?: string | null,
   ) {
     let inputFile = file;
 
@@ -100,6 +114,7 @@ export class AIService {
       difficulty,
       language,
       inputFile,
+      model,
     );
   }
 

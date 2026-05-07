@@ -82,9 +82,10 @@ message SearchMessagesResponse {
 }
 
 message SummaryDocumentRequest {
-  bytes file = 1;
-  string filename = 2;
-  string mimetype = 3;
+  string type = 1;
+  FileRequest file = 2;
+  string file_url = 3;
+  optional string model = 4;
 }
 
 message SummaryDocumentResponse {
@@ -98,6 +99,7 @@ message TranslationRequest {
   string text = 1;
   string from = 2;
   string to = 3;
+  optional string model = 4;
 }
 
 message TranslationResponse {
@@ -114,6 +116,7 @@ message QuizzRequest {
   string question_type = 4; // single_choice, multiple_choice, true_false, text
   int32 question_max = 5;
   int32 question_max_points = 6;
+  optional string model = 7;
 }
 
 message QuizzResponse {
@@ -153,6 +156,7 @@ message GenerateFlashcardRequest {
   string language = 5;
   FileRequest file = 6;
   string file_url = 7;
+  optional string model = 8;
 }
 
 message GeneratedFlashcard {

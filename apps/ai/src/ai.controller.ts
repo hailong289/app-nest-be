@@ -5,6 +5,8 @@ import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
 import { SearchMessagesDto } from '@app/dto/ai.dto';
 import type { MulterFile } from '@app/dto';
+import { AiLogUseService } from './ai-log-use.service';
+import type { AiLogUsagePayload } from './ai-log-use.service';
 
 interface IAIService {
   suggestReplies(messages: string[]): Promise<{
@@ -19,6 +21,7 @@ export class AIController {
   constructor(
     private readonly service: AIService,
     private readonly embeddingService: EmbeddingService,
+    private readonly aiLogUseService: AiLogUseService,
   ) {}
 
   @GrpcMethod('AIService', 'Moderation')
@@ -127,13 +130,28 @@ export class AIController {
   }
 
   @GrpcMethod('AIService', 'SummaryDocument')
-  async summaryDocument(data: { file: MulterFile }) {
-    return await this.service.summaryDocument(data.file);
+  async summaryDocument(data: {
+    /** Nguồn dữ liệu: 'document' (file đính kèm) hoặc 'file_url' */
+    type: 'document' | 'file_url';
+    /** File đính kèm (chỉ dùng khi type = 'document') */
+    file?: MulterFile;
+    /** URL file nguồn (chỉ dùng khi type = 'file_url') */
+    file_url?: string;
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
+  }) {
+    return await this.service.summaryDocument(data.type, data.file, data.file_url, data.model);
   }
 
   @GrpcMethod('AIService', 'Translation')
-  async translation(data: { text: string; from: string; to: string }) {
-    return await this.service.translation(data.text, data.from, data.to);
+  async translation(data: {
+    text: string;
+    from: string;
+    to: string;
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
+  }) {
+    return await this.service.translation(data.text, data.from, data.to, data.model);
   }
 
   @GrpcMethod('AIService', 'Quizz')
@@ -144,6 +162,8 @@ export class AIController {
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
     question_max: number; // số lượng câu hỏi tối đa
     question_max_points: number; // điểm số tối đa cho bài trắc nghiệm
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
   }) {
     return await this.service.generateQuizz(
       data.file,
@@ -152,6 +172,7 @@ export class AIController {
       data.question_type,
       data.question_max,
       data.question_max_points,
+      data.model,
     );
   }
 
@@ -171,6 +192,8 @@ export class AIController {
     file?: MulterFile;
     /** URL file nguồn (chỉ dùng khi type = 'file_url') */
     file_url?: string;
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
   }) {
     return await this.service.generateFlashcard(
       data.topic,
@@ -180,6 +203,12 @@ export class AIController {
       data.language ?? 'vi',
       data.file,
       data.file_url,
+      data.model,
     );
+  }
+
+  @MessagePattern(KafkaEvent.AI_LOG_USAGE)
+  async handleAiLogUsage(payload: AiLogUsagePayload) {
+    await this.aiLogUseService.writeLogToDb(payload);
   }
 }

@@ -17,31 +17,124 @@ import {
   translationPrompt,
 } from './prompt/ai.prompt';
 import { AiLogUseService } from './ai-log-use.service';
+
+const AI_MODELS_CONFIG = {
+  // Dòng Gemini 3.1 Pro: Giá thay đổi theo ngưỡng 200k tokens
+  'gemini-3.1-pro': {
+    tiered: true,
+    tiers: [
+      { max: 200000, input: 2.0, output: 12.0 },
+      { max: Infinity, input: 4.0, output: 18.0 },
+    ],
+  },
+
+  // Dòng Gemini 2.5 Pro: Ngưỡng 200k tokens
+  'gemini-2.5-pro': {
+    tiered: true,
+    tiers: [
+      { max: 200000, input: 1.25, output: 10.0 },
+      { max: Infinity, input: 2.5, output: 15.0 },
+    ],
+  },
+
+  // Dòng Gemini 2.5 Flash: Giá cố định (Flat rate)
+  'gemini-2.5-flash': {
+    tiered: false,
+    input: 0.3,
+    output: 2.5,
+    audioInput: 1.0, // Giá riêng cho audio input
+  },
+
+  // Dòng Gemini 2.5 Flash-Lite (Siêu rẻ theo data gửi)
+  'gemini-2.5-flash-lite': {
+    tiered: false,
+    input: 0.1,
+    output: 0.4,
+    audioInput: 0.3,
+  },
+
+  // Dòng Gemini 2.0 Flash (Bản cũ nhưng vẫn được dùng nhiều)
+  'gemini-2.0-flash': {
+    tiered: false,
+    input: 0.1,
+    output: 0.4,
+  },
+};
+
 @Injectable()
 export class GoogleModerationProvider {
   private readonly model: GenerativeModel;
+  private readonly client: GoogleGenerativeAI;
   private readonly logger = new Logger(GoogleModerationProvider.name);
 
   constructor(
     private cfg: ConfigService,
     private aiLogUseService: AiLogUseService,
   ) {
-    const client = new GoogleGenerativeAI(
+    this.client = new GoogleGenerativeAI(
       this.cfg.get<string>('google.apiKey') || '',
     );
-    this.model = client.getGenerativeModel({
+    this.model = this.client.getGenerativeModel({
       model: this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite',
     });
+  }
+
+  /**
+   * Lấy GenerativeModel theo tên model chỉ định, hoặc dùng model mặc định.
+   */
+  private getModel(modelName: string): GenerativeModel {
+    const defaultModel =
+      this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite';
+    if (modelName && modelName !== defaultModel) {
+      return this.client.getGenerativeModel({ model: modelName });
+    }
+    return this.model;
+  }
+
+  /**
+   * Hàm tính toán chi phí linh hoạt
+   * @param {Object} usage - Metadata từ API trả về
+   * @param {string} modelName - Tên model (ví dụ: 'gemini-3.1-pro')
+   * @param {boolean} isAudio - (Optional) Nếu input là audio thì dùng giá audio
+   */
+  async calculateAicost(usage, modelName, isAudio = false) {
+    const config = AI_MODELS_CONFIG[modelName];
+    if (!config || !usage) return 0;
+
+    const promptTokens = usage.promptTokenCount || 0;
+    const outputTokens = usage.candidatesTokenCount || 0;
+
+    let inputRate, outputRate;
+
+    if (config.tiered) {
+      const tier = config.tiers.find((t) => promptTokens <= t.max);
+      inputRate = tier.input;
+      outputRate = tier.output;
+    } else {
+      inputRate =
+        isAudio && config.audioInput ? config.audioInput : config.input;
+      outputRate = config.output;
+    }
+
+    const cost =
+      (promptTokens / 1_000_000) * inputRate +
+      (outputTokens / 1_000_000) * outputRate;
+    return cost;
   }
 
   async generateContent(
     contents: GenerateContentRequest | string | Array<string | Part>,
     userId: string,
     service: string,
+    model?: string | null,
   ): Promise<Record<string, unknown>> {
     const start = Date.now();
+    const defaultModel =
+      this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite';
+    const modelName = model || defaultModel;
+    const activeModel = this.getModel(modelName);
     try {
-      const result = await this.model.generateContent(contents);
+      const result = await activeModel.generateContent(contents);
       const latencyMs = Date.now() - start;
       const jsonString = result.response.text() || '{}';
       const parsedResult = this.safeParseJson<Record<string, unknown>>(
@@ -51,14 +144,13 @@ export class GoogleModerationProvider {
       const tokenInput = result.response.usageMetadata?.promptTokenCount || 0;
       const tokenOutput =
         result.response.usageMetadata?.candidatesTokenCount || 0;
-      // Calculate cost manually based on token counts (pricing: input $0.075/1M tokens, output $0.30/1M tokens for gemini-2.5-flash-lite)
-      const costUsd =
-        tokenInput && tokenOutput
-          ? (tokenInput / 1_000_000) * 0.075 + (tokenOutput / 1_000_000) * 0.3
-          : 0;
+      const costUsd = await this.calculateAicost(
+        result.response.usageMetadata,
+        modelName,
+      );
       await this.aiLogUseService.createLogUsage(
         'google',
-        'gemini-2.5-flash-lite',
+        modelName,
         service,
         userId,
         tokenInput,
@@ -73,7 +165,7 @@ export class GoogleModerationProvider {
       const latencyMs = Date.now() - start;
       await this.aiLogUseService.createLogUsage(
         'google',
-        'gemini-2.5-flash-lite',
+        modelName,
         service,
         userId,
         0,
@@ -185,7 +277,15 @@ export class GoogleModerationProvider {
     }
   }
 
-  async summaryDocument(file: MulterFile) {
+  async summaryDocument(file?: MulterFile, model?: string | null) {
+    if (!file) {
+      return Response.error(
+        'File không hợp lệ hoặc không được cung cấp',
+        400,
+        'Bad input',
+      );
+    }
+
     // 1. Soạn Prompt chi tiết để AI tóm tắt có cấu trúc
     const prompt = summaryDocumentPrompt();
 
@@ -211,6 +311,7 @@ export class GoogleModerationProvider {
         },
         'system',
         'summary-document',
+        model,
       );
 
       // 4. Parse kết quả
@@ -248,7 +349,7 @@ export class GoogleModerationProvider {
     }
   }
 
-  async translation(text: string, from: string, to: string) {
+  async translation(text: string, from: string, to: string, model?: string | null) {
     const prompt = translationPrompt(text, from, to);
 
     try {
@@ -259,6 +360,7 @@ export class GoogleModerationProvider {
         },
         'system',
         'translation',
+        model,
       );
 
       // 3. Xử lý kết quả trả về
@@ -291,6 +393,7 @@ export class GoogleModerationProvider {
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
     question_max: number,
     question_max_points: number,
+    model?: string | null,
   ) {
     const prompt = generateQuizzPrompt(
       text,
@@ -323,6 +426,7 @@ export class GoogleModerationProvider {
         },
         'system',
         'generate-quizz',
+        model,
       );
 
       return Response.success(
@@ -348,6 +452,7 @@ export class GoogleModerationProvider {
     difficulty: number,
     language: string,
     file?: MulterFile,
+    model?: string | null,
   ) {
     const prompt = generateFlashcardPrompt(
       topic,
@@ -378,6 +483,7 @@ export class GoogleModerationProvider {
         },
         'system',
         'generate-flashcard',
+        model,
       );
 
       const parsed = result as {
