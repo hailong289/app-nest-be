@@ -11,12 +11,14 @@ import {
   Post,
   Query,
   Req,
+  Res,
   Sse,
   MessageEvent,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
+import type { Response } from 'express';
 import { GatewayService } from '../gateway/gateway.service';
 import {
   GenerateFlashcardDto,
@@ -31,6 +33,7 @@ import type { MulterFile } from '@app/dto';
 import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { wrapUnaryGrpcAsSse } from './sse-ai.helpers';
 interface AiGrpcService {
   // Define AI service methods here
   moderation(data: ModerationDto): Observable<unknown>;
@@ -82,6 +85,19 @@ export class GatewayAiController {
 
   onModuleInit() {
     this.aiService = this.aiClient.getService<AiGrpcService>('AIService');
+  }
+
+  private initSseResponse(res: Response): void {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (
+      typeof (res as Response & { flushHeaders?: () => void }).flushHeaders ===
+      'function'
+    ) {
+      (res as Response & { flushHeaders?: () => void }).flushHeaders?.();
+    }
   }
 
   @Post('moderation')
@@ -151,7 +167,6 @@ export class GatewayAiController {
     @UploadedFile() file: MulterFile,
     @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
   ) {
-    console.log('SummaryDocument request:', { file, body });
     // Tăng timeout lên 2 phút (120000ms) cho xử lý document lớn
     return this.gatewayService.dispatchGrpcRequest(
       (data: SummaryDocumentDto) => this.aiService.summaryDocument(data),
@@ -187,7 +202,6 @@ export class GatewayAiController {
       model?: string | null;
     },
   ) {
-    console.log('Quizz request:', { file, body });
     return this.gatewayService.dispatchGrpcRequest(
       (data: QuizzDto) => this.aiService.quizz(data),
       {
@@ -258,22 +272,40 @@ export class GatewayAiController {
 
   @Post('stream/summary-document')
   @UseInterceptors(FileInterceptor('file'))
-  @Sse()
   summaryDocumentStream(
     @UploadedFile() file: MulterFile,
     @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
-  ): Observable<MessageEvent> {
-    const stream = this.aiService.summaryDocumentStream({ file, type: body.type, file_url: body.file_url, model: body.model } as SummaryDocumentDto);
-    return stream.pipe(
-      map((res: { chunk: string }) => ({
-        data: res.chunk,
-      }))
-    );
+    @Res() res: Response,
+  ): void {
+    this.initSseResponse(res);
+
+    const stream = this.aiService.summaryDocumentStream({
+      file,
+      type: body.type,
+      file_url: body.file_url,
+      model: body.model,
+    } as SummaryDocumentDto);
+
+    const sub = stream.subscribe({
+      next: (item: { chunk: string }) => {
+        res.write(`data: ${item?.chunk || ''}\n\n`);
+      },
+      error: (err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      },
+      complete: () => {
+        res.end();
+      },
+    });
+
+    res.on('close', () => {
+      sub.unsubscribe();
+    });
   }
 
   @Post('stream/quizz')
   @UseInterceptors(FileInterceptor('file'))
-  @Sse()
   quizzStream(
     @UploadedFile() file: MulterFile,
     @Body()
@@ -289,7 +321,10 @@ export class GatewayAiController {
       question_max_points: number;
       model?: string | null;
     },
-  ): Observable<MessageEvent> {
+    @Res() res: Response,
+  ): void {
+    this.initSseResponse(res);
+
     const stream = this.aiService.quizzStream({
       file: file,
       text: body?.text || '',
@@ -298,17 +333,28 @@ export class GatewayAiController {
       question_max: Number(body.question_max),
       question_max_points: Number(body.question_max_points),
       model: body.model,
-    } as any);
-    return stream.pipe(
-      map((res: { chunk: string }) => ({
-        data: res.chunk,
-      }))
-    );
+    } as QuizzDto);
+
+    const sub = stream.subscribe({
+      next: (item: { chunk: string }) => {
+        res.write(`data: ${item?.chunk || ''}\n\n`);
+      },
+      error: (err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      },
+      complete: () => {
+        res.end();
+      },
+    });
+
+    res.on('close', () => {
+      sub.unsubscribe();
+    });
   }
 
   @Post('stream/generate-flashcard')
   @UseInterceptors(FileInterceptor('file'))
-  @Sse()
   generateFlashcardStream(
     @UploadedFile() file: MulterFile,
     @Body()
@@ -321,21 +367,130 @@ export class GatewayAiController {
       file_url?: string;
       model?: string | null;
     },
-  ): Observable<MessageEvent> {
+    @Res() res: Response,
+  ): void {
+    this.initSseResponse(res);
+
     const stream = this.aiService.generateFlashcardStream({
       topic: body.topic ?? '',
       type: body.type,
       card_count: Number(body.card_count) || 10,
       difficulty: Number(body.difficulty) || 3,
       language: body.language || 'vi',
-      file: file as any,
+      file: file as MulterFile,
       file_url: body.file_url,
       model: body.model,
     });
-    return stream.pipe(
-      map((res: { chunk: string }) => ({
-        data: res.chunk,
-      }))
+
+    const sub = stream.subscribe({
+      next: (item: { chunk: string }) => {
+        res.write(`data: ${item?.chunk || ''}\n\n`);
+      },
+      error: (err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      },
+      complete: () => {
+        res.end();
+      },
+    });
+
+    res.on('close', () => {
+      sub.unsubscribe();
+    });
+  }
+
+  /** SSE unary-wrap: same contract as POST /ai/search */
+  @Post('stream/search')
+  @Sse()
+  searchStream(
+    @Body() body: { query: string; roomId?: string; limit?: number },
+    @Req() req: AuthenticatedRequest,
+  ): Observable<MessageEvent> {
+    return wrapUnaryGrpcAsSse(
+      () =>
+        this.gatewayService.dispatchGrpcRequest(
+          (data: {
+            query: string;
+            userId: string;
+            limit: number;
+            roomId?: string;
+          }) => this.aiService.search(data),
+          {
+            query: body.query,
+            userId: req.user.usr_id,
+            limit: body.limit ?? 5,
+            roomId: body.roomId,
+          },
+          60000,
+        ),
+      'ai/stream/search',
+    );
+  }
+
+  @Post('stream/suggest-replies')
+  @Sse()
+  suggestRepliesStream(
+    @Body() body: { contextMessages: string[] },
+    @Req() req: AuthenticatedRequest,
+  ): Observable<MessageEvent> {
+    return wrapUnaryGrpcAsSse(
+      () =>
+        this.gatewayService.dispatchGrpcRequest(
+          (data: { contextMessages: string[]; userId: string }) =>
+            this.aiService.suggestReplies(data),
+          {
+            contextMessages: body.contextMessages,
+            userId: req.user.usr_id,
+          },
+          100000,
+        ),
+      'ai/stream/suggest-replies',
+    );
+  }
+
+  @Post('stream/translation')
+  @Sse()
+  translationStream(@Body() body: TranslationDto): Observable<MessageEvent> {
+    return wrapUnaryGrpcAsSse(
+      () =>
+        this.gatewayService.dispatchGrpcRequest(
+          (data: TranslationDto) => this.aiService.translation(data),
+          body,
+          100000,
+        ),
+      'ai/stream/translation',
+    );
+  }
+
+  @Post('stream/moderation')
+  @Sse()
+  moderationStream(@Body() body: ModerationDto): Observable<MessageEvent> {
+    return wrapUnaryGrpcAsSse(
+      () =>
+        this.gatewayService.dispatchGrpcRequest(
+          (data: ModerationDto) => this.aiService.moderation(data),
+          body,
+          120000,
+        ),
+      'ai/stream/moderation',
+    );
+  }
+
+  /** SSE unary-wrap: same semantics as GET /ai/search-messages (EventSource-friendly GET). */
+  @Get('stream/search-messages')
+  @Sse()
+  searchMessagesStream(
+    @Query() query: SearchMessagesDto,
+  ): Observable<MessageEvent> {
+    return wrapUnaryGrpcAsSse(
+      () =>
+        this.gatewayService.dispatchGrpcRequest(
+          (data: SearchMessagesDto) => this.aiService.searchMessages(data),
+          query,
+          60000,
+        ),
+      'ai/stream/search-messages',
     );
   }
 }

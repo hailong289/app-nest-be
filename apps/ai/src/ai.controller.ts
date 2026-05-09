@@ -157,7 +157,7 @@ export class AIController {
 
   @GrpcMethod('AIService', 'Quizz')
   async quizz(data: {
-    file: MulterFile;
+    file?: MulterFile;
     text: string;
     type: 'text' | 'document';
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
@@ -221,7 +221,7 @@ export class AIController {
 
   @GrpcMethod('AIService', 'QuizzStream')
   async quizzStream(data: {
-    file: MulterFile;
+    file?: MulterFile;
     text: string;
     type: 'text' | 'document';
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';

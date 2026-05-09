@@ -71,7 +71,7 @@ export class AIService {
   }
 
   async generateQuizz(
-    file: MulterFile,
+    file: MulterFile | undefined,
     text: string,
     type: 'text' | 'document',
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
@@ -134,7 +134,7 @@ export class AIService {
   }
 
   generateQuizzStream(
-    file: MulterFile,
+    file: MulterFile | undefined,
     text: string,
     type: 'text' | 'document',
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',

@@ -199,12 +199,22 @@ export class GoogleModerationProvider {
         .then(async (result) => {
           try {
             for await (const chunk of result.stream) {
-              const chunkText = chunk.text();
+              const chunkText = this.extractGeminiText(chunk);
               fullText += chunkText;
-              subscriber.next(chunkText);
+              if (chunkText) {
+                subscriber.next(chunkText);
+              }
             }
 
             const response = await result.response;
+            // Some JSON responses (especially with responseMimeType=application/json)
+            // may not provide non-empty incremental chunks. In that case, emit the
+            // finalized text once so SSE clients still receive data.
+            const responseText = this.extractGeminiText(response);
+            if (!fullText.trim() && responseText.trim()) {
+              fullText = responseText;
+              subscriber.next(responseText);
+            }
             const latencyMs = Date.now() - start;
             const parsedResult = this.safeParseJson<Record<string, unknown>>(
               fullText,
@@ -253,6 +263,38 @@ export class GoogleModerationProvider {
           subscriber.error(err);
         });
     });
+  }
+
+  /**
+   * Gemini SDK can return empty `text()` for streaming JSON chunks in some
+   * cases. This helper falls back to reading candidates/parts text.
+   */
+  private extractGeminiText(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return '';
+
+    const anyPayload = payload as {
+      text?: () => string;
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{ text?: string }>;
+        };
+      }>;
+    };
+
+    try {
+      const fromTextFn =
+        typeof anyPayload.text === 'function' ? anyPayload.text() : '';
+      if (fromTextFn && fromTextFn.trim()) return fromTextFn;
+    } catch {
+      // Ignore and fallback to candidates text.
+    }
+
+    const parts = anyPayload.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return '';
+
+    return parts
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .join('');
   }
 
   /**
@@ -468,7 +510,7 @@ export class GoogleModerationProvider {
   }
 
   async generateQuizz(
-    file: MulterFile,
+    file: MulterFile | undefined,
     text: string,
     type: 'text' | 'document',
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
@@ -476,6 +518,14 @@ export class GoogleModerationProvider {
     question_max_points: number,
     model?: string | null,
   ) {
+    if (type === 'document' && !file) {
+      return Response.error(
+        'Thiếu file tài liệu cho chế độ document',
+        400,
+        'Bad input',
+      );
+    }
+
     const prompt = generateQuizzPrompt(
       text,
       type,
@@ -483,6 +533,19 @@ export class GoogleModerationProvider {
       question_max,
       question_max_points,
     );
+    const parts: Array<
+      { text: string } | { inlineData: { mimeType: string; data: string } }
+    > = [{ text: prompt }];
+    if (type === 'document' && file) {
+      parts.push({
+        inlineData: {
+          mimeType: file.mimetype,
+          data: Buffer.from(file.buffer).toString('base64'),
+        },
+      });
+    } else {
+      parts.push({ text });
+    }
     console.log('prompt', prompt);
     try {
       const result = await this.generateContent(
@@ -490,17 +553,7 @@ export class GoogleModerationProvider {
           contents: [
             {
               role: 'user',
-              parts: [
-                { text: prompt },
-                type === 'document'
-                  ? {
-                      inlineData: {
-                        mimeType: file.mimetype,
-                        data: Buffer.from(file.buffer).toString('base64'),
-                      },
-                    }
-                  : { text: text },
-              ],
+              parts,
             },
           ],
           generationConfig: { responseMimeType: 'application/json' },
@@ -669,7 +722,7 @@ export class GoogleModerationProvider {
   }
 
   generateQuizzStream(
-    file: MulterFile,
+    file: MulterFile | undefined,
     text: string,
     type: 'text' | 'document',
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
@@ -677,6 +730,14 @@ export class GoogleModerationProvider {
     question_max_points: number,
     model?: string | null,
   ): Observable<string> {
+    if (type === 'document' && !file) {
+      return new Observable<string>((subscriber) => {
+        subscriber.error(
+          new Error('Thiếu file tài liệu cho chế độ document'),
+        );
+      });
+    }
+
     const prompt = generateQuizzPrompt(
       text,
       type,
@@ -684,23 +745,26 @@ export class GoogleModerationProvider {
       question_max,
       question_max_points,
     );
+    const parts: Array<
+      { text: string } | { inlineData: { mimeType: string; data: string } }
+    > = [{ text: prompt }];
+    if (type === 'document' && file) {
+      parts.push({
+        inlineData: {
+          mimeType: file.mimetype,
+          data: Buffer.from(file.buffer).toString('base64'),
+        },
+      });
+    } else {
+      parts.push({ text });
+    }
 
     return this.generateContentStreamObservable(
       {
         contents: [
           {
             role: 'user',
-            parts: [
-              { text: prompt },
-              type === 'document'
-                ? {
-                    inlineData: {
-                      mimeType: file.mimetype,
-                      data: Buffer.from(file.buffer).toString('base64'),
-                    },
-                  }
-                : { text: text },
-            ],
+            parts,
           },
         ],
         generationConfig: { responseMimeType: 'application/json' },
