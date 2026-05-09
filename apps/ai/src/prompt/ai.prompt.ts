@@ -44,6 +44,28 @@ export const summaryDocumentPrompt = () => {
   `;
 };
 
+export const speechToTextPrompt = (language: 'vi' | 'en') => {
+  const langLabel = language === 'en' ? 'English' : 'Vietnamese (Tiếng Việt)';
+  return `
+Role: Bạn là một hệ thống nhận dạng giọng nói chuyên nghiệp.
+Nhiệm vụ: Nghe đoạn audio đính kèm và chuyển thành văn bản.
+
+YÊU CẦU NGHIÊM NGẶT:
+1. Trích xuất CHÍNH XÁC từng từ người nói. KHÔNG paraphrase, KHÔNG diễn giải, KHÔNG thêm/bớt từ.
+2. Giữ dấu chấm câu cơ bản (. , ? !) để dễ đọc nhưng không thêm cảm xúc.
+3. Ngôn ngữ ưu tiên: ${langLabel}. Nếu audio dùng ngôn ngữ khác, vẫn transcribe đúng ngôn ngữ gốc và đặt trường "detectedLanguage" tương ứng (mã ISO ngắn: vi, en, ...).
+4. Nếu audio chỉ có nhạc, tạp âm hoặc khoảng lặng (không có giọng nói rõ), trả về "transcript": "".
+5. Không bao gồm marker (như [music], [silence]) — chỉ text thuần.
+
+OUTPUT FORMAT:
+Trả về DUY NHẤT một JSON object hợp lệ (không markdown, không giải thích thêm):
+{
+  "transcript": "Nội dung đã transcribe",
+  "detectedLanguage": "vi"
+}
+  `;
+};
+
 export const translationPrompt = (text: string, from: string, to: string) => {
   return `
     Role: Bạn là một biên dịch viên chuyên nghiệp.
