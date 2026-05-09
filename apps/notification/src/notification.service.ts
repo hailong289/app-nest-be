@@ -48,7 +48,7 @@ export class NotificationService {
   }
 
   async sendForgotPasswordEmail(data: { email: string; token: string }) {
-    const urlFrontend = this.configService.get<string>('app.url_frontend') || process.env.URL_FRONTEND || process.env.APP_URL_FRONTEND || 'http://localhost:3000';
+    const urlFrontend = this.configService.get<string>('app.url_frontend') || process.env.URL_FRONTEND || process.env.APP_URL_FRONTEND || 'https://app-chat-fe-service-534152738497.asia-southeast1.run.app';
     await this.mailerService.sendMail({
       to: data.email,
       subject: 'Yêu cầu đặt lại mật khẩu',
