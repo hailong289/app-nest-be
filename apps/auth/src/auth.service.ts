@@ -75,7 +75,9 @@ interface KeysDeviceContextUpdate {
 
 @Injectable()
 export class AuthService implements OnModuleInit {
-  private readonly gatewayUrl = process.env.GATEWAY_URL;
+  private get gatewayUrl() {
+    return process.env.GATEWAY_URL || 'http://localhost:5000';
+  }
   private readonly key = REDISKEY;
   private readonly logger = new Logger(AuthService.name);
 
