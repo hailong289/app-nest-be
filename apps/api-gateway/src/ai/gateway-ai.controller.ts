@@ -402,79 +402,101 @@ export class GatewayAiController {
 
   /** SSE unary-wrap: same contract as POST /ai/search */
   @Post('stream/search')
-  @Sse()
   searchStream(
     @Body() body: { query: string; roomId?: string; limit?: number },
     @Req() req: AuthenticatedRequest,
-  ): Observable<MessageEvent> {
-    return wrapUnaryGrpcAsSse(
-      () =>
-        this.gatewayService.dispatchGrpcRequest(
-          (data: {
-            query: string;
-            userId: string;
-            limit: number;
-            roomId?: string;
-          }) => this.aiService.search(data),
-          {
-            query: body.query,
-            userId: req.user.usr_id,
-            limit: body.limit ?? 5,
-            roomId: body.roomId,
-          },
-          60000,
-        ),
-      'ai/stream/search',
-    );
+    @Res() res: Response,
+  ): void {
+    this.initSseResponse(res);
+    void this.gatewayService
+      .dispatchGrpcRequest(
+        (data: {
+          query: string;
+          userId: string;
+          limit: number;
+          roomId?: string;
+        }) => this.aiService.search(data),
+        {
+          query: body.query,
+          userId: req.user.usr_id,
+          limit: body.limit ?? 5,
+          roomId: body.roomId,
+        },
+        60000,
+      )
+      .then((result) => {
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+        res.end();
+      })
+      .catch((err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      });
   }
 
   @Post('stream/suggest-replies')
-  @Sse()
   suggestRepliesStream(
     @Body() body: { contextMessages: string[] },
     @Req() req: AuthenticatedRequest,
-  ): Observable<MessageEvent> {
-    return wrapUnaryGrpcAsSse(
-      () =>
-        this.gatewayService.dispatchGrpcRequest(
-          (data: { contextMessages: string[]; userId: string }) =>
-            this.aiService.suggestReplies(data),
-          {
-            contextMessages: body.contextMessages,
-            userId: req.user.usr_id,
-          },
-          100000,
-        ),
-      'ai/stream/suggest-replies',
-    );
+    @Res() res: Response,
+  ): void {
+    this.initSseResponse(res);
+    void this.gatewayService
+      .dispatchGrpcRequest(
+        (data: { contextMessages: string[]; userId: string }) =>
+          this.aiService.suggestReplies(data),
+        {
+          contextMessages: body.contextMessages,
+          userId: req.user.usr_id,
+        },
+        100000,
+      )
+      .then((result) => {
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+        res.end();
+      })
+      .catch((err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      });
   }
 
   @Post('stream/translation')
-  @Sse()
-  translationStream(@Body() body: TranslationDto): Observable<MessageEvent> {
-    return wrapUnaryGrpcAsSse(
-      () =>
-        this.gatewayService.dispatchGrpcRequest(
-          (data: TranslationDto) => this.aiService.translation(data),
-          body,
-          100000,
-        ),
-      'ai/stream/translation',
-    );
+  translationStream(@Body() body: TranslationDto, @Res() res: Response): void {
+    this.initSseResponse(res);
+    void this.gatewayService
+      .dispatchGrpcRequest(
+        (data: TranslationDto) => this.aiService.translation(data),
+        body,
+        100000,
+      )
+      .then((result) => {
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+        res.end();
+      })
+      .catch((err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      });
   }
 
   @Post('stream/moderation')
-  @Sse()
-  moderationStream(@Body() body: ModerationDto): Observable<MessageEvent> {
-    return wrapUnaryGrpcAsSse(
-      () =>
-        this.gatewayService.dispatchGrpcRequest(
-          (data: ModerationDto) => this.aiService.moderation(data),
-          body,
-          120000,
-        ),
-      'ai/stream/moderation',
-    );
+  moderationStream(@Body() body: ModerationDto, @Res() res: Response): void {
+    this.initSseResponse(res);
+    void this.gatewayService
+      .dispatchGrpcRequest(
+        (data: ModerationDto) => this.aiService.moderation(data),
+        body,
+        120000,
+      )
+      .then((result) => {
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+        res.end();
+      })
+      .catch((err: unknown) => {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.end();
+      });
   }
 
   /** SSE unary-wrap: same semantics as GET /ai/search-messages (EventSource-friendly GET). */
