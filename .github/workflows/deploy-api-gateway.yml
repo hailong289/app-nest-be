@@ -63,3 +63,11 @@ jobs:
             --set-env-vars GATEWAY_LEARNING_HOST=${{ secrets.GATEWAY_LEARNING_HOST }} \
             --set-env-vars GATEWAY_LEARNING_PORT=${{ secrets.GATEWAY_LEARNING_PORT }} \
             --set-env-vars GATEWAY_LEARNING_PROTO_PATH=${{ secrets.GATEWAY_LEARNING_PROTO_PATH }} \
+            --set-env-vars KAFKA_HOST=${{ secrets.KAFKA_HOST }} \
+            --set-env-vars KAFKA_PORT=${{ secrets.KAFKA_PORT }} \
+            --set-env-vars KAFKA_CLIENT_ID=${{ secrets.KAFKA_CLIENT_ID }} \
+            --set-env-vars KAFKA_GROUP_ID=${{ secrets.KAFKA_GROUP_ID }} \
+            --set-env-vars KAFKA_SASL=${{ secrets.KAFKA_SASL }} \
+            --set-env-vars KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }} \
+            --set-env-vars KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }} \
+            --set-env-vars KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }}

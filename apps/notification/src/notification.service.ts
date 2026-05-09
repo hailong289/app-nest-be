@@ -48,6 +48,7 @@ export class NotificationService {
   }
 
   async sendForgotPasswordEmail(data: { email: string; token: string }) {
+    const urlFrontend = this.configService.get<string>('app.url_frontend') || process.env.URL_FRONTEND || process.env.APP_URL_FRONTEND || 'https://app-chat-fe-service-534152738497.asia-southeast1.run.app';
     await this.mailerService.sendMail({
       to: data.email,
       subject: 'Yêu cầu đặt lại mật khẩu',
@@ -57,7 +58,7 @@ export class NotificationService {
             <p>Xin chào!</p>
             <p>Bạn đã yêu cầu đặt lại mật khẩu cho tài khoản của mình. Vui lòng nhấp vào liên kết dưới đây để đặt lại mật khẩu:</p>
             <p style="text-align: center; margin: 20px 0;">
-                <a href="${this.configService.get<string>('app.url_frontend')}/auth/forgot?token=${data.token}&type=reset_password" 
+                <a href="${urlFrontend}/auth/forgot?token=${data.token}&type=reset_password" 
                    style="display: inline-block; padding: 10px 20px; background-color: #51BEA1; color: #fff; text-decoration: none; border-radius: 5px;">
                     Đặt lại mật khẩu
                 </a>
