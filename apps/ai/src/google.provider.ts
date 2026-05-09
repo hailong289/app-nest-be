@@ -12,6 +12,7 @@ import type { MulterFile } from '@app/dto';
 import {
   generateFlashcardPrompt,
   generateQuizzPrompt,
+  speechToTextPrompt,
   suggestPrompt,
   summaryDocumentPrompt,
   translationPrompt,
@@ -20,18 +21,35 @@ import { AiLogUseService } from './ai-log-use.service';
 @Injectable()
 export class GoogleModerationProvider {
   private readonly model: GenerativeModel;
+  /**
+   * Separate model instance reserved for multimodal audio input (STT).
+   * Not all Gemini variants accept `inlineData` audio:
+   *   - gemini-2.5-flash-lite (default text model) often returns a misleading
+   *     `API_KEY_INVALID` when given audio bytes — the key is fine, the
+   *     model just can't process the request.
+   *   - gemini-2.5-flash / gemini-2.0-flash both accept audio.
+   * Override via env `GOOGLE_AUDIO_MODEL`; fall back to `gemini-2.5-flash`.
+   */
+  private readonly audioModel: GenerativeModel;
+  private readonly audioModelName: string;
   private readonly logger = new Logger(GoogleModerationProvider.name);
 
   constructor(
     private cfg: ConfigService,
     private aiLogUseService: AiLogUseService,
   ) {
-    const client = new GoogleGenerativeAI(
-      this.cfg.get<string>('google.apiKey') || '',
+    const apiKey = this.cfg.get<string>('google.apiKey') || '';
+    console.log(
+      '🚀 ~ GoogleModerationProvider ~ constructor ~ apiKey:',
+      apiKey,
     );
+    const client = new GoogleGenerativeAI(apiKey);
     this.model = client.getGenerativeModel({
       model: this.cfg.get<string>('google.model') || 'gemini-2.5-flash-lite',
     });
+    this.audioModelName =
+      this.cfg.get<string>('google.audioModel') || 'gemini-2.5-flash';
+    this.audioModel = client.getGenerativeModel({ model: this.audioModelName });
   }
 
   async generateContent(
@@ -245,6 +263,154 @@ export class GoogleModerationProvider {
     } catch (err) {
       this.logger.error('Lỗi summary document:', (err as Error).message);
       return Response.error('Lỗi xử lý tóm tắt tài liệu', 400, 'Bad input');
+    }
+  }
+
+  /**
+   * Transcribe an audio buffer to text using Gemini's native multimodal
+   * audio support (`inlineData` with audio/* mimeType).
+   *
+   * Returns the parsed `{ transcript, detectedLanguage }` shape, or a
+   * structured Response.error on validation / API failure. The caller
+   * (AIService.transcribeAttachment) is responsible for persisting the
+   * result onto the Attachment record.
+   *
+   * @param buffer Raw audio bytes streamed from S3
+   * @param mimeType e.g. "audio/webm", "audio/mp4", "audio/wav"
+   * @param language Preferred language hint ('vi' | 'en')
+   * @param userId User who triggered the action — used for cost tracking
+   */
+  async speechToText(
+    buffer: Buffer,
+    mimeType: string,
+    language: 'vi' | 'en',
+    userId: string,
+  ) {
+    // Whitelist mimeType — Gemini accepts audio/{wav,mp3,aiff,aac,ogg,flac,webm,mp4,m4a}
+    if (!mimeType || !mimeType.startsWith('audio/')) {
+      return Response.error(
+        'File phải là định dạng audio',
+        400,
+        'INVALID_MIME_TYPE',
+      );
+    }
+
+    // Gemini inlineData hard limit ~20MB — guard before sending.
+    const MAX_BYTES = 20 * 1024 * 1024;
+    if (buffer.length === 0) {
+      return Response.error('Audio file rỗng', 400, 'EMPTY_AUDIO');
+    }
+    if (buffer.length > MAX_BYTES) {
+      return Response.error(
+        'Audio quá lớn (tối đa 20MB)',
+        413,
+        'AUDIO_TOO_LARGE',
+      );
+    }
+
+    const prompt = speechToTextPrompt(language);
+    const start = Date.now();
+
+    try {
+      // Use the dedicated audio-capable model instead of the default
+      // (text) model — `this.generateContent(...)` would route through
+      // `this.model` which may not accept `inlineData` audio.
+      const result = await this.audioModel.generateContent({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType,
+                  data: buffer.toString('base64'),
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          // Lower temperature → more faithful transcription, less paraphrasing.
+          temperature: 0.1,
+        },
+      });
+      const latencyMs = Date.now() - start;
+
+      const jsonString = result.response.text() || '{}';
+      const parsedResult = this.safeParseJson<Record<string, unknown>>(
+        jsonString,
+        {},
+      );
+
+      // Cost-track via the same logger used by the other features.
+      const tokenInput = result.response.usageMetadata?.promptTokenCount || 0;
+      const tokenOutput =
+        result.response.usageMetadata?.candidatesTokenCount || 0;
+      const costUsd =
+        tokenInput && tokenOutput
+          ? (tokenInput / 1_000_000) * 0.075 + (tokenOutput / 1_000_000) * 0.3
+          : 0;
+      await this.aiLogUseService.createLogUsage(
+        'google',
+        this.audioModelName,
+        'speech-to-text',
+        userId || 'system',
+        tokenInput,
+        tokenOutput,
+        latencyMs,
+        costUsd,
+        'success',
+        parsedResult,
+      );
+
+      const parsed = parsedResult as {
+        transcript?: unknown;
+        detectedLanguage?: unknown;
+        detected_language?: unknown;
+      };
+
+      const transcript =
+        typeof parsed.transcript === 'string' ? parsed.transcript.trim() : '';
+      const detectedLanguage =
+        typeof parsed.detectedLanguage === 'string'
+          ? parsed.detectedLanguage
+          : typeof parsed.detected_language === 'string'
+            ? parsed.detected_language
+            : language;
+
+      return Response.success(
+        { transcript, detectedLanguage },
+        'Chuyển giọng nói thành văn bản thành công',
+        200,
+        'OK',
+      );
+    } catch (err) {
+      const latencyMs = Date.now() - start;
+      this.logger.error('Lỗi speechToText:', (err as Error).message);
+      // Best-effort error log so we still see token-less failure usage.
+      try {
+        await this.aiLogUseService.createLogUsage(
+          'google',
+          this.audioModelName,
+          'speech-to-text',
+          userId || 'system',
+          0,
+          0,
+          latencyMs,
+          0,
+          'error',
+          err,
+        );
+      } catch {
+        // ignore logger failure
+      }
+      return Response.error(
+        'Không thể nhận dạng giọng nói lúc này',
+        400,
+        'STT_FAILED',
+      );
     }
   }
 

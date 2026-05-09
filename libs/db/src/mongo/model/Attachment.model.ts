@@ -78,6 +78,21 @@ export class Attachment {
 
   @Prop({ type: Number })
   duration?: number;
+
+  /**
+   * Speech-to-Text transcript for audio attachments.
+   * Populated by AI service (`AIService.TranscribeAttachment`) on demand
+   * when the user clicks the "Convert to text" button on a voice message.
+   * Empty string means the audio was processed but no speech was detected;
+   * `null` means it has not been transcribed yet.
+   */
+  @Prop({ type: String, default: null })
+  transcript?: string | null;
+
+  /** Timestamp when `transcript` was set, for cache freshness logic. */
+  @Prop({ type: Date, default: null })
+  transcribedAt?: Date | null;
+
   @Prop({
     type: String,
     enum: AttachmentContextEnumType,

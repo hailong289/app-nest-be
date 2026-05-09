@@ -155,6 +155,25 @@ export class AIController {
     );
   }
 
+  /**
+   * Speech-to-Text on an existing voice-message attachment.
+   * Audio is fetched server-side from S3 — FE only sends IDs.
+   */
+  @GrpcMethod('AIService', 'TranscribeAttachment')
+  async transcribeAttachment(data: {
+    attachmentId: string;
+    messageId: string;
+    language: 'vi' | 'en';
+    userId: string;
+  }) {
+    return this.service.transcribeAttachment(
+      data.attachmentId,
+      data.messageId,
+      data.language || 'vi',
+      data.userId,
+    );
+  }
+
   @GrpcMethod('AIService', 'GenerateFlashcard')
   async generateFlashcard(data: {
     /** Chủ đề hoặc nội dung văn bản để tạo flashcard (dùng khi type = 'text') */

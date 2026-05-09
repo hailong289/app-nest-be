@@ -74,6 +74,31 @@ export class QuizzDto {
   question_max_points: number;
 }
 
+/**
+ * Request to transcribe an existing voice-message audio attachment.
+ * The audio itself is already in S3 — FE only sends the IDs and the
+ * preferred language so the AI service can fetch the file server-side
+ * and persist the transcript onto the Attachment record.
+ */
+export class TranscribeAttachmentDto {
+  @IsNotEmpty({ message: 'attachmentId không để trống' })
+  @IsString()
+  attachmentId: string;
+
+  @IsNotEmpty({ message: 'messageId không để trống' })
+  @IsString()
+  messageId: string;
+
+  @IsOptional()
+  @IsIn(['vi', 'en'], { message: 'language phải là vi hoặc en' })
+  language?: 'vi' | 'en' = 'vi';
+
+  /** Filled by gateway from authenticated request, not by client. */
+  @IsOptional()
+  @IsString()
+  userId?: string;
+}
+
 export class GenerateFlashcardDto {
   /** File đính kèm — bắt buộc khi type = 'document' */
   @ValidateIf((o) => o.type === 'document')

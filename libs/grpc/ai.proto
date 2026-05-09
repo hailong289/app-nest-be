@@ -14,6 +14,7 @@ service AIService {
   rpc Translation(TranslationRequest) returns (TranslationResponse);
   rpc Quizz(QuizzRequest) returns (QuizzResponse);
   rpc GenerateFlashcard(GenerateFlashcardRequest) returns (GenerateFlashcardResponse);
+  rpc TranscribeAttachment(TranscribeAttachmentRequest) returns (TranscribeAttachmentResponse);
 }
 
 message FileRequest {
@@ -177,5 +178,32 @@ message GenerateFlashcardResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   GenerateFlashcardMetadata metadata = 4;
+}
+
+// ───────────── Speech-to-Text on existing voice attachment ─────────────
+// Audio file is already in S3 (uploaded as part of a voice message),
+// so the FE only needs to send the IDs. AI service streams the audio
+// from S3 into Gemini, persists the transcript on the Attachment, and
+// returns it.
+message TranscribeAttachmentRequest {
+  string attachmentId = 1;
+  string messageId = 2;
+  string language = 3; // 'vi' | 'en'
+  string userId = 4;
+}
+
+message TranscribeAttachmentResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  TranscribeAttachmentMetadata metadata = 4;
+}
+
+message TranscribeAttachmentMetadata {
+  string transcript = 1;
+  string detectedLanguage = 2;
+  string attachmentId = 3;
+  string messageId = 4;
+  bool cached = 5; // true if returned existing transcript without re-running AI
 }
 
