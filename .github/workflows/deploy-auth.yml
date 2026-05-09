@@ -48,3 +48,4 @@ jobs:
             REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
             JWT_ACCESS_SECRET=${{ secrets.JWT_ACCESS_SECRET }}
             JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+            GATEWAY_URL=${{ secrets.GATEWAY_URL }}
