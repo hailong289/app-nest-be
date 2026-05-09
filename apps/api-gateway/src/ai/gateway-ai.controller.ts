@@ -27,6 +27,7 @@ import {
   SummaryDocumentDto,
   TranslationDto,
   QuizzDto,
+  TranscribeAttachmentDto,
 } from '@app/dto/ai.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { MulterFile } from '@app/dto';
@@ -73,6 +74,7 @@ interface AiGrpcService {
     file_url?: string;
     model?: string | null;
   }): Observable<{ chunk: string }>;
+  transcribeAttachment(data: TranscribeAttachmentDto): Observable<unknown>;
 }
 
 @Controller('ai')
@@ -513,6 +515,43 @@ export class GatewayAiController {
           60000,
         ),
       'ai/stream/search-messages',
+    );
+  }
+  /**
+   * POST /ai/transcribe-attachment
+   * Speech-to-Text on an existing voice-message audio attachment.
+   * Body (JSON):
+   *   - attachmentId : ObjectId của Attachment cần transcribe
+   *   - messageId    : ObjectId của Message chứa attachment đó
+   *   - language     : 'vi' | 'en' (mặc định 'vi')
+   *
+   * Audio đã ở S3 nên FE KHÔNG upload lại file — AI service tự fetch từ
+   * URL của attachment, gửi vào Gemini, lưu transcript vào Attachment
+   * record và trả về { transcript, detectedLanguage, cached }.
+   *
+   * Idempotent: nếu attachment đã có transcript, trả về luôn từ cache
+   * mà không gọi Gemini.
+   */
+  @Post('transcribe-attachment')
+  async transcribeAttachment(
+    @Body()
+    body: {
+      attachmentId: string;
+      messageId: string;
+      language?: 'vi' | 'en';
+    },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.gatewayService.dispatchGrpcRequest(
+      (data: TranscribeAttachmentDto) =>
+        this.aiService.transcribeAttachment(data),
+      {
+        attachmentId: body.attachmentId,
+        messageId: body.messageId,
+        language: body.language || 'vi',
+        userId: req.user.usr_id,
+      },
+      120000, // 2 minutes — Gemini may be slow on long audio
     );
   }
 }
