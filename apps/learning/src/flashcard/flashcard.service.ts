@@ -319,7 +319,7 @@ export class FlashcardService {
 
   async cloneFlashcardDeck(deck_id: string, userId: string) {
     try {
-      const originalDeck = await this.flashcardDeckModel.findOne({ _id: new Types.ObjectId(deck_id) }).lean();
+      const originalDeck = await this.flashcardDeckModel.findOne({ deck_id }).lean();
       if (!originalDeck) {
         return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
       }
