@@ -11,6 +11,7 @@ service FlashcardService {
     
     rpc CreateFlashcardDeck(CreateFlashcardDeckRequest) returns (CreateFlashcardDeckResponse);
     rpc GetFlashcardDeck(GetFlashcardDeckRequest) returns (GetFlashcardDeckResponse);
+    rpc CloneFlashcardDeck(CloneFlashcardDeckRequest) returns (CreateFlashcardDeckResponse);
     rpc ListFlashcardDecks(ListFlashcardDecksRequest) returns (ListFlashcardDecksResponse);
     rpc UpdateFlashcardDeck(UpdateFlashcardDeckRequest) returns (UpdateFlashcardDeckResponse);
     rpc DeleteFlashcardDeck(DeleteFlashcardDeckRequest) returns (DeleteFlashcardDeckResponse);
@@ -275,4 +276,9 @@ message GetFlashcardProgressResponse {
     int32 statusCode = 2;
     string reasonStatusCode = 3;
     FlashcardProgressMetadata metadata = 4;
+}
+
+message CloneFlashcardDeckRequest {
+  string deck_id = 1;
+  string userId = 2;
 }
