@@ -23,7 +23,7 @@ export class FlashcardService {
     private readonly flashcardDeckModel: Model<FlashcardDeck>,
     @InjectModel(FlashcardProgress.name)
     private readonly flashcardProgressModel: Model<FlashcardProgress>,
-  ) {}
+  ) { }
 
   // Flashcard methods
   async createFlashcard(data: CreateFlashcardDto & { card_userId: string }) {
@@ -315,6 +315,64 @@ export class FlashcardService {
       return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
     }
     return Response.success(deck);
+  }
+
+  async cloneFlashcardDeck(deck_id: string, userId: string) {
+    try {
+      const originalDeck = await this.flashcardDeckModel.findOne({ deck_id }).lean();
+      if (!originalDeck) {
+        return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
+      }
+
+      // 1. Create a copy of the deck
+      const newDeckData = {
+        deck_userId: new Types.ObjectId(userId),
+        deck_name: originalDeck.deck_name + ' (Clone)',
+        deck_description: originalDeck.deck_description,
+        deck_image: originalDeck.deck_image,
+        deck_tags: originalDeck.deck_tags,
+        deck_level: originalDeck.deck_level,
+        deck_language: originalDeck.deck_language,
+        deck_totalCards: originalDeck.deck_totalCards,
+        deck_isPublic: false,
+      };
+
+      const newDeck = await this.flashcardDeckModel.create(newDeckData);
+
+      // 2. Fetch all cards of the original deck
+      const originalCards = await this.flashcardModel
+        .find({ card_deckId: originalDeck._id })
+        .lean();
+
+      // 3. Create copies of the cards
+      if (originalCards.length > 0) {
+        const newCardsData = originalCards.map((card) => ({
+          card_userId: new Types.ObjectId(userId),
+          card_deckId: newDeck._id,
+          card_front: card.card_front,
+          card_back: card.card_back,
+          card_hint: card.card_hint,
+          card_tags: card.card_tags,
+          card_image: card.card_image,
+          card_audio: card.card_audio,
+          card_difficulty: card.card_difficulty,
+          card_isPublic: false,
+        }));
+
+        const insertedCards = await this.flashcardModel.insertMany(newCardsData);
+
+        // Update deck_cardIds
+        const cardIds = insertedCards.map(c => c._id);
+        await this.flashcardDeckModel.updateOne(
+          { _id: newDeck._id },
+          { $set: { deck_cardIds: cardIds } }
+        );
+      }
+
+      return Response.success({ ...newDeck.toObject(), cloned_from: deck_id });
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
   }
 
   // FlashcardProgress methods

@@ -268,6 +268,10 @@ export class UpdateProfileDto {
   @IsNotEmpty({ message: 'Ngày sinh không được để trống' })
   @IsString()
   dateOfBirth: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 }
 
 // ── Device-session management DTOs ──────────────────────────────────

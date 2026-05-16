@@ -51,8 +51,8 @@ export class Message {
   @Prop({ type: Types.ObjectId, ref: 'Quiz', default: null })
   quiz_id: Types.ObjectId | null; // Link to Quiz collection
 
-  @Prop({ type: Types.ObjectId, ref: 'Flashcard', default: null })
-  flashcard_id: Types.ObjectId | null; // Link to Flashcard collection
+  @Prop({ type: Types.ObjectId, ref: 'FlashcardDeck', default: null })
+  desk_id: Types.ObjectId | null; // Link to FlashcardDeck collection
 
   @Prop({ type: Types.ObjectId, ref: 'TodoProject', default: null })
   todo_project_id: Types.ObjectId | null; // Link to TodoProject collection

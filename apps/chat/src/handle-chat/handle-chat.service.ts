@@ -131,7 +131,7 @@ export class HandleChatService {
       id,
       documentId,
       quizId,
-      flashcardId,
+      desk_id,
       todoProjectId,
     } = payload;
 
@@ -194,8 +194,8 @@ export class HandleChatService {
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
       quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
-      flashcard_id: flashcardId
-        ? this.utils.convertToObjectIdMongoose(flashcardId)
+      desk_id: desk_id
+        ? this.utils.convertToObjectIdMongoose(desk_id)
         : null,
       todo_project_id: null as Types.ObjectId | null,
     };

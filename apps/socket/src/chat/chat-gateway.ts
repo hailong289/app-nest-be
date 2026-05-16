@@ -236,7 +236,7 @@ export class ChatGateway
       replyTo: string;
       id?: string;
       quizId?: string;
-      flashcardId?: string;
+      desk_id?: string;
       todoProjectId?: string;
     },
     @ConnectedSocket() client: SocketWithUser,

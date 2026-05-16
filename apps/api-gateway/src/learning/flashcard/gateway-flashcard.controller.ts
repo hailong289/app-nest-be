@@ -50,6 +50,9 @@ interface FlashcardGrpcService {
   DeleteFlashcardDeck(
     data: DeleteFlashcardDeckDto & { deck_id: string },
   ): Observable<any>;
+  CloneFlashcardDeck(
+    data: { deck_id: string; userId: string },
+  ): Observable<any>;
   UpdateFlashcardProgress(
     data: UpdateFlashcardProgressDto & { card_id: string; user_id: string },
   ): Observable<any>;
@@ -173,6 +176,18 @@ export class GatewayFlashcardController {
     return await this.gatewayService.dispatchGrpcRequest(
       this.flashcardService.DeleteFlashcardDeck.bind(this.flashcardService),
       { deck_id },
+    );
+  }
+
+  @Post('deck/clone')
+  async cloneFlashcardDeck(
+    @Body() body: { desk_cardId?: string; deck_id?: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const targetDeckId = body.desk_cardId || body.deck_id;
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.flashcardService.CloneFlashcardDeck.bind(this.flashcardService),
+      { deck_id: targetDeckId, userId: req.user._id },
     );
   }
 

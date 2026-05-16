@@ -106,7 +106,7 @@ function buildQuizProjection() {
  * Build a MongoDB projection expression for a flashcard document stored at `$flashcardDoc`.
  * Converts ObjectId fields to strings and Date fields to ISO strings.
  */
-function buildFlashcardProjection() {
+function buildFlashcardDeckProjection() {
   const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
 
   const toIso = (field: string) => ({
@@ -119,27 +119,18 @@ function buildFlashcardProjection() {
 
   return {
     $cond: [
-      { $ifNull: ['$flashcardDoc', false] },
+      { $ifNull: ['$deskDoc', false] },
       {
-        id: { $toString: '$flashcardDoc._id' },
-        card_id: '$flashcardDoc.card_id',
-        card_userId: { $toString: '$flashcardDoc.card_userId' },
-        card_deckId: {
-          $ifNull: [{ $toString: '$flashcardDoc.card_deckId' }, ''],
-        },
-        card_front: '$flashcardDoc.card_front',
-        card_back: '$flashcardDoc.card_back',
-        card_hint: '$flashcardDoc.card_hint',
-        card_tags: { $ifNull: ['$flashcardDoc.card_tags', []] },
-        card_image: '$flashcardDoc.card_image',
-        card_audio: '$flashcardDoc.card_audio',
-        card_difficulty: { $ifNull: ['$flashcardDoc.card_difficulty', 0] },
-        card_totalViews: { $ifNull: ['$flashcardDoc.card_totalViews', 0] },
-        card_totalReviews: { $ifNull: ['$flashcardDoc.card_totalReviews', 0] },
-        card_isPublic: { $ifNull: ['$flashcardDoc.card_isPublic', false] },
-        card_isArchived: { $ifNull: ['$flashcardDoc.card_isArchived', false] },
-        createdAt: toIso('$flashcardDoc.createdAt'),
-        updatedAt: toIsoIfNotNull('$flashcardDoc.updatedAt'),
+        id: { $toString: '$deskDoc._id' },
+        deck_id: '$deskDoc.deck_id',
+        deck_name: '$deskDoc.deck_name',
+        deck_description: '$deskDoc.deck_description',
+        deck_image: '$deskDoc.deck_image',
+        deck_totalCards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
+        total_cards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
+        deck_level: { $ifNull: ['$deskDoc.deck_level', ''] },
+        createdAt: toIso('$deskDoc.createdAt'),
+        updatedAt: toIsoIfNotNull('$deskDoc.updatedAt'),
       },
       null,
     ],
@@ -623,16 +614,16 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 7.1b) Flashcard */
+    /** 7.1b) Flashcard Deck */
     {
       $lookup: {
-        from: 'Flashcards',
-        localField: 'flashcard_id',
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
         foreignField: '_id',
-        as: 'flashcardDoc',
+        as: 'deskDoc',
       },
     },
-    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
 
     /** 7.1c) Todo project */
     {
@@ -645,16 +636,16 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     },
     { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
 
-    /** 7.1b) Flashcard */
+    /** 7.1b) Flashcard Deck */
     {
       $lookup: {
-        from: 'Flashcards',
-        localField: 'flashcard_id',
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
         foreignField: '_id',
-        as: 'flashcardDoc',
+        as: 'deskDoc',
       },
     },
-    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
 
     /** 7.1c) Todo project */
     {
@@ -667,16 +658,16 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     },
     { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
 
-    /** 7.1b) Flashcard */
+    /** 7.1b) Flashcard Deck */
     {
       $lookup: {
-        from: 'Flashcards',
-        localField: 'flashcard_id',
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
         foreignField: '_id',
-        as: 'flashcardDoc',
+        as: 'deskDoc',
       },
     },
-    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
 
     /** 7.1c) Todo project */
     {
@@ -764,7 +755,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
-        flashcard: buildFlashcardProjection(),
+        desk: buildFlashcardDeckProjection(),
         todoProject: buildTodoProjectProjection(),
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
@@ -1118,7 +1109,7 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
-        flashcard: buildFlashcardProjection(),
+        desk: buildFlashcardDeckProjection(),
         todoProject: buildTodoProjectProjection(),
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
@@ -1470,7 +1461,7 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
-        flashcard: buildFlashcardProjection(),
+        desk: buildFlashcardDeckProjection(),
         todoProject: buildTodoProjectProjection(),
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),

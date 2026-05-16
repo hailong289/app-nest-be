@@ -93,6 +93,11 @@ export class FlashcardController {
     return await this.flashcardService.deleteFlashcardDeckById(data.deck_id);
   }
 
+  @GrpcMethod('FlashcardService', 'CloneFlashcardDeck')
+  async cloneFlashcardDeck(data: { deck_id: string; userId: string }) {
+    return await this.flashcardService.cloneFlashcardDeck(data.deck_id, data.userId);
+  }
+
   // FlashcardProgress methods
   @GrpcMethod('FlashcardService', 'UpdateFlashcardProgress')
   async updateFlashcardProgress(

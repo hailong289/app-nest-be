@@ -22,24 +22,25 @@ export class AIService {
   ) {}
 
   async checkMessage(text: string, userId: string, contextId?: string) {
-    const result = await this.googleProvider.moderate(text);
+    const result = await this.googleProvider.moderate(text, userId);
     return result;
   }
 
-  async suggestReplies(messages: string[]): Promise<{
+  async suggestReplies(messages: string[], userId: string): Promise<{
     suggestions: string[];
     emojis: string[];
     gif_keywords: string[];
   }> {
-    const result = await this.googleProvider.suggestReplies(messages);
+    const result = await this.googleProvider.suggestReplies(messages, userId);
     return result;
   }
 
-  async searchMessages(text: string, roomId: string, limit: number) {
+  async searchMessages(text: string, roomId: string, limit: number, userId?: string) {
     const result = await this.embeddingService.searchSimilarMessages(
       text,
       roomId,
       limit,
+      userId,
     );
     // Nếu embedding không tìm thấy kết quả thì tìm kiếm trong database
     if (result.length > 0) {
@@ -52,23 +53,37 @@ export class AIService {
     return messages;
   }
 
-  async summaryDocument(file: MulterFile) {
-    const result = await this.googleProvider.summaryDocument(file);
+  async summaryDocument(
+    type: 'document' | 'file_url',
+    file?: MulterFile,
+    file_url?: string,
+    model?: string | null,
+    userId?: string,
+  ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
+    const result = await this.googleProvider.summaryDocument(inputFile, model, userId);
     return result;
   }
 
-  async translation(text: string, from: string, to: string) {
-    const result = await this.googleProvider.translation(text, from, to);
+  async translation(text: string, from: string, to: string, model?: string | null, userId?: string) {
+    const result = await this.googleProvider.translation(text, from, to, model, userId);
     return result;
   }
 
   async generateQuizz(
-    file: MulterFile,
+    file: MulterFile | undefined,
     text: string,
     type: 'text' | 'document',
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
     question_max: number,
     question_max_points: number,
+    model?: string | null,
+    userId?: string,
   ) {
     const result = await this.googleProvider.generateQuizz(
       file,
@@ -77,6 +92,8 @@ export class AIService {
       question_type,
       question_max,
       question_max_points,
+      model,
+      userId,
     );
     return result;
   }
@@ -89,6 +106,8 @@ export class AIService {
     language: string,
     file?: MulterFile,
     file_url?: string,
+    model?: string | null,
+    userId?: string,
   ) {
     let inputFile = file;
 
@@ -103,6 +122,75 @@ export class AIService {
       difficulty,
       language,
       inputFile,
+      model,
+      userId,
+    );
+  }
+
+  async summaryDocumentStream(
+    type: 'document' | 'file_url',
+    file?: MulterFile,
+    file_url?: string,
+    model?: string | null,
+    userId?: string,
+  ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
+    return this.googleProvider.summaryDocumentStream(inputFile, model, userId);
+  }
+
+  generateQuizzStream(
+    file: MulterFile | undefined,
+    text: string,
+    type: 'text' | 'document',
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text',
+    question_max: number,
+    question_max_points: number,
+    model?: string | null,
+    userId?: string,
+  ) {
+    return this.googleProvider.generateQuizzStream(
+      file,
+      text,
+      type,
+      question_type,
+      question_max,
+      question_max_points,
+      model,
+      userId,
+    );
+  }
+
+  async generateFlashcardStream(
+    topic: string,
+    type: 'text' | 'document' | 'file_url',
+    card_count: number,
+    difficulty: number,
+    language: string,
+    file?: MulterFile,
+    file_url?: string,
+    model?: string | null,
+    userId?: string,
+  ) {
+    let inputFile = file;
+
+    if (type === 'file_url' && file_url) {
+      inputFile = await this.downloadFileFromUrl(file_url);
+    }
+
+    return this.googleProvider.generateFlashcardStream(
+      topic,
+      type,
+      card_count,
+      difficulty,
+      language,
+      inputFile,
+      model,
+      userId,
     );
   }
 

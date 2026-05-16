@@ -21,7 +21,8 @@ import AttachmentSchema from 'libs/db/src/mongo/model/Attachment.model';
 import { mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
-import { AiLogUseService } from './ai-log-use.service';
+import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
+import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
 
 @Module({
   imports: [
@@ -43,6 +44,11 @@ import { AiLogUseService } from './ai-log-use.service';
       MessageSchema,
       AttachmentSchema,
     ]),
+    SharedKafkaClientModule.registerAsync({
+      name: AI_KAFKA_CLIENT,
+      clientId: 'ai-service-producer',
+      groupId: 'ai-log-usage-consumer-group',
+    }),
   ],
   controllers: [AIController],
   providers: [
