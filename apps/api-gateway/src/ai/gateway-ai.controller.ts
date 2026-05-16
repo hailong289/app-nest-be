@@ -36,7 +36,6 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { wrapUnaryGrpcAsSse } from './sse-ai.helpers';
 interface AiGrpcService {
-  // Define AI service methods here
   moderation(data: ModerationDto): Observable<unknown>;
   search(data: {
     query: string;
@@ -61,6 +60,7 @@ interface AiGrpcService {
     file?: unknown;
     file_url?: string;
     model?: string | null;
+    userId?: string;
   }): Observable<unknown>;
   summaryDocumentStream(data: SummaryDocumentDto): Observable<{ chunk: string }>;
   quizzStream(data: QuizzDto): Observable<{ chunk: string }>;
@@ -73,8 +73,16 @@ interface AiGrpcService {
     file?: unknown;
     file_url?: string;
     model?: string | null;
+    userId?: string;
   }): Observable<{ chunk: string }>;
   transcribeAttachment(data: TranscribeAttachmentDto): Observable<unknown>;
+  getUsageReport(data: {
+    service?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+    groupBy: string;
+  }): Observable<unknown>;
 }
 
 @Controller('ai')
@@ -103,11 +111,14 @@ export class GatewayAiController {
   }
 
   @Post('moderation')
-  async moderation(@Body() body: ModerationDto) {
-    // Tăng timeout lên 2 phút (120000ms) cho moderation
+  async moderation(
+    @Body() body: ModerationDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.gatewayService.dispatchGrpcRequest(
-      (data: ModerationDto) => this.aiService.moderation(data),
-      body,
+      (data: ModerationDto & { userId: string }) =>
+        this.aiService.moderation({ ...data, userId: req.user.usr_id }),
+      { ...body, userId: req.user.usr_id },
       120000, // 2 minutes timeout
     );
   }
@@ -168,20 +179,25 @@ export class GatewayAiController {
   async summaryDocument(
     @UploadedFile() file: MulterFile,
     @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
+    @Req() req: AuthenticatedRequest,
   ) {
-    // Tăng timeout lên 2 phút (120000ms) cho xử lý document lớn
     return this.gatewayService.dispatchGrpcRequest(
-      (data: SummaryDocumentDto) => this.aiService.summaryDocument(data),
-      { file, type: body.type, file_url: body.file_url, model: body.model },
+      (data: SummaryDocumentDto & { userId: string }) =>
+        this.aiService.summaryDocument({ ...data, userId: req.user.usr_id }),
+      { file, type: body.type, file_url: body.file_url, model: body.model, userId: req.user.usr_id },
       120000, // 2 minutes timeout
     );
   }
 
   @Post('translation')
-  async translation(@Body() body: TranslationDto) {
+  async translation(
+    @Body() body: TranslationDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.gatewayService.dispatchGrpcRequest(
-      (data: TranslationDto) => this.aiService.translation(data),
-      body,
+      (data: TranslationDto & { userId: string }) =>
+        this.aiService.translation({ ...data, userId: req.user.usr_id }),
+      { ...body, userId: req.user.usr_id },
       100000, // 1 minute timeout
     );
   }
@@ -203,9 +219,11 @@ export class GatewayAiController {
       question_max_points: number;
       model?: string | null;
     },
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.gatewayService.dispatchGrpcRequest(
-      (data: QuizzDto) => this.aiService.quizz(data),
+      (data: QuizzDto & { userId: string }) =>
+        this.aiService.quizz({ ...data, userId: req.user.usr_id }),
       {
         file: file,
         text: body?.text || '',
@@ -214,6 +232,7 @@ export class GatewayAiController {
         question_max: body.question_max,
         question_max_points: body.question_max_points,
         model: body.model,
+        userId: req.user.usr_id,
       },
       100000, // 1 minute timeout
     );
@@ -245,6 +264,7 @@ export class GatewayAiController {
       file_url?: string;
       model?: string | null;
     },
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.gatewayService.dispatchGrpcRequest(
       (data: {
@@ -256,6 +276,7 @@ export class GatewayAiController {
         file?: MulterFile;
         file_url?: string;
         model?: string | null;
+        userId: string;
       }) =>
         this.aiService.generateFlashcard({
           topic: data.topic ?? '',
@@ -266,8 +287,9 @@ export class GatewayAiController {
           file: data.file,
           file_url: data.file_url,
           model: data.model,
+          userId: data.userId,
         }),
-      { ...body, file, file_url: body.file_url, model: body.model },
+      { ...body, file, file_url: body.file_url, model: body.model, userId: req.user.usr_id },
       180000, // 3 minutes timeout (AI cần thời gian tạo nhiều thẻ)
     );
   }
@@ -277,6 +299,7 @@ export class GatewayAiController {
   summaryDocumentStream(
     @UploadedFile() file: MulterFile,
     @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
+    @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): void {
     this.initSseResponse(res);
@@ -286,7 +309,8 @@ export class GatewayAiController {
       type: body.type,
       file_url: body.file_url,
       model: body.model,
-    } as SummaryDocumentDto);
+      userId: req.user.usr_id,
+    } as SummaryDocumentDto & { userId: string });
 
     const sub = stream.subscribe({
       next: (item: { chunk: string }) => {
@@ -323,6 +347,7 @@ export class GatewayAiController {
       question_max_points: number;
       model?: string | null;
     },
+    @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): void {
     this.initSseResponse(res);
@@ -335,7 +360,8 @@ export class GatewayAiController {
       question_max: Number(body.question_max),
       question_max_points: Number(body.question_max_points),
       model: body.model,
-    } as QuizzDto);
+      userId: req.user.usr_id,
+    } as QuizzDto & { userId: string });
 
     const sub = stream.subscribe({
       next: (item: { chunk: string }) => {
@@ -369,6 +395,7 @@ export class GatewayAiController {
       file_url?: string;
       model?: string | null;
     },
+    @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): void {
     this.initSseResponse(res);
@@ -382,6 +409,7 @@ export class GatewayAiController {
       file: file as MulterFile,
       file_url: body.file_url,
       model: body.model,
+      userId: req.user.usr_id,
     });
 
     const sub = stream.subscribe({
@@ -464,12 +492,17 @@ export class GatewayAiController {
   }
 
   @Post('stream/translation')
-  translationStream(@Body() body: TranslationDto, @Res() res: Response): void {
+  translationStream(
+    @Body() body: TranslationDto,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): void {
     this.initSseResponse(res);
     void this.gatewayService
       .dispatchGrpcRequest(
-        (data: TranslationDto) => this.aiService.translation(data),
-        body,
+        (data: TranslationDto & { userId: string }) =>
+          this.aiService.translation(data),
+        { ...body, userId: req.user.usr_id },
         100000,
       )
       .then((result) => {
@@ -483,12 +516,17 @@ export class GatewayAiController {
   }
 
   @Post('stream/moderation')
-  moderationStream(@Body() body: ModerationDto, @Res() res: Response): void {
+  moderationStream(
+    @Body() body: ModerationDto,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): void {
     this.initSseResponse(res);
     void this.gatewayService
       .dispatchGrpcRequest(
-        (data: ModerationDto) => this.aiService.moderation(data),
-        body,
+        (data: ModerationDto & { userId: string }) =>
+          this.aiService.moderation(data),
+        { ...body, userId: req.user.usr_id },
         120000,
       )
       .then((result) => {
@@ -506,12 +544,14 @@ export class GatewayAiController {
   @Sse()
   searchMessagesStream(
     @Query() query: SearchMessagesDto,
+    @Req() req: AuthenticatedRequest,
   ): Observable<MessageEvent> {
     return wrapUnaryGrpcAsSse(
       () =>
         this.gatewayService.dispatchGrpcRequest(
-          (data: SearchMessagesDto) => this.aiService.searchMessages(data),
-          query,
+          (data: SearchMessagesDto & { userId: string }) =>
+            this.aiService.searchMessages(data),
+          { ...query, userId: req.user.usr_id },
           60000,
         ),
       'ai/stream/search-messages',
@@ -552,6 +592,49 @@ export class GatewayAiController {
         userId: req.user.usr_id,
       },
       120000, // 2 minutes — Gemini may be slow on long audio
+    );
+  }
+
+  /**
+   * GET /ai/usage/report
+   *
+   * API report thống kê AI usage.
+   * Query params (tất cả đều optional):
+   *   - service : lọc theo loại service (moderation, translation, suggest-replies, ...)
+   *   - from    : ngày bắt đầu (ISO string)
+   *   - to      : ngày kết thúc (ISO string)
+   *   - groupBy : 'service' | 'userId' | 'day' (mặc định: 'service')
+   *
+   * Mặc định luôn lọc theo userId của user đang đăng nhập.
+   * Gọi xuống AI service qua gRPC method GetUsageReport.
+   */
+  @Get('usage/report')
+  async getUsageReport(
+    @Query()
+    queryParams: {
+      service?: string;
+      from?: string;
+      to?: string;
+      groupBy?: 'service' | 'userId' | 'day';
+    },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.gatewayService.dispatchGrpcRequest(
+      (data: {
+        service?: string;
+        userId: string;
+        from?: string;
+        to?: string;
+        groupBy: string;
+      }) => this.aiService.getUsageReport(data),
+      {
+        service: queryParams.service,
+        userId: req.user.usr_id,
+        from: queryParams.from,
+        to: queryParams.to,
+        groupBy: queryParams.groupBy ?? 'service',
+      },
+      30000, // 30 seconds
     );
   }
 }

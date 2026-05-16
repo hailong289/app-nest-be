@@ -52,6 +52,11 @@ export class SummaryDocumentDto {
   @IsOptional()
   @IsString()
   model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class TranslationDto {
@@ -66,6 +71,11 @@ export class TranslationDto {
   @IsOptional()
   @IsString()
   model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class QuizzDto {
@@ -100,6 +110,11 @@ export class QuizzDto {
   @IsOptional()
   @IsString()
   model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 /**
@@ -176,4 +191,9 @@ export class GenerateFlashcardDto {
   @IsOptional()
   @IsString()
   model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }

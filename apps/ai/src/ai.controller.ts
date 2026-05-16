@@ -278,6 +278,24 @@ export class AIController {
     return observable.pipe(map(chunk => ({ chunk })));
   }
 
+  @GrpcMethod('AIService', 'GetUsageReport')
+  async getUsageReport(data: {
+    service?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+    groupBy: string;
+  }) {
+    const report = await this.aiLogUseService.getUsageReport({
+      service: data.service,
+      userId: data.userId,
+      from: data.from ? new Date(data.from) : undefined,
+      to: data.to ? new Date(data.to) : undefined,
+      groupBy: (data.groupBy as 'service' | 'userId' | 'day') ?? 'service',
+    });
+    return report;
+  }
+
   @MessagePattern(KafkaEvent.AI_LOG_USAGE)
   async handleAiLogUsage(payload: AiLogUsagePayload) {
     await this.aiLogUseService.writeLogToDb(payload);
