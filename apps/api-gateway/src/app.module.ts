@@ -61,9 +61,8 @@ export class AppModule {
       { path: 'documents', method: RequestMethod.ALL },
       { path: 'documents/*path', method: RequestMethod.ALL },
       { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
-      { path: 'ai/search', method: RequestMethod.POST },
-      { path: 'ai/suggest-replies', method: RequestMethod.POST },
-      { path: 'ai/transcribe-attachment', method: RequestMethod.POST },
+      // AI routes — cả non-stream và stream đều cần req.user
+      { path: 'ai/*path', method: RequestMethod.ALL },
       { path: 'notifications', method: RequestMethod.GET },
       { path: 'notifications/read-all', method: RequestMethod.PUT },
       {
@@ -76,3 +75,4 @@ export class AppModule {
     );
   }
 }
+
