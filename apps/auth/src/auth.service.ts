@@ -590,8 +590,15 @@ export class AuthService implements OnModuleInit {
     user.usr_fullname = data.fullname;
     user.usr_gender = data.gender;
     user.usr_dateOfBirth = new Date(data.dateOfBirth);
+    if (data.address !== undefined) {
+      user.usr_address = data.address;
+    }
     await user.save();
-    return Response.success(null, 'Cập nhật thông tin thành công');
+    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    return Response.success(
+      { user: Utils.unprefix(userData, 'usr_') },
+      'Cập nhật thông tin thành công',
+    );
   }
 
   async logout(
