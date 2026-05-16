@@ -22,24 +22,25 @@ export class AIService {
   ) {}
 
   async checkMessage(text: string, userId: string, contextId?: string) {
-    const result = await this.googleProvider.moderate(text);
+    const result = await this.googleProvider.moderate(text, userId);
     return result;
   }
 
-  async suggestReplies(messages: string[]): Promise<{
+  async suggestReplies(messages: string[], userId: string): Promise<{
     suggestions: string[];
     emojis: string[];
     gif_keywords: string[];
   }> {
-    const result = await this.googleProvider.suggestReplies(messages);
+    const result = await this.googleProvider.suggestReplies(messages, userId);
     return result;
   }
 
-  async searchMessages(text: string, roomId: string, limit: number) {
+  async searchMessages(text: string, roomId: string, limit: number, userId?: string) {
     const result = await this.embeddingService.searchSimilarMessages(
       text,
       roomId,
       limit,
+      userId,
     );
     // Nếu embedding không tìm thấy kết quả thì tìm kiếm trong database
     if (result.length > 0) {
@@ -57,6 +58,7 @@ export class AIService {
     file?: MulterFile,
     file_url?: string,
     model?: string | null,
+    userId?: string,
   ) {
     let inputFile = file;
 
@@ -64,12 +66,12 @@ export class AIService {
       inputFile = await this.downloadFileFromUrl(file_url);
     }
 
-    const result = await this.googleProvider.summaryDocument(inputFile, model);
+    const result = await this.googleProvider.summaryDocument(inputFile, model, userId);
     return result;
   }
 
-  async translation(text: string, from: string, to: string, model?: string | null) {
-    const result = await this.googleProvider.translation(text, from, to, model);
+  async translation(text: string, from: string, to: string, model?: string | null, userId?: string) {
+    const result = await this.googleProvider.translation(text, from, to, model, userId);
     return result;
   }
 
@@ -81,6 +83,7 @@ export class AIService {
     question_max: number,
     question_max_points: number,
     model?: string | null,
+    userId?: string,
   ) {
     const result = await this.googleProvider.generateQuizz(
       file,
@@ -90,6 +93,7 @@ export class AIService {
       question_max,
       question_max_points,
       model,
+      userId,
     );
     return result;
   }
@@ -103,6 +107,7 @@ export class AIService {
     file?: MulterFile,
     file_url?: string,
     model?: string | null,
+    userId?: string,
   ) {
     let inputFile = file;
 
@@ -118,6 +123,7 @@ export class AIService {
       language,
       inputFile,
       model,
+      userId,
     );
   }
 
@@ -126,6 +132,7 @@ export class AIService {
     file?: MulterFile,
     file_url?: string,
     model?: string | null,
+    userId?: string,
   ) {
     let inputFile = file;
 
@@ -133,7 +140,7 @@ export class AIService {
       inputFile = await this.downloadFileFromUrl(file_url);
     }
 
-    return this.googleProvider.summaryDocumentStream(inputFile, model);
+    return this.googleProvider.summaryDocumentStream(inputFile, model, userId);
   }
 
   generateQuizzStream(
@@ -144,6 +151,7 @@ export class AIService {
     question_max: number,
     question_max_points: number,
     model?: string | null,
+    userId?: string,
   ) {
     return this.googleProvider.generateQuizzStream(
       file,
@@ -153,6 +161,7 @@ export class AIService {
       question_max,
       question_max_points,
       model,
+      userId,
     );
   }
 
@@ -165,6 +174,7 @@ export class AIService {
     file?: MulterFile,
     file_url?: string,
     model?: string | null,
+    userId?: string,
   ) {
     let inputFile = file;
 
@@ -180,6 +190,7 @@ export class AIService {
       language,
       inputFile,
       model,
+      userId,
     );
   }
 

@@ -9,14 +9,6 @@ import { AiLogUseService } from './ai-log-use.service';
 import type { AiLogUsagePayload } from './ai-log-use.service';
 import { map } from 'rxjs/operators';
 
-interface IAIService {
-  suggestReplies(messages: string[]): Promise<{
-    suggestions: string[];
-    emojis: string[];
-    gif_keywords: string[];
-  }>;
-  checkMessage(text: string, userId: string): Promise<any>;
-}
 @Controller()
 export class AIController {
   constructor(
@@ -79,11 +71,12 @@ export class AIController {
   }
 
   @GrpcMethod('AIService', 'SearchMessages')
-  async searchMessages(data: SearchMessagesDto) {
+  async searchMessages(data: SearchMessagesDto & { userId?: string }) {
     return await this.embeddingService.searchSimilarMessages(
       data.text,
       data.roomId,
       data.limit,
+      data.userId,
     );
   }
 
@@ -124,8 +117,9 @@ export class AIController {
     emojis: string[];
     gif_keywords: string[];
   }> {
-    const result = await (this.service as unknown as IAIService).suggestReplies(
+    const result = await this.service.suggestReplies(
       data.contextMessages,
+      data.userId,
     );
     return result;
   }
@@ -140,8 +134,9 @@ export class AIController {
     file_url?: string;
     /** Model AI tùy chỉnh (null = dùng model mặc định) */
     model?: string | null;
+    userId: string;
   }) {
-    return await this.service.summaryDocument(data.type, data.file, data.file_url, data.model);
+    return await this.service.summaryDocument(data.type, data.file, data.file_url, data.model, data.userId);
   }
 
   @GrpcMethod('AIService', 'Translation')
@@ -151,8 +146,9 @@ export class AIController {
     to: string;
     /** Model AI tùy chỉnh (null = dùng model mặc định) */
     model?: string | null;
+    userId: string;
   }) {
-    return await this.service.translation(data.text, data.from, data.to, data.model);
+    return await this.service.translation(data.text, data.from, data.to, data.model, data.userId);
   }
 
   @GrpcMethod('AIService', 'Quizz')
@@ -165,6 +161,7 @@ export class AIController {
     question_max_points: number; // điểm số tối đa cho bài trắc nghiệm
     /** Model AI tùy chỉnh (null = dùng model mặc định) */
     model?: string | null;
+    userId: string;
   }) {
     return await this.service.generateQuizz(
       data.file,
@@ -174,6 +171,7 @@ export class AIController {
       data.question_max,
       data.question_max_points,
       data.model,
+      data.userId,
     );
   }
 
@@ -214,6 +212,7 @@ export class AIController {
     file_url?: string;
     /** Model AI tùy chỉnh (null = dùng model mặc định) */
     model?: string | null;
+    userId: string;
   }) {
     return await this.service.generateFlashcard(
       data.topic,
@@ -224,6 +223,7 @@ export class AIController {
       data.file,
       data.file_url,
       data.model,
+      data.userId,
     );
   }
 
@@ -233,8 +233,9 @@ export class AIController {
     file?: MulterFile;
     file_url?: string;
     model?: string | null;
+    userId: string;
   }) {
-    const observable = await this.service.summaryDocumentStream(data.type, data.file, data.file_url, data.model);
+    const observable = await this.service.summaryDocumentStream(data.type, data.file, data.file_url, data.model, data.userId);
     return observable.pipe(map(chunk => ({ chunk })));
   }
 
@@ -247,9 +248,10 @@ export class AIController {
     question_max: number;
     question_max_points: number;
     model?: string | null;
+    userId: string;
   }) {
     const observable = this.service.generateQuizzStream(
-      data.file, data.text || '', data.type, data.question_type, data.question_max, data.question_max_points, data.model
+      data.file, data.text || '', data.type, data.question_type, data.question_max, data.question_max_points, data.model, data.userId
     );
     return observable.pipe(map(chunk => ({ chunk })));
   }
@@ -264,6 +266,7 @@ export class AIController {
     file?: MulterFile;
     file_url?: string;
     model?: string | null;
+    userId: string;
   }) {
     const observable = await this.service.generateFlashcardStream(
       data.topic,
@@ -274,6 +277,7 @@ export class AIController {
       data.file,
       data.file_url,
       data.model,
+      data.userId,
     );
     return observable.pipe(map(chunk => ({ chunk })));
   }

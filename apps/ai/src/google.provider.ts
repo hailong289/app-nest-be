@@ -332,7 +332,7 @@ export class GoogleModerationProvider {
     }
   }
 
-  async moderate(text: string) {
+  async moderate(text: string, userId?: string) {
     if (!text || text.length > 10000) {
       return {
         provider: 'google',
@@ -348,7 +348,7 @@ export class GoogleModerationProvider {
           contents: [{ role: 'user', parts: [{ text: text }] }],
           generationConfig: { responseMimeType: 'application/json' },
         },
-        'system',
+        userId || 'system',
         'moderation',
       );
 
@@ -364,27 +364,29 @@ export class GoogleModerationProvider {
     }
   }
 
-  async suggestReplies(messages: string[]) {
+  async suggestReplies(messages: string[], userId?: string) {
     try {
       if (!messages || messages.length === 0)
         return { suggestions: [], emojis: [], gif_keywords: [] };
 
-      // 2. Prompt định hướng rõ ràng hơn
       const prompt = suggestPrompt(messages);
 
-      const result = await this.model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.4,
+      const result = await this.generateContent(
+        {
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.4,
+          },
         },
-      });
-      const responseText = result.response.text() || '{}';
-      const parsedData = this.safeParseJson<{
+        userId || 'system',
+        'suggest-replies',
+      );
+      const parsedData = result as {
         suggestions?: unknown;
         emojis?: unknown;
         gif_keywords?: unknown;
-      }>(responseText, {});
+      };
 
       const suggestions = Array.isArray(parsedData.suggestions)
         ? (parsedData.suggestions as string[])
@@ -411,7 +413,7 @@ export class GoogleModerationProvider {
     }
   }
 
-  async summaryDocument(file?: MulterFile, model?: string | null) {
+  async summaryDocument(file?: MulterFile, model?: string | null, userId?: string) {
     if (!file) {
       return Response.error(
         'File không hợp lệ hoặc không được cung cấp',
@@ -420,11 +422,9 @@ export class GoogleModerationProvider {
       );
     }
 
-    // 1. Soạn Prompt chi tiết để AI tóm tắt có cấu trúc
     const prompt = summaryDocumentPrompt();
 
     try {
-      // 3. Gọi model với config JSON
       const result = await this.generateContent(
         {
           contents: [
@@ -443,7 +443,7 @@ export class GoogleModerationProvider {
           ],
           generationConfig: { responseMimeType: 'application/json' },
         },
-        'system',
+        userId || 'system',
         'summary-document',
         model,
       );
@@ -631,7 +631,7 @@ export class GoogleModerationProvider {
     }
   }
 
-  async translation(text: string, from: string, to: string, model?: string | null) {
+  async translation(text: string, from: string, to: string, model?: string | null, userId?: string) {
     const prompt = translationPrompt(text, from, to);
 
     try {
@@ -640,7 +640,7 @@ export class GoogleModerationProvider {
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: { responseMimeType: 'application/json' },
         },
-        'system',
+        userId || 'system',
         'translation',
         model,
       );
@@ -676,6 +676,7 @@ export class GoogleModerationProvider {
     question_max: number,
     question_max_points: number,
     model?: string | null,
+    userId?: string,
   ) {
     if (type === 'document' && !file) {
       return Response.error(
@@ -717,7 +718,7 @@ export class GoogleModerationProvider {
           ],
           generationConfig: { responseMimeType: 'application/json' },
         },
-        'system',
+        userId || 'system',
         'generate-quizz',
         model,
       );
@@ -746,6 +747,7 @@ export class GoogleModerationProvider {
     language: string,
     file?: MulterFile,
     model?: string | null,
+    userId?: string,
   ) {
     const prompt = generateFlashcardPrompt(
       topic,
@@ -774,7 +776,7 @@ export class GoogleModerationProvider {
           contents: [{ role: 'user', parts }],
           generationConfig: { responseMimeType: 'application/json' },
         },
-        'system',
+        userId || 'system',
         'generate-flashcard',
         model,
       );
@@ -847,6 +849,7 @@ export class GoogleModerationProvider {
     language: string,
     file?: MulterFile,
     model?: string | null,
+    userId?: string,
   ): Observable<string> {
     const prompt = generateFlashcardPrompt(
       topic,
@@ -874,7 +877,7 @@ export class GoogleModerationProvider {
         contents: [{ role: 'user', parts }],
         generationConfig: { responseMimeType: 'application/json' },
       },
-      'system',
+      userId || 'system',
       'generate-flashcard',
       model,
     );
@@ -888,6 +891,7 @@ export class GoogleModerationProvider {
     question_max: number,
     question_max_points: number,
     model?: string | null,
+    userId?: string,
   ): Observable<string> {
     if (type === 'document' && !file) {
       return new Observable<string>((subscriber) => {
@@ -928,7 +932,7 @@ export class GoogleModerationProvider {
         ],
         generationConfig: { responseMimeType: 'application/json' },
       },
-      'system',
+      userId || 'system',
       'generate-quizz',
       model,
     );
@@ -937,6 +941,7 @@ export class GoogleModerationProvider {
   summaryDocumentStream(
     file?: MulterFile,
     model?: string | null,
+    userId?: string,
   ): Observable<string> {
     const prompt = summaryDocumentPrompt();
 
@@ -958,7 +963,7 @@ export class GoogleModerationProvider {
         contents: [{ role: 'user', parts }],
         generationConfig: { responseMimeType: 'application/json' },
       },
-      'system',
+      userId || 'system',
       'summary-document',
       model,
     );

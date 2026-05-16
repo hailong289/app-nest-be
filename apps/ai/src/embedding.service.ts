@@ -289,7 +289,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
    * @param roomId ID của phòng chat
    * @param limit Số lượng kết quả
    */
-  async searchSimilarMessages(query: string, roomId: string, limit = 5) {
+  async searchSimilarMessages(query: string, roomId: string, limit = 5, _userId?: string) {
     type SearchResult = {
       text: string;
       contextId: string;
