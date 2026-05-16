@@ -31,9 +31,32 @@ export class SearchMessagesDto {
 }
 
 export class SummaryDocumentDto {
+  /** Nguồn dữ liệu: 'document' (file đính kèm) hoặc 'file_url' */
+  @IsNotEmpty({ message: 'Loại nguồn không để trống' })
+  @IsIn(['document', 'file_url'])
+  type: 'document' | 'file_url';
+
+  /** File đính kèm (chỉ dùng khi type = 'document') */
+  @ValidateIf((o) => o.type === 'document')
   @ValidateNested()
   @Type(() => FileUploadData)
-  file: FileUploadData;
+  file?: FileUploadData;
+
+  /** URL file nguồn (chỉ dùng khi type = 'file_url') */
+  @ValidateIf((o) => o.type === 'file_url')
+  @IsNotEmpty({ message: 'file_url không để trống khi type là file_url' })
+  @IsString()
+  file_url?: string;
+
+  /** Model AI tùy chỉnh (null/bỏ trống = dùng model mặc định) */
+  @IsOptional()
+  @IsString()
+  model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class TranslationDto {
@@ -43,6 +66,16 @@ export class TranslationDto {
   from: string;
   @IsNotEmpty({ message: 'Ngôn ngữ đích không để trống' })
   to: string;
+
+  /** Model AI tùy chỉnh (null/bỏ trống = dùng model mặc định) */
+  @IsOptional()
+  @IsString()
+  model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class QuizzDto {
@@ -72,6 +105,41 @@ export class QuizzDto {
   @IsNumber({}, { message: 'Tổng điểm số phải là số' })
   @Min(1, { message: 'Tổng điểm số phải lớn hơn 0' })
   question_max_points: number;
+
+  /** Model AI tùy chỉnh (null/bỏ trống = dùng model mặc định) */
+  @IsOptional()
+  @IsString()
+  model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
+}
+
+/**
+ * Request to transcribe an existing voice-message audio attachment.
+ * The audio itself is already in S3 — FE only sends the IDs and the
+ * preferred language so the AI service can fetch the file server-side
+ * and persist the transcript onto the Attachment record.
+ */
+export class TranscribeAttachmentDto {
+  @IsNotEmpty({ message: 'attachmentId không để trống' })
+  @IsString()
+  attachmentId: string;
+
+  @IsNotEmpty({ message: 'messageId không để trống' })
+  @IsString()
+  messageId: string;
+
+  @IsOptional()
+  @IsIn(['vi', 'en'], { message: 'language phải là vi hoặc en' })
+  language?: 'vi' | 'en' = 'vi';
+
+  /** Filled by gateway from authenticated request, not by client. */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class GenerateFlashcardDto {
@@ -118,4 +186,14 @@ export class GenerateFlashcardDto {
   @IsOptional()
   @IsString({ message: 'Ngôn ngữ phải là chuỗi' })
   language?: string;
+
+  /** Model AI tùy chỉnh (null/bỏ trống = dùng model mặc định) */
+  @IsOptional()
+  @IsString()
+  model?: string | null;
+
+  /** Lấy từ authenticated request */
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }

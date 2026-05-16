@@ -17,10 +17,15 @@ export class NotificationService {
   ) {}
 
   async sendOtp(user: { email: string; otp: string }) {
-    console.log(`Sending OTP ${user.otp} to ${user.email}`);
+    const recipientEmail = (user.email || '').trim().toLowerCase();
+    if (!Utils.isEmail(recipientEmail)) {
+      console.error('Invalid recipient email for OTP:', user.email);
+      return { success: false, message: 'Invalid recipient email' };
+    }
+    console.log(`Sending OTP ${user.otp} to ${recipientEmail}`);
     try {
       await this.mailerService.sendMail({
-        to: user.email,
+        to: recipientEmail,
         subject: 'Mã OTP của bạn',
         html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -48,9 +53,17 @@ export class NotificationService {
   }
 
   async sendForgotPasswordEmail(data: { email: string; token: string }) {
+    const recipientEmail = (data.email || '').trim().toLowerCase();
+    if (!Utils.isEmail(recipientEmail)) {
+      console.error(
+        'Invalid recipient email for forgot-password:',
+        data.email,
+      );
+      return;
+    }
     const urlFrontend = this.configService.get<string>('app.url_frontend') || process.env.URL_FRONTEND || process.env.APP_URL_FRONTEND || 'https://app-chat-fe-service-534152738497.asia-southeast1.run.app';
     await this.mailerService.sendMail({
-      to: data.email,
+      to: recipientEmail,
       subject: 'Yêu cầu đặt lại mật khẩu',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">

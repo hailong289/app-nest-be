@@ -4,8 +4,6 @@ import { join } from 'path';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
-import Utils from '@app/helpers/utils';
-import { SERVICES } from '@app/constants/services';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

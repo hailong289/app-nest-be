@@ -509,12 +509,23 @@ export class AuthService implements OnModuleInit {
       return Response.error('Tài khoản không tồn tại', 404);
     }
 
+    const requestEmail = (email || '').trim().toLowerCase();
+    const accountEmail = (user.usr_email || '').trim().toLowerCase();
+    const recipientEmail = requestEmail || accountEmail;
+
+    if (!Utils.isEmail(recipientEmail)) {
+      return Response.error(
+        'Tài khoản chưa có email hợp lệ để nhận mã khôi phục',
+        400,
+      );
+    }
+
     try {
       if (isMobile) {
         // Lưu OTP vào database để verify
         const otpCode = Utils.generateOtp(6);
         await this.otpModel.create({
-          indicator: email,
+          indicator: recipientEmail,
           otp: otpCode,
           expiresAt: Date.now() + 5 * 60 * 1000, // 5 phút
           type: 'reset-password',
@@ -522,7 +533,7 @@ export class AuthService implements OnModuleInit {
         });
         // Gửi OTP về email thông qua Notification Service
         await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
-          email: email,
+          email: recipientEmail,
           otp: otpCode,
         });
         return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
@@ -537,7 +548,7 @@ export class AuthService implements OnModuleInit {
       });
       // Gửi token về email thông qua Notification Service
       await axios.post(`${this.gatewayUrl}/api/notifications/forgot-password`, {
-        email: email,
+        email: recipientEmail,
         token: accessToken,
       });
     } catch (error) {
@@ -579,8 +590,15 @@ export class AuthService implements OnModuleInit {
     user.usr_fullname = data.fullname;
     user.usr_gender = data.gender;
     user.usr_dateOfBirth = new Date(data.dateOfBirth);
+    if (data.address !== undefined) {
+      user.usr_address = data.address;
+    }
     await user.save();
-    return Response.success(null, 'Cập nhật thông tin thành công');
+    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    return Response.success(
+      { user: Utils.unprefix(userData, 'usr_') },
+      'Cập nhật thông tin thành công',
+    );
   }
 
   async logout(

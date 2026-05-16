@@ -5,20 +5,16 @@ import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
 import { SearchMessagesDto } from '@app/dto/ai.dto';
 import type { MulterFile } from '@app/dto';
+import { AiLogUseService } from './ai-log-use.service';
+import type { AiLogUsagePayload } from './ai-log-use.service';
+import { map } from 'rxjs/operators';
 
-interface IAIService {
-  suggestReplies(messages: string[]): Promise<{
-    suggestions: string[];
-    emojis: string[];
-    gif_keywords: string[];
-  }>;
-  checkMessage(text: string, userId: string): Promise<any>;
-}
 @Controller()
 export class AIController {
   constructor(
     private readonly service: AIService,
     private readonly embeddingService: EmbeddingService,
+    private readonly aiLogUseService: AiLogUseService,
   ) {}
 
   @GrpcMethod('AIService', 'Moderation')
@@ -75,11 +71,12 @@ export class AIController {
   }
 
   @GrpcMethod('AIService', 'SearchMessages')
-  async searchMessages(data: SearchMessagesDto) {
+  async searchMessages(data: SearchMessagesDto & { userId?: string }) {
     return await this.embeddingService.searchSimilarMessages(
       data.text,
       data.roomId,
       data.limit,
+      data.userId,
     );
   }
 
@@ -120,30 +117,51 @@ export class AIController {
     emojis: string[];
     gif_keywords: string[];
   }> {
-    const result = await (this.service as unknown as IAIService).suggestReplies(
+    const result = await this.service.suggestReplies(
       data.contextMessages,
+      data.userId,
     );
     return result;
   }
 
   @GrpcMethod('AIService', 'SummaryDocument')
-  async summaryDocument(data: { file: MulterFile }) {
-    return await this.service.summaryDocument(data.file);
+  async summaryDocument(data: {
+    /** Nguồn dữ liệu: 'document' (file đính kèm) hoặc 'file_url' */
+    type: 'document' | 'file_url';
+    /** File đính kèm (chỉ dùng khi type = 'document') */
+    file?: MulterFile;
+    /** URL file nguồn (chỉ dùng khi type = 'file_url') */
+    file_url?: string;
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
+    userId: string;
+  }) {
+    return await this.service.summaryDocument(data.type, data.file, data.file_url, data.model, data.userId);
   }
 
   @GrpcMethod('AIService', 'Translation')
-  async translation(data: { text: string; from: string; to: string }) {
-    return await this.service.translation(data.text, data.from, data.to);
+  async translation(data: {
+    text: string;
+    from: string;
+    to: string;
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
+    userId: string;
+  }) {
+    return await this.service.translation(data.text, data.from, data.to, data.model, data.userId);
   }
 
   @GrpcMethod('AIService', 'Quizz')
   async quizz(data: {
-    file: MulterFile;
+    file?: MulterFile;
     text: string;
     type: 'text' | 'document';
     question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
     question_max: number; // số lượng câu hỏi tối đa
     question_max_points: number; // điểm số tối đa cho bài trắc nghiệm
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
+    userId: string;
   }) {
     return await this.service.generateQuizz(
       data.file,
@@ -152,6 +170,27 @@ export class AIController {
       data.question_type,
       data.question_max,
       data.question_max_points,
+      data.model,
+      data.userId,
+    );
+  }
+
+  /**
+   * Speech-to-Text on an existing voice-message attachment.
+   * Audio is fetched server-side from S3 — FE only sends IDs.
+   */
+  @GrpcMethod('AIService', 'TranscribeAttachment')
+  async transcribeAttachment(data: {
+    attachmentId: string;
+    messageId: string;
+    language: 'vi' | 'en';
+    userId: string;
+  }) {
+    return this.service.transcribeAttachment(
+      data.attachmentId,
+      data.messageId,
+      data.language || 'vi',
+      data.userId,
     );
   }
 
@@ -171,6 +210,9 @@ export class AIController {
     file?: MulterFile;
     /** URL file nguồn (chỉ dùng khi type = 'file_url') */
     file_url?: string;
+    /** Model AI tùy chỉnh (null = dùng model mặc định) */
+    model?: string | null;
+    userId: string;
   }) {
     return await this.service.generateFlashcard(
       data.topic,
@@ -180,6 +222,86 @@ export class AIController {
       data.language ?? 'vi',
       data.file,
       data.file_url,
+      data.model,
+      data.userId,
     );
+  }
+
+  @GrpcMethod('AIService', 'SummaryDocumentStream')
+  async summaryDocumentStream(data: {
+    type: 'document' | 'file_url';
+    file?: MulterFile;
+    file_url?: string;
+    model?: string | null;
+    userId: string;
+  }) {
+    const observable = await this.service.summaryDocumentStream(data.type, data.file, data.file_url, data.model, data.userId);
+    return observable.pipe(map(chunk => ({ chunk })));
+  }
+
+  @GrpcMethod('AIService', 'QuizzStream')
+  async quizzStream(data: {
+    file?: MulterFile;
+    text: string;
+    type: 'text' | 'document';
+    question_type: 'single_choice' | 'multiple_choice' | 'true_false' | 'text';
+    question_max: number;
+    question_max_points: number;
+    model?: string | null;
+    userId: string;
+  }) {
+    const observable = this.service.generateQuizzStream(
+      data.file, data.text || '', data.type, data.question_type, data.question_max, data.question_max_points, data.model, data.userId
+    );
+    return observable.pipe(map(chunk => ({ chunk })));
+  }
+
+  @GrpcMethod('AIService', 'GenerateFlashcardStream')
+  async generateFlashcardStream(data: {
+    topic: string;
+    type: 'text' | 'document' | 'file_url';
+    card_count: number;
+    difficulty: number;
+    language: string;
+    file?: MulterFile;
+    file_url?: string;
+    model?: string | null;
+    userId: string;
+  }) {
+    const observable = await this.service.generateFlashcardStream(
+      data.topic,
+      data.type,
+      data.card_count ?? 10,
+      data.difficulty ?? 3,
+      data.language ?? 'vi',
+      data.file,
+      data.file_url,
+      data.model,
+      data.userId,
+    );
+    return observable.pipe(map(chunk => ({ chunk })));
+  }
+
+  @GrpcMethod('AIService', 'GetUsageReport')
+  async getUsageReport(data: {
+    service?: string;
+    userId?: string;
+    from?: string;
+    to?: string;
+    groupBy: string;
+  }) {
+    const report = await this.aiLogUseService.getUsageReport({
+      service: data.service,
+      userId: data.userId,
+      from: data.from ? new Date(data.from) : undefined,
+      to: data.to ? new Date(data.to) : undefined,
+      groupBy: (data.groupBy as 'service' | 'userId' | 'day') ?? 'service',
+    });
+    return report;
+  }
+
+  @MessagePattern(KafkaEvent.AI_LOG_USAGE)
+  async handleAiLogUsage(payload: AiLogUsagePayload) {
+    await this.aiLogUseService.writeLogToDb(payload);
   }
 }

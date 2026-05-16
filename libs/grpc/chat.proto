@@ -393,7 +393,7 @@ message MessageCore {
   repeated string hiddenBy = 22;
   QuizCore quiz = 23;                        // Quiz data (nullable)
   RoomEventCore room_event = 24;             // System-message event metadata (nullable)
-  FlashcardCore flashcard = 25;         // Flashcard data (nullable)
+  FlashcardDeckCore desk = 25;         // Flashcard data (nullable)
   TodoProjectCore todoProject = 26;     // Todo project data (nullable)
 
 }
@@ -416,7 +416,7 @@ message InputCreateMsg{
   string id=8;
   string documentId=9;
   string quizId=10;
-  string flashcardId=11;
+  string desk_id=11;
   string todoProjectId=12;
 }
 
@@ -692,4 +692,15 @@ message TodoProjectCore {
   string createdAt = 9;
   string updatedAt = 10;
   repeated string project_members = 11;
+}
+message FlashcardDeckCore {
+  string id = 1;
+  string deck_id = 2;
+  string deck_name = 3;
+  string deck_description = 4;
+  string deck_image = 5;
+  int32 deck_totalCards = 6;
+  string deck_level = 7;
+  string createdAt = 8;
+  string updatedAt = 9;
 }

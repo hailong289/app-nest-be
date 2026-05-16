@@ -43,6 +43,7 @@ export enum KafkaEvent {
   AI_CHAT_MSG_EMBEDDING = 'ai.createChatMessageEmbedding',
   AI_DOC_EMBEDDING = 'ai.createDocumentEmbedding',
   AI_PROCESS_FILE_EMBEDDING = 'ai.processFileEmbedding',
+  AI_LOG_USAGE = 'ai.logUsage',
 
   // Room & Document
   CREATE_ROOMS = 'create_rooms',

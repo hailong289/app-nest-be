@@ -14,6 +14,45 @@ service AIService {
   rpc Translation(TranslationRequest) returns (TranslationResponse);
   rpc Quizz(QuizzRequest) returns (QuizzResponse);
   rpc GenerateFlashcard(GenerateFlashcardRequest) returns (GenerateFlashcardResponse);
+  
+  // Streaming Endpoints
+  rpc SummaryDocumentStream(SummaryDocumentRequest) returns (stream AiStreamResponse);
+  rpc QuizzStream(QuizzRequest) returns (stream AiStreamResponse);
+  rpc GenerateFlashcardStream(GenerateFlashcardRequest) returns (stream AiStreamResponse);
+  rpc TranscribeAttachment(TranscribeAttachmentRequest) returns (TranscribeAttachmentResponse);
+
+  // ───────────── Admin / Reporting ────────────────────────────────────
+  rpc GetUsageReport(UsageReportRequest) returns (UsageReportResponse);
+}
+
+message UsageReportRequest {
+  optional string service = 1;   // lọc theo service (moderation, translation, ...)
+  optional string userId = 2;    // lọc theo user
+  optional string from = 3;      // ngày bắt đầu (ISO string)
+  optional string to = 4;        // ngày kết thúc (ISO string)
+  string groupBy = 5;            // 'service' | 'userId' | 'day'
+}
+
+message UsageReportItem {
+  string group = 1;              // giá trị nhóm (tên service / userId / ngày)
+  int32 totalCalls = 2;
+  int32 successCalls = 3;
+  int32 errorCalls = 4;
+  int32 totalTokenInput = 5;
+  int32 totalTokenOutput = 6;
+  double totalCostUsd = 7;
+  double avgLatencyMs = 8;
+  int32 uniqueUserCount = 9;
+}
+
+message UsageReportResponse {
+  string groupBy = 1;
+  int32 total = 2;
+  repeated UsageReportItem items = 3;
+}
+
+message AiStreamResponse {
+  string chunk = 1;
 }
 
 message FileRequest {
@@ -75,6 +114,7 @@ message SearchMessagesRequest {
   string text = 1;
   string roomId = 2;
   int32 limit = 3;
+  string userId = 4;
 }
 
 message SearchMessagesResponse {
@@ -82,9 +122,11 @@ message SearchMessagesResponse {
 }
 
 message SummaryDocumentRequest {
-  bytes file = 1;
-  string filename = 2;
-  string mimetype = 3;
+  string type = 1;
+  FileRequest file = 2;
+  string file_url = 3;
+  optional string model = 4;
+  string userId = 5;
 }
 
 message SummaryDocumentResponse {
@@ -98,6 +140,8 @@ message TranslationRequest {
   string text = 1;
   string from = 2;
   string to = 3;
+  optional string model = 4;
+  string userId = 5;
 }
 
 message TranslationResponse {
@@ -114,6 +158,8 @@ message QuizzRequest {
   string question_type = 4; // single_choice, multiple_choice, true_false, text
   int32 question_max = 5;
   int32 question_max_points = 6;
+  optional string model = 7;
+  string userId = 8;
 }
 
 message QuizzResponse {
@@ -153,6 +199,8 @@ message GenerateFlashcardRequest {
   string language = 5;
   FileRequest file = 6;
   string file_url = 7;
+  optional string model = 8;
+  string userId = 9;
 }
 
 message GeneratedFlashcard {
@@ -177,5 +225,32 @@ message GenerateFlashcardResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   GenerateFlashcardMetadata metadata = 4;
+}
+
+// ───────────── Speech-to-Text on existing voice attachment ─────────────
+// Audio file is already in S3 (uploaded as part of a voice message),
+// so the FE only needs to send the IDs. AI service streams the audio
+// from S3 into Gemini, persists the transcript on the Attachment, and
+// returns it.
+message TranscribeAttachmentRequest {
+  string attachmentId = 1;
+  string messageId = 2;
+  string language = 3; // 'vi' | 'en'
+  string userId = 4;
+}
+
+message TranscribeAttachmentResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  TranscribeAttachmentMetadata metadata = 4;
+}
+
+message TranscribeAttachmentMetadata {
+  string transcript = 1;
+  string detectedLanguage = 2;
+  string attachmentId = 3;
+  string messageId = 4;
+  bool cached = 5; // true if returned existing transcript without re-running AI
 }
 

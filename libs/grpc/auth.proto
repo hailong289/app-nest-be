@@ -232,6 +232,7 @@ message User {
   string dateOfBirth = 9;
   string createdAt   = 10;
   string updatedAt   = 11;
+  string address     = 12;
 }
 
 message VerifyOtpRequest {
@@ -303,6 +304,7 @@ message UpdateProfileRequest {
   string fullname    = 2;
   string gender      = 3;
   string dateOfBirth = 4;
+  string address     = 5;
 }
 
 message UpdateProfileResponse {

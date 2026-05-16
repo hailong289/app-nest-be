@@ -64,6 +64,12 @@ export class User {
 
   @Prop({
     type: String,
+    default: '',
+  })
+  usr_address: string;
+
+  @Prop({
+    type: String,
     enum: ['active', 'inactive', 'banned'],
     default: 'active',
   })

@@ -95,6 +95,14 @@ export class GatewayQuizzController {
     );
   }
 
+  @Get(':quiz_id')
+  async getQuizzByIdAlias(@Param('quiz_id') quiz_id: string) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.quizzService.GetQuizz.bind(this.quizzService),
+      { quiz_id },
+    );
+  }
+
   @Patch('update/:quiz_id')
   async updateQuizz(
     @Param('quiz_id') quiz_id: string,

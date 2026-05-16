@@ -42,7 +42,7 @@ export class CreateMessage {
   replyTo: string | null;
   documentId?: string;
   quizId?: string;
-  flashcardId?: string;
+  desk_id?: string;
   todoProjectId?: string;
   // pinned?: boolean;
 }
