@@ -125,4 +125,23 @@ export class HandleChatController {
     );
     return result;
   }
+
+  @GrpcMethod('ChatService', 'SaveCallTranscriptSegment')
+  async SaveCallTranscriptSegment(
+    @Body()
+    payload: {
+      callId: string;
+      roomId: string;
+      speakerUserId: string;
+      segmentId: string;
+      text: string;
+      translatedText?: string;
+      sourceLanguage?: string;
+      targetLanguage?: string;
+      startedAt: string;
+      endedAt: string;
+    },
+  ) {
+    return this.hdChat.saveCallTranscriptSegment(payload);
+  }
 }

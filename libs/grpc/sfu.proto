@@ -33,6 +33,11 @@ service SfuService {
   rpc Consume(ConsumeRequest) returns (ConsumeResponse);
   rpc PauseConsumer(ConsumerOpRequest) returns (Empty);
   rpc ResumeConsumer(ConsumerOpRequest) returns (Empty);
+
+  // Call transcription
+  rpc StartCallTranscription(StartCallTranscriptionRequest) returns (StartCallTranscriptionResponse);
+  rpc StopCallTranscription(StopCallTranscriptionRequest) returns (StopCallTranscriptionResponse);
+  rpc TranscribeAudioUrl(TranscribeAudioUrlRequest) returns (TranscribeAudioUrlResponse);
 }
 
 // ----- Common -----
@@ -161,4 +166,43 @@ message ConsumerOpRequest {
   string roomId = 1;
   string userId = 2;
   string consumerId = 3;
+}
+
+// ----- Call transcription -----
+message StartCallTranscriptionRequest {
+  string roomId = 1;
+  string callId = 2;
+  string userId = 3;
+  string targetLanguage = 4; // Optional; empty string means no translation
+  string sourceLanguage = 5; // Optional; empty/auto lets Whisper auto-detect
+}
+
+message StartCallTranscriptionResponse {
+  bool enabled = 1;
+  string roomId = 2;
+  string callId = 3;
+}
+
+message StopCallTranscriptionRequest {
+  string roomId = 1;
+  string callId = 2;
+  string userId = 3;
+}
+
+message StopCallTranscriptionResponse {
+  bool stopped = 1;
+  string roomId = 2;
+  string callId = 3;
+}
+
+message TranscribeAudioUrlRequest {
+  string audioUrl = 1;
+  string mimeType = 2;
+  string sourceLanguage = 3; // Optional; empty/auto lets Whisper auto-detect
+  string userId = 4;
+}
+
+message TranscribeAudioUrlResponse {
+  string transcript = 1;
+  string detectedLanguage = 2;
 }

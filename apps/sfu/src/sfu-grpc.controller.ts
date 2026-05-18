@@ -8,6 +8,7 @@ import type { types as MediasoupTypes } from 'mediasoup';
 // 'import type' or a namespace import".
 import * as RoomServiceModule from './room/sfu-room.service';
 import * as TransportServiceModule from './transport/sfu-transport.service';
+import * as TranscriptionServiceModule from './transcription/call-transcription.service';
 
 /**
  * gRPC controller exposing SfuRoomService + SfuTransportService methods
@@ -22,6 +23,7 @@ export class SfuGrpcController {
   constructor(
     private readonly roomService: RoomServiceModule.SfuRoomService,
     private readonly transportService: TransportServiceModule.SfuTransportService,
+    private readonly transcriptionService: TranscriptionServiceModule.CallTranscriptionService,
   ) {}
 
   // ===== Room lifecycle =====
@@ -45,7 +47,8 @@ export class SfuGrpcController {
   }
 
   @GrpcMethod('SfuService', 'LeaveRoom')
-  leaveRoom(data: { roomId: string; userId: string }) {
+  async leaveRoom(data: { roomId: string; userId: string }) {
+    await this.transcriptionService.stopUser(data.roomId, data.userId);
     this.roomService.leaveRoom(data.roomId, data.userId);
     return {};
   }
@@ -268,5 +271,41 @@ export class SfuGrpcController {
       kind: consumer.kind,
       rtpParametersJson: JSON.stringify(consumer.rtpParameters),
     };
+  }
+
+  // ===== Call transcription =====
+
+  @GrpcMethod('SfuService', 'StartCallTranscription')
+  async startCallTranscription(data: {
+    roomId: string;
+    callId: string;
+    userId: string;
+    targetLanguage?: string;
+    sourceLanguage?: string;
+  }) {
+    return this.transcriptionService.startCall(data, this.roomService.getRoom(data.roomId));
+  }
+
+  @GrpcMethod('SfuService', 'StopCallTranscription')
+  async stopCallTranscription(data: {
+    roomId: string;
+    callId: string;
+    userId: string;
+  }) {
+    return this.transcriptionService.stopCall(data);
+  }
+
+  @GrpcMethod('SfuService', 'TranscribeAudioUrl')
+  async transcribeAudioUrl(data: {
+    audioUrl: string;
+    mimeType?: string;
+    sourceLanguage?: string;
+    userId: string;
+  }) {
+    return this.transcriptionService.transcribeAudioUrl({
+      audioUrl: data.audioUrl,
+      mimeType: data.mimeType,
+      sourceLanguage: data.sourceLanguage,
+    });
   }
 }

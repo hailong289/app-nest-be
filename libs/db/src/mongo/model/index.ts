@@ -119,6 +119,12 @@ export type {
   CallType,
   CallStatus,
 } from './call-history.model';
+export {
+  CallTranscriptSegment,
+  CallTranscriptSegmentSchema,
+} from './call-transcript-segment.model';
+export { default as callTranscriptSegmentModel } from './call-transcript-segment.model';
+export type { CallTranscriptSegmentDocument } from './call-transcript-segment.model';
 //
 export { default as aIEmbeddingModel } from './AIEmbedding.model';
 export type { AIEmbeddingDocument } from './AIEmbedding.model';

@@ -42,7 +42,8 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 
 # libstdc++ / libgcc are required by the compiled mediasoup-worker.
-RUN apk add --no-cache libstdc++ libgcc
+# ffmpeg decodes Opus RTP/audio attachments into 16k PCM for Whisper.
+RUN apk add --no-cache libstdc++ libgcc ffmpeg
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist

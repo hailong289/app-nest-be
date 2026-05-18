@@ -8,6 +8,7 @@ import { MulterFile } from '@app/dto';
 import { Response } from '@app/helpers/response';
 import axios from 'axios';
 import { basename } from 'node:path';
+import { SfuTranscriptionClient } from './sfu-transcription.client';
 
 @Injectable()
 export class AIService {
@@ -19,6 +20,7 @@ export class AIService {
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
     @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
+    private readonly sfuTranscription: SfuTranscriptionClient,
   ) {}
 
   async checkMessage(text: string, userId: string, contextId?: string) {
@@ -202,11 +204,8 @@ export class AIService {
    *      `messageId` and is an audio kind.
    *   2. If `attachment.transcript` is already set, return it as-is
    *      (cached) — STT is expensive and idempotent per attachment.
-   *   3. Stream the audio bytes from S3 via the public/signed URL
-   *      stored on the attachment (reuses `axios.get` like
-   *      `downloadFileFromUrl` does for flashcard file_url).
-   *   4. Hand the buffer to GoogleModerationProvider.speechToText, which
-   *      calls Gemini with `inlineData` and returns
+   *   3. Send the attachment URL to apps/sfu, where Whisper local CPU
+   *      downloads/decodes the audio and returns
    *      `{ transcript, detectedLanguage }`.
    *   5. Persist `transcript` + `transcribedAt` on the Attachment.
    *   6. Return the Response.success metadata expected by the proto.
@@ -282,51 +281,27 @@ export class AIService {
       );
     }
 
-    let buffer: Buffer;
-    let mimeType = attachment.mimeType || 'audio/webm';
+    let transcript = '';
+    let detectedLanguage: string = language;
     try {
-      const res = await axios.get<ArrayBuffer>(attachment.url, {
-        responseType: 'arraybuffer',
-        // Audio < 20MB; cap timeout to avoid stuck requests.
-        timeout: 60_000,
-        maxContentLength: 20 * 1024 * 1024,
+      const result = await this.sfuTranscription.transcribeAudioUrl({
+        audioUrl: attachment.url,
+        mimeType: attachment.mimeType || 'audio/webm',
+        sourceLanguage: language,
+        userId,
       });
-      buffer = Buffer.from(res.data);
-      const headerType = res.headers?.['content-type'];
-      if (typeof headerType === 'string' && headerType.startsWith('audio/')) {
-        mimeType = headerType;
-      }
+      transcript = result.transcript ?? '';
+      detectedLanguage = result.detectedLanguage || language;
     } catch (err) {
-      this.logger.error('Lỗi tải audio từ S3:', (err as Error).message);
+      this.logger.error('Lỗi transcribe audio bằng SFU:', (err as Error).message);
       return Response.error(
-        'Không thể tải audio từ S3',
+        'Không thể chuyển giọng nói thành văn bản',
         502,
-        'AUDIO_FETCH_FAILED',
+        'SPEECH_TO_TEXT_FAILED',
       );
     }
 
-    const result = await this.googleProvider.speechToText(
-      buffer,
-      mimeType,
-      language,
-      userId,
-    );
-
-    // Provider returned a structured error → bubble it up unchanged.
-    const resp = result as {
-      statusCode?: number;
-      message?: string;
-      reasonStatusCode?: string;
-      metadata?: { transcript?: string; detectedLanguage?: string };
-    };
-    if (!resp.metadata || resp.statusCode !== 200) {
-      return result;
-    }
-
-    const transcript = resp.metadata.transcript ?? '';
-    const detectedLanguage = resp.metadata.detectedLanguage ?? language;
-
-    // Persist (even empty transcript so we don't repeatedly hit Gemini for
+    // Persist (even empty transcript so we don't repeatedly hit Whisper for
     // silent audio).
     try {
       await this.attachmentModel.updateOne(

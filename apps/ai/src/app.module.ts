@@ -13,6 +13,7 @@ import { AIService } from './ai.service';
 import { EmbeddingService } from './embedding.service';
 import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
+import sfuConfig from './config/sfu.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
 import Userschema from 'libs/db/src/mongo/model/user.model';
@@ -23,6 +24,9 @@ import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
 import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
+import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
+import { SERVICES } from '@app/constants/services';
+import { SfuTranscriptionClient } from './sfu-transcription.client';
 
 @Module({
   imports: [
@@ -32,7 +36,7 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
         process.cwd(),
         `apps/ai/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [googleConfig, mongoConfig, kafkaConfig],
+      load: [googleConfig, sfuConfig, mongoConfig, kafkaConfig],
     }),
     KafkaAdminModule,
     MongodbModule,
@@ -49,6 +53,11 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
       clientId: 'ai-service-producer',
       groupId: 'ai-log-usage-consumer-group',
     }),
+    GrpcClientModule.registerAsync({
+      name: SERVICES.SFU,
+      configKey: 'sfu',
+      packages: ['sfu'],
+    }),
   ],
   controllers: [AIController],
   providers: [
@@ -56,6 +65,7 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
     EmbeddingService,
     GoogleModerationProvider,
     AiLogUseService,
+    SfuTranscriptionClient,
   ],
 })
 export class AppModule {}
