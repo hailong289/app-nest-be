@@ -164,6 +164,32 @@ interface SfuServiceGrpc {
     data: { roomId: string; userId: string; consumerId: string },
     metadata: grpc.Metadata,
   ): Observable<Record<string, never>>;
+
+  StartCallTranscription(
+    data: {
+      roomId: string;
+      callId: string;
+      userId: string;
+      targetLanguage?: string;
+      sourceLanguage?: string;
+    },
+    metadata: grpc.Metadata,
+  ): Observable<{ enabled: boolean; roomId: string; callId: string }>;
+
+  StopCallTranscription(
+    data: { roomId: string; callId: string; userId: string },
+    metadata: grpc.Metadata,
+  ): Observable<{ stopped: boolean; roomId: string; callId: string }>;
+
+  TranscribeAudioUrl(
+    data: {
+      audioUrl: string;
+      mimeType?: string;
+      sourceLanguage?: string;
+      userId: string;
+    },
+    metadata: grpc.Metadata,
+  ): Observable<{ transcript: string; detectedLanguage: string }>;
 }
 
 const RPC_TIMEOUT_MS = 5000;
@@ -418,6 +444,65 @@ export class SfuRpcClient implements OnModuleInit {
     await this.invoke(
       this.service.ResumeConsumer(
         { roomId, userId, consumerId },
+        this.metadata(),
+      ),
+    );
+  }
+
+  // ===== Call transcription =====
+
+  async startCallTranscription(input: {
+    roomId: string;
+    callId: string;
+    userId: string;
+    targetLanguage?: string;
+    sourceLanguage?: string;
+  }): Promise<{ enabled: boolean; roomId: string; callId: string }> {
+    return this.invoke(
+      this.service.StartCallTranscription(
+        {
+          roomId: input.roomId,
+          callId: input.callId,
+          userId: input.userId,
+          targetLanguage: input.targetLanguage || '',
+          sourceLanguage: input.sourceLanguage || '',
+        },
+        this.metadata(),
+      ),
+    );
+  }
+
+  async stopCallTranscription(input: {
+    roomId: string;
+    callId: string;
+    userId: string;
+  }): Promise<{ stopped: boolean; roomId: string; callId: string }> {
+    return this.invoke(
+      this.service.StopCallTranscription(
+        {
+          roomId: input.roomId,
+          callId: input.callId,
+          userId: input.userId,
+        },
+        this.metadata(),
+      ),
+    );
+  }
+
+  async transcribeAudioUrl(input: {
+    audioUrl: string;
+    mimeType?: string;
+    sourceLanguage?: string;
+    userId: string;
+  }): Promise<{ transcript: string; detectedLanguage: string }> {
+    return this.invoke(
+      this.service.TranscribeAudioUrl(
+        {
+          audioUrl: input.audioUrl,
+          mimeType: input.mimeType || '',
+          sourceLanguage: input.sourceLanguage || '',
+          userId: input.userId,
+        },
         this.metadata(),
       ),
     );

@@ -36,6 +36,7 @@ import {
   User,
   Document,
   Quiz,
+  CallTranscriptSegment,
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -75,6 +76,8 @@ export class HandleChatService {
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(callHistoryModel.name)
     private readonly callHistoryModel: Model<CallHistory>,
+    @InjectModel(CallTranscriptSegment.name)
+    private readonly callTranscriptSegmentModel: Model<CallTranscriptSegment>,
     @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
     @InjectModel(Document.name)
@@ -1486,5 +1489,87 @@ export class HandleChatService {
       })
       .sort({ createdAt: -1 });
     return Response.success(callHistory, 'Lịch sử cuộc gọi đã được lấy');
+  }
+
+  async saveCallTranscriptSegment(payload: {
+    callId: string;
+    roomId: string;
+    speakerUserId: string;
+    segmentId: string;
+    text: string;
+    translatedText?: string;
+    sourceLanguage?: string;
+    targetLanguage?: string;
+    startedAt: string;
+    endedAt: string;
+  }) {
+    const segmentId = payload.segmentId?.trim();
+    if (!segmentId || !payload.callId || !payload.roomId) {
+      return Response.error(
+        'Thiếu callId, roomId hoặc segmentId',
+        400,
+        'BAD_REQUEST',
+      );
+    }
+
+    const startedAt = payload.startedAt
+      ? new Date(payload.startedAt)
+      : new Date();
+    const endedAt = payload.endedAt ? new Date(payload.endedAt) : startedAt;
+
+    if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) {
+      return Response.error(
+        'startedAt hoặc endedAt không hợp lệ',
+        400,
+        'BAD_REQUEST',
+      );
+    }
+
+    try {
+      const existing = await this.callTranscriptSegmentModel.findOne({
+        segment_id: segmentId,
+      });
+      if (existing) {
+        return Response.success(
+          { segmentId, created: false },
+          'Transcript segment đã tồn tại',
+        );
+      }
+
+      await this.callTranscriptSegmentModel.create({
+        call_id: payload.callId,
+        room_id: payload.roomId,
+        speaker_user_id: payload.speakerUserId,
+        segment_id: segmentId,
+        text: payload.text || '',
+        translated_text: payload.translatedText || '',
+        source_language: payload.sourceLanguage || '',
+        target_language: payload.targetLanguage || '',
+        started_at: startedAt,
+        ended_at: endedAt,
+      });
+
+      return Response.success(
+        { segmentId, created: true },
+        'Lưu transcript segment thành công',
+      );
+    } catch (error) {
+      if ((error as { code?: number }).code === 11000) {
+        return Response.success(
+          { segmentId, created: false },
+          'Transcript segment đã tồn tại',
+        );
+      }
+      this.log.error(
+        `[CALL_TRANSCRIPT] Failed to save segment ${segmentId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return Response.error(
+        'Không thể lưu transcript segment',
+        500,
+        'SAVE_TRANSCRIPT_FAILED',
+      );
+    }
   }
 }

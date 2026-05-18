@@ -1505,6 +1505,83 @@ export class CallGateway
     }
   }
 
+  @SubscribeMessage('call:transcription:start')
+  async handleStartTranscription(
+    @ConnectedSocket() client: SocketWithUser,
+    @MessageBody()
+    data: {
+      roomId: string;
+      callId: string;
+      targetLanguage?: string;
+      sourceLanguage?: string;
+    },
+  ) {
+    try {
+      const userId = client.user?.usr_id;
+      if (!userId || !data?.roomId || !data?.callId) {
+        throw new BadRequestException('Missing roomId, callId or user');
+      }
+
+      const result = await this.sfuRpc.startCallTranscription({
+        roomId: data.roomId,
+        callId: data.callId,
+        userId,
+        targetLanguage: data.targetLanguage,
+        sourceLanguage: data.sourceLanguage,
+      });
+
+      client.emit('call:transcription:started', {
+        ...result,
+        targetLanguage: data.targetLanguage || '',
+        sourceLanguage: data.sourceLanguage || '',
+      });
+    } catch (error) {
+      this.logger.error('[CALL_TRANSCRIPT] Error starting transcription:', error);
+      client.emit('call:transcription:error', {
+        roomId: data?.roomId,
+        callId: data?.callId,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Không thể bật phụ đề cuộc gọi',
+      });
+    }
+  }
+
+  @SubscribeMessage('call:transcription:stop')
+  async handleStopTranscription(
+    @ConnectedSocket() client: SocketWithUser,
+    @MessageBody()
+    data: {
+      roomId: string;
+      callId: string;
+    },
+  ) {
+    try {
+      const userId = client.user?.usr_id;
+      if (!userId || !data?.roomId || !data?.callId) {
+        throw new BadRequestException('Missing roomId, callId or user');
+      }
+
+      const result = await this.sfuRpc.stopCallTranscription({
+        roomId: data.roomId,
+        callId: data.callId,
+        userId,
+      });
+      client.emit('call:transcription:stopped', result);
+    } catch (error) {
+      this.logger.error('[CALL_TRANSCRIPT] Error stopping transcription:', error);
+      client.emit('call:transcription:error', {
+        roomId: data?.roomId,
+        callId: data?.callId,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Không thể tắt phụ đề cuộc gọi',
+      });
+    }
+  }
+
   // ========================================================
   // �🔥 UNIFIED SIGNAL HANDLER (P2P + SFU)
   // ========================================================

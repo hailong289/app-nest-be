@@ -566,11 +566,11 @@ export class GatewayAiController {
    *   - language     : 'vi' | 'en' (mặc định 'vi')
    *
    * Audio đã ở S3 nên FE KHÔNG upload lại file — AI service tự fetch từ
-   * URL của attachment, gửi vào Gemini, lưu transcript vào Attachment
+   * URL của attachment, gửi sang SFU Whisper, lưu transcript vào Attachment
    * record và trả về { transcript, detectedLanguage, cached }.
    *
    * Idempotent: nếu attachment đã có transcript, trả về luôn từ cache
-   * mà không gọi Gemini.
+   * mà không gọi Whisper.
    */
   @Post('transcribe-attachment')
   async transcribeAttachment(
@@ -591,7 +591,7 @@ export class GatewayAiController {
         language: body.language || 'vi',
         userId: req.user.usr_id,
       },
-      120000, // 2 minutes — Gemini may be slow on long audio
+      180000, // 3 minutes — Whisper CPU may be slow on long audio
     );
   }
 

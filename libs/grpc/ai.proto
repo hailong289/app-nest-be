@@ -229,9 +229,8 @@ message GenerateFlashcardResponse {
 
 // ───────────── Speech-to-Text on existing voice attachment ─────────────
 // Audio file is already in S3 (uploaded as part of a voice message),
-// so the FE only needs to send the IDs. AI service streams the audio
-// from S3 into Gemini, persists the transcript on the Attachment, and
-// returns it.
+// so the FE only needs to send the IDs. AI service delegates STT to
+// apps/sfu Whisper, persists the transcript on the Attachment, and returns it.
 message TranscribeAttachmentRequest {
   string attachmentId = 1;
   string messageId = 2;

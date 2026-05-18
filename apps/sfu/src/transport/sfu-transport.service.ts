@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { types as MediasoupTypes } from 'mediasoup';
 import { SfuRoomService } from '../room/sfu-room.service';
 import { mediasoupConfig } from '../config/mediasoup.config';
+import * as TranscriptionServiceModule from '../transcription/call-transcription.service';
 
 type WebRtcTransport = MediasoupTypes.WebRtcTransport;
 type Producer = MediasoupTypes.Producer;
@@ -15,7 +16,10 @@ type AppData = MediasoupTypes.AppData;
 export class SfuTransportService {
   private readonly logger = new Logger(SfuTransportService.name);
 
-  constructor(private readonly sfuRoomService: SfuRoomService) {}
+  constructor(
+    private readonly sfuRoomService: SfuRoomService,
+    private readonly callTranscription: TranscriptionServiceModule.CallTranscriptionService,
+  ) {}
 
   async createWebRtcTransport(
     roomId: string,
@@ -81,6 +85,11 @@ export class SfuTransportService {
     rtpParameters: RtpParameters,
     appData?: AppData,
   ): Promise<Producer> {
+    const room = this.sfuRoomService.getRoom(roomId);
+    if (!room) {
+      throw new BadRequestException(`Room ${roomId} not found`);
+    }
+
     const transport = this.sfuRoomService.getTransport(
       roomId,
       userId,
@@ -99,8 +108,21 @@ export class SfuTransportService {
     this.sfuRoomService.addProducer(roomId, userId, producer.id, producer);
     this.logger.log(`Producer ${producer.id} (${kind}) created for ${userId}`);
 
+    if (kind === 'audio') {
+      void this.callTranscription
+        .maybeStartProducerTap(room, userId, producer)
+        .catch((error) =>
+          this.logger.warn(
+            `[CALL_TRANSCRIPT] Failed to start tap for ${producer.id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        );
+    }
+
     producer.on('transportclose', () => {
       this.logger.log(`Producer ${producer.id} transport closed`);
+      void this.callTranscription.stopProducer(roomId, userId, producer.id);
     });
 
     return producer;
@@ -215,6 +237,7 @@ export class SfuTransportService {
     if (!producer) {
       throw new BadRequestException(`Producer ${producerId} not found`);
     }
+    void this.callTranscription.stopProducer(roomId, userId, producerId);
     producer.close();
   }
 

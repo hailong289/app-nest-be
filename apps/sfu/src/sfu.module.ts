@@ -2,6 +2,7 @@ import { Module, Global } from '@nestjs/common';
 import { SfuService } from './sfu.service';
 import { SfuRoomService } from './room/sfu-room.service';
 import { SfuTransportService } from './transport/sfu-transport.service';
+import { CallTranscriptionModule } from './transcription/call-transcription.module';
 
 /**
  * In-process mediasoup engine: workers, rooms, transports.
@@ -9,6 +10,7 @@ import { SfuTransportService } from './transport/sfu-transport.service';
  */
 @Global()
 @Module({
+  imports: [CallTranscriptionModule],
   providers: [SfuService, SfuRoomService, SfuTransportService],
   exports: [SfuService, SfuRoomService, SfuTransportService],
 })

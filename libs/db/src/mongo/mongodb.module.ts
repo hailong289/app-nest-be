@@ -22,6 +22,7 @@ import {
   aIEmbeddingModel,
   aIUsageLogModel,
   attachmentModel,
+  callTranscriptSegmentModel,
   notificationModel,
 } from './model';
 import todoProjectModel from './model/todo-project.model';
@@ -66,6 +67,7 @@ import todoModel from './model/todo.model';
       flashcardModel,
       flashcardDeckModel,
       callHistoryModel,
+      callTranscriptSegmentModel,
       documentModel,
       aIEmbeddingModel,
       aIUsageLogModel,
