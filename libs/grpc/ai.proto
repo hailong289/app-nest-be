@@ -20,6 +20,7 @@ service AIService {
   rpc QuizzStream(QuizzRequest) returns (stream AiStreamResponse);
   rpc GenerateFlashcardStream(GenerateFlashcardRequest) returns (stream AiStreamResponse);
   rpc TranscribeAttachment(TranscribeAttachmentRequest) returns (TranscribeAttachmentResponse);
+  rpc TranscribeRealtime(TranscribeRealtimeRequest) returns (TranscribeRealtimeResponse);
 
   // ───────────── Admin / Reporting ────────────────────────────────────
   rpc GetUsageReport(UsageReportRequest) returns (UsageReportResponse);
@@ -254,3 +255,25 @@ message TranscribeAttachmentMetadata {
   bool cached = 5; // true if returned existing transcript without re-running AI
 }
 
+// ───────────── Real-time Speech-to-Text during calls ─────────────
+message TranscribeRealtimeRequest {
+  bytes audioChunk = 1;
+  string mimeType = 2;
+  string language = 3; // 'vi' | 'en'
+  string userId = 4;
+  string speakerName = 5;
+}
+
+message TranscribeRealtimeResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  TranscribeRealtimeMetadata metadata = 4;
+}
+
+message TranscribeRealtimeMetadata {
+  string transcript = 1;
+  string detectedLanguage = 2;
+  string speakerName = 3;
+  bool isEmpty = 4;
+}

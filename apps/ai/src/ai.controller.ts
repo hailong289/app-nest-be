@@ -194,6 +194,27 @@ export class AIController {
     );
   }
 
+  @GrpcMethod('AIService', 'TranscribeRealtime')
+  async transcribeRealtime(data: {
+    audioChunk: Buffer | Uint8Array | string;
+    mimeType: string;
+    language: string;
+    userId: string;
+    speakerName: string;
+  }) {
+    const audioChunk = Buffer.isBuffer(data.audioChunk)
+      ? data.audioChunk
+      : Buffer.from(data.audioChunk || []);
+
+    return this.service.transcribeRealtime(
+      audioChunk,
+      data.mimeType,
+      data.language === 'en' ? 'en' : 'vi',
+      data.userId,
+      data.speakerName,
+    );
+  }
+
   @GrpcMethod('AIService', 'GenerateFlashcard')
   async generateFlashcard(data: {
     /** Chủ đề hoặc nội dung văn bản để tạo flashcard (dùng khi type = 'text') */
