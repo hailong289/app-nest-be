@@ -29,7 +29,7 @@ export class AiLogUseService {
     private readonly aiUsageLogModel: Model<AIUsageLogs>,
     @Inject(AI_KAFKA_CLIENT)
     private readonly kafkaClient: ClientKafka,
-  ) {}
+  ) { }
 
   /**
    * Emit log usage event qua Kafka (fire-and-forget, không block luồng chính)
@@ -103,8 +103,8 @@ export class AiLogUseService {
 
     let groupId: {
       _id:
-        | string
-        | { $dateToString: { format: string; date: string } };
+      | string
+      | { $dateToString: { format: string; date: string } };
     };
     switch (params.groupBy) {
       case 'userId':
@@ -169,4 +169,3 @@ export class AiLogUseService {
     };
   }
 }
-

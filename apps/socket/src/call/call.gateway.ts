@@ -49,6 +49,10 @@ export interface ChatGrpcService {
   SendCandidate<T = any>(data: T): Observable<any>;
 }
 
+export interface AiGrpcService {
+  TranscribeRealtime<T = any>(data: T): Observable<any>;
+}
+
 @WebSocketGateway({
   cors: {
     origin: '*',
@@ -69,8 +73,10 @@ export class CallGateway
   private readonly logger = new Logger(CallGateway.name);
   private readonly key = REDISKEY;
   private ChatGrpcService!: ChatGrpcService;
+  private AiGrpcService!: AiGrpcService;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
+    @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
@@ -87,6 +93,7 @@ export class CallGateway
   onModuleInit() {
     this.ChatGrpcService =
       this.chatClient.getService<ChatGrpcService>('ChatService');
+    this.AiGrpcService = this.aiClient.getService<AiGrpcService>('AIService');
   }
 
   /**
@@ -1831,6 +1838,130 @@ export class CallGateway
     } catch (error) {
       this.logger.error('[CALL] Error relaying mic-state:', error);
       return { ok: false };
+    }
+  }
+
+  /**
+   * Relay finalized speech-to-text segments between call participants.
+   * Recognition still happens locally in each browser; the server only
+   * stamps the authenticated sender id and broadcasts the text to peers.
+   */
+  @SubscribeMessage('call:stt-segment')
+  async handleSttSegment(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      speaker: string;
+      text: string;
+      isFinal: boolean;
+      timestamp: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      data.actionUserId = user.usr_id;
+      data.speaker = user.usr_fullname || data.speaker;
+
+      this.io.to(data.roomId).except(client.id).emit('call:stt-segment', data);
+      return { ok: true };
+    } catch (error) {
+      this.logger.error('[CALL] Error relaying stt-segment:', error);
+      return { ok: false };
+    }
+  }
+
+  @SubscribeMessage('call:stt-audio-chunk')
+  async handleSttAudioChunk(
+    @MessageBody()
+    data: {
+      actionUserId?: string;
+      roomId: string;
+      speaker?: string;
+      audioChunk: string;
+      mimeType: string;
+      language: string;
+    },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      const speaker = user.usr_fullname || data.speaker || 'Người tham gia';
+      const language = data.language === 'en' ? 'en' : 'vi';
+
+      if (!data.roomId || !data.audioChunk) {
+        return { ok: false, error: 'Missing roomId or audioChunk' };
+      }
+
+      const audioBuffer = Buffer.from(data.audioChunk, 'base64');
+      if (!audioBuffer.length) {
+        return { ok: false, error: 'Empty audio chunk' };
+      }
+
+      const result = (await Utils.dispatchGrpcRequest(
+        (d) => this.AiGrpcService.TranscribeRealtime(d),
+        {
+          audioChunk: audioBuffer,
+          mimeType: data.mimeType || 'audio/webm',
+          language,
+          userId: user.usr_id,
+          speakerName: speaker,
+        },
+      )) as {
+        statusCode?: number;
+        message?: string;
+        reasonStatusCode?: string;
+        metadata?: {
+          transcript?: string;
+          detectedLanguage?: string;
+          speakerName?: string;
+          isEmpty?: boolean;
+        };
+      };
+
+      if (result.statusCode && result.statusCode !== 200) {
+        const message =
+          result.message || 'Không thể nhận dạng giọng nói lúc này';
+        client.emit('call:stt-error', { message });
+        return {
+          ok: false,
+          error: result.reasonStatusCode || message,
+        };
+      }
+
+      const transcript = result.metadata?.transcript?.trim();
+      if (result.statusCode === 200 && transcript) {
+        const payload = {
+          actionUserId: user.usr_id,
+          roomId: data.roomId,
+          speaker: result.metadata?.speakerName || speaker,
+          text: transcript,
+          detectedLanguage: result.metadata?.detectedLanguage || language,
+          timestamp: new Date().toLocaleTimeString('vi-VN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+        };
+
+        client.emit('call:stt-result', payload);
+        this.io
+          .to(data.roomId)
+          .except(client.id)
+          .emit('call:stt-result', payload);
+      }
+
+      return { ok: true, isEmpty: !transcript };
+    } catch (error) {
+      this.logger.error('[CALL] STT chunk failed:', error);
+      client.emit('call:stt-error', {
+        message: 'Không thể nhận dạng giọng nói lúc này',
+      });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
