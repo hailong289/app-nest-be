@@ -362,6 +362,48 @@ export class AIService {
     );
   }
 
+  async transcribeRealtime(
+    audioChunk: Buffer,
+    mimeType: string,
+    language: 'vi' | 'en',
+    userId: string,
+    speakerName: string,
+  ) {
+    if (!audioChunk?.length) {
+      return Response.error('Audio chunk rỗng', 400, 'EMPTY_AUDIO_CHUNK');
+    }
+
+    const result = await this.googleProvider.speechToText(
+      audioChunk,
+      mimeType || 'audio/webm',
+      language || 'vi',
+      userId,
+    );
+
+    const resp = result as {
+      statusCode?: number;
+      metadata?: { transcript?: string; detectedLanguage?: string };
+    };
+
+    if (!resp.metadata || resp.statusCode !== 200) {
+      return result;
+    }
+
+    const transcript = resp.metadata.transcript ?? '';
+
+    return Response.success(
+      {
+        transcript,
+        detectedLanguage: resp.metadata.detectedLanguage ?? language,
+        speakerName,
+        isEmpty: !transcript.trim(),
+      },
+      'Real-time STT completed',
+      200,
+      'OK',
+    );
+  }
+
   private async downloadFileFromUrl(fileUrl: string): Promise<MulterFile> {
     const response = await axios.get(fileUrl, { responseType: 'stream' });
     const chunks: Buffer[] = [];

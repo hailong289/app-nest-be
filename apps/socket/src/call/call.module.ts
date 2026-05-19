@@ -10,6 +10,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { SharedBullModule } from 'libs/db/src';
 import { CALL_AUTO_MISS_QUEUE } from './call-auto-miss.constants';
 import { CallAutoMissProcessor } from './call-auto-miss.processor';
+import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
+import aiConfig from '../config/ai.config';
 
 @Module({
   imports: [
@@ -22,6 +24,12 @@ import { CallAutoMissProcessor } from './call-auto-miss.processor';
     // Replaces in-process setTimeout so the timer survives pod restarts
     // and is safe under multi-pod Cloud Run autoscale.
     SharedBullModule.registerQueue(CALL_AUTO_MISS_QUEUE),
+    ConfigModule.forFeature(aiConfig),
+    GrpcClientModule.registerAsync({
+      name: SERVICES.AI,
+      configKey: 'ai',
+      packages: ['ai'],
+    }),
     ClientsModule.register([
       {
         name: SERVICES.CHAT,

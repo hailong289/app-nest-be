@@ -3,7 +3,7 @@ import { ClientKafka } from '@nestjs/microservices';
 import { InjectModel } from '@nestjs/mongoose';
 import { AIUsageLogs } from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import { KafkaEvent } from '@app/dto/enum.type';
-import { Model } from 'mongoose';
+import { Model, PipelineStage } from 'mongoose';
 
 export const AI_KAFKA_CLIENT = 'AI_KAFKA_CLIENT';
 
@@ -101,7 +101,7 @@ export class AiLogUseService {
       if (params.to) (match.createdAt as Record<string, unknown>)['$lte'] = params.to;
     }
 
-    let groupId: Record<string, string>;
+    let groupId: { _id: unknown };
     switch (params.groupBy) {
       case 'userId':
         groupId = { _id: '$userId' };
@@ -119,7 +119,7 @@ export class AiLogUseService {
         break;
     }
 
-    const pipeline = [
+    const pipeline: PipelineStage[] = [
       { $match: match },
       {
         $group: {
@@ -165,4 +165,3 @@ export class AiLogUseService {
     };
   }
 }
-
