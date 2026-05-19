@@ -10,8 +10,6 @@ import { JwtModule } from '@nestjs/jwt';
 import { SharedBullModule } from 'libs/db/src';
 import { CALL_AUTO_MISS_QUEUE } from './call-auto-miss.constants';
 import { CallAutoMissProcessor } from './call-auto-miss.processor';
-import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
-import aiConfig from '../config/ai.config';
 
 @Module({
   imports: [
@@ -24,12 +22,6 @@ import aiConfig from '../config/ai.config';
     // Replaces in-process setTimeout so the timer survives pod restarts
     // and is safe under multi-pod Cloud Run autoscale.
     SharedBullModule.registerQueue(CALL_AUTO_MISS_QUEUE),
-    ConfigModule.forFeature(aiConfig),
-    GrpcClientModule.registerAsync({
-      name: SERVICES.AI,
-      configKey: 'ai',
-      packages: ['ai'],
-    }),
     ClientsModule.register([
       {
         name: SERVICES.CHAT,
@@ -62,9 +54,40 @@ import aiConfig from '../config/ai.config';
           },
         },
       },
+      {
+        name: SERVICES.AI,
+        transport: Transport.GRPC,
+        options: {
+          package: ['ai'],
+          protoPath: join(
+            process.cwd(),
+            process.env.GATEWAY_AI_PROTO_PATH || 'libs/grpc/ai.proto',
+          ),
+          url: (() => {
+            const host = (process.env.GATEWAY_AI_HOST || 'localhost').trim();
+            const port = process.env.GATEWAY_AI_PORT || '5004';
+            return `${host}:${port}`;
+          })(),
+          credentials:
+            process.env.NODE_ENV === 'production'
+              ? grpc.credentials.createSsl()
+              : grpc.credentials.createInsecure(),
+          loader: {
+            keepCase: true,
+            longs: String,
+            enums: String,
+            defaults: true,
+            oneofs: true,
+            includeDirs: [
+              join(process.cwd(), 'libs/grpc'), // chat.proto
+              join(process.cwd(), 'libs/grpc'), // để resolve google/protobuf/struct.proto
+            ],
+          },
+        },
+      },
     ]),
   ],
   providers: [CallGateway, CallAutoMissProcessor],
   exports: [CallGateway],
 })
-export class CallWebSocketModule {}
+export class CallWebSocketModule { }
