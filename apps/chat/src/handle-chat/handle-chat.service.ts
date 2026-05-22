@@ -817,6 +817,7 @@ export class HandleChatService {
         user_id: userInfo._id,
         uniq: `${finInfo._id.toString()}:${msgId}:${userId}`,
       },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
     // update many
     const findMsg = await this.messageModel
