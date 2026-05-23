@@ -3,6 +3,12 @@ name: Deploy Notification Service
 on:
   workflow_call:
 
+env:
+  GCP_PROJECT_ID: project-3a90e7bd-fcfe-474a-a03
+  GCP_REGION: asia-southeast1
+  IMAGE: asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/notification:latest
+  WORKER_POOL: notification-worker-pool
+
 jobs:
   deploy:
     name: Deploy Notification to Cloud Run
@@ -20,7 +26,7 @@ jobs:
       # 2. Setup Gcloud SDK
       - uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: project-3a90e7bd-fcfe-474a-a03
+          project_id: ${{ env.GCP_PROJECT_ID }}
 
       # 3. Configure Docker Auth
       - run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
@@ -28,7 +34,6 @@ jobs:
       # 4. Build và Push Docker Image
       - name: Build and Push Container
         run: |
-          IMAGE="asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/notification:latest"
           docker build -t $IMAGE -f apps/notification/Dockerfile .
           docker push $IMAGE
 
@@ -37,8 +42,8 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: notification-service
-          image: asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/notification:latest
-          region: asia-southeast1
+          image: ${{ env.IMAGE }}
+          region: ${{ env.GCP_REGION }}
           # Các cấu hình server: CPU, RAM, Instance, HTTP2...
           flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=1Gi --port=8080 --timeout=60s --use-http2'
           # Danh sách biến môi trường (Viết kiểu này an toàn cho Private Key)
@@ -77,3 +82,79 @@ jobs:
             REDIS_USERNAME=${{ secrets.REDIS_USERNAME }}
             REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
             APP_URL_FRONTEND=${{ secrets.APP_URL_FRONTEND }}
+
+  deploy-worker-pool:
+    name: Deploy Notification to Cloud Run Worker Pool
+    runs-on: ubuntu-latest
+    needs: deploy
+    environment:
+      name: NOTI_SERVICE
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Deploy to Cloud Run Worker Pool
+        env:
+          NODE_ENV: ${{ secrets.NODE_ENV }}
+          FIREBASE_TYPE: ${{ secrets.FIREBASE_TYPE }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_PRIVATE_KEY_ID: ${{ secrets.FIREBASE_PRIVATE_KEY_ID }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_CLIENT_ID: ${{ secrets.FIREBASE_CLIENT_ID }}
+          FIREBASE_AUTH_URI: ${{ secrets.FIREBASE_AUTH_URI }}
+          FIREBASE_TOKEN_URI: ${{ secrets.FIREBASE_TOKEN_URI }}
+          FIREBASE_AUTH_PROVIDER_X509_CERT_URL: ${{ secrets.FIREBASE_AUTH_PROVIDER_X509_CERT_URL }}
+          FIREBASE_CLIENT_X509_CERT_URL: ${{ secrets.FIREBASE_CLIENT_X509_CERT_URL }}
+          FIREBASE_UNIVERSE_DOMAIN: ${{ secrets.FIREBASE_UNIVERSE_DOMAIN }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          KAFKA_HOST: ${{ secrets.KAFKA_HOST }}
+          KAFKA_PORT: ${{ secrets.KAFKA_PORT }}
+          KAFKA_CLIENT_ID: ${{ secrets.KAFKA_CLIENT_ID }}
+          KAFKA_GROUP_ID: ${{ secrets.KAFKA_GROUP_ID }}
+          KAFKA_SASL: ${{ secrets.KAFKA_SASL }}
+          KAFKA_SASL_USERNAME: ${{ secrets.KAFKA_SASL_USERNAME }}
+          KAFKA_SASL_PASSWORD: ${{ secrets.KAFKA_SASL_PASSWORD }}
+          KAFKA_SASL_MECHANISM: ${{ secrets.KAFKA_SASL_MECHANISM }}
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}
+          REDIS_PORT: ${{ secrets.REDIS_PORT }}
+          REDIS_USERNAME: ${{ secrets.REDIS_USERNAME }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          APP_URL_FRONTEND: ${{ secrets.APP_URL_FRONTEND }}
+        run: |
+          ENV_KEYS=(
+            NODE_ENV FIREBASE_TYPE FIREBASE_PROJECT_ID FIREBASE_PRIVATE_KEY_ID
+            FIREBASE_PRIVATE_KEY FIREBASE_CLIENT_EMAIL FIREBASE_CLIENT_ID
+            FIREBASE_AUTH_URI FIREBASE_TOKEN_URI FIREBASE_AUTH_PROVIDER_X509_CERT_URL
+            FIREBASE_CLIENT_X509_CERT_URL FIREBASE_UNIVERSE_DOMAIN MAIL_HOST MAIL_PORT
+            MAIL_USER MAIL_PASS DB_CONNECTION DB_HOST DB_NAME DB_USER DB_PASSWORD
+            KAFKA_HOST KAFKA_PORT KAFKA_CLIENT_ID KAFKA_GROUP_ID KAFKA_SASL
+            KAFKA_SASL_USERNAME KAFKA_SASL_PASSWORD KAFKA_SASL_MECHANISM REDIS_HOST
+            REDIS_PORT REDIS_USERNAME REDIS_PASSWORD APP_URL_FRONTEND
+          )
+          : > /tmp/noti.env
+          for key in "${ENV_KEYS[@]}"; do
+            printf '%s=%s\n' "$key" "${!key}" >> /tmp/noti.env
+          done
+
+          gcloud run worker-pools deploy ${{ env.WORKER_POOL }} \
+            --image=${{ env.IMAGE }} \
+            --region=${{ env.GCP_REGION }} \
+            --cpu=1 \
+            --memory=1Gi \
+            --instances=1 \
+            --env-vars-file=/tmp/noti.env \
+            --quiet
