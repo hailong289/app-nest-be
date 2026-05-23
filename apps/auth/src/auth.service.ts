@@ -253,7 +253,7 @@ export class AuthService implements OnModuleInit {
     const accessToken = this.jwtService.sign(tokenPayload, {
       secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
       expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
-        '1d') as JwtSignOptions['expiresIn'],
+        '7d') as JwtSignOptions['expiresIn'],
     });
 
     const refreshToken = this.jwtService.sign(tokenPayload, {
