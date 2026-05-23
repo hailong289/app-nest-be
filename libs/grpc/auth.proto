@@ -5,6 +5,7 @@ package auth;
 service AuthService {
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc SendOtp(SendOtpRequest) returns (SendOtpResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
   rpc UpdatePassword(UpdatePasswordRequest) returns (UpdatePasswordResponse);
@@ -58,18 +59,30 @@ message RefreshResponse {
 }
 
 message RegisterRequest {
-  string         fullname    = 1;
-  string         email       = 2;
-  string         phone       = 3;
-  string         password    = 4;
-  string         type        = 5;
-  string         gender      = 6;
-  string         dateOfBirth = 7;
-  string         fcmToken    = 8; // Thêm trường fcmToken
+  string         fullname             = 1;
+  string         email                = 2;
+  string         phone                = 3;
+  string         password             = 4;
+  string         type                 = 5;
+  string         gender               = 6;
+  string         dateOfBirth          = 7;
+  string         fcmToken             = 8;
   // Device-origin fields — same as LoginRequest, see comments there.
-  string         ip          = 9;
-  string         userAgent   = 10;
-  DeviceLocation location    = 11;
+  string         ip                   = 9;
+  string         userAgent            = 10;
+  DeviceLocation location             = 11;
+  string         tempRegisterToken    = 12;
+}
+
+message SendOtpRequest {
+  string email = 1;
+  string type  = 2;
+}
+
+message SendOtpResponse {
+  string message          = 1;
+  int32  statusCode       = 2;
+  string reasonStatusCode = 3;
 }
 
 message RegisterResponse {
@@ -238,13 +251,19 @@ message User {
 message VerifyOtpRequest {
   string indicator = 1;
   string otp       = 2;
+  string type      = 3;
+}
+
+message VerifyOtpMetadata {
+  string tempRegisterToken = 1;
+  string accessToken       = 2;
 }
 
 message VerifyOtpResponse {
-  string           message          = 1;
-  int32            statusCode       = 2;
-  string           reasonStatusCode = 3;
-  RegisterMetadata metadata         = 4;
+  string             message          = 1;
+  int32              statusCode       = 2;
+  string             reasonStatusCode = 3;
+  VerifyOtpMetadata  metadata         = 4;
 }
 
 message UpdatePasswordRequest {
