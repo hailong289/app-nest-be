@@ -66,26 +66,18 @@ export class LoginDto {
 export class RegisterDto {
   @IsNotEmpty({ message: 'Họ và tên không được để trống' })
   fullname: string;
-  @IsOptional()
+  @IsNotEmpty({ message: 'Token đăng ký không được để trống' })
   @IsString()
-  email: string;
-  @IsOptional()
-  @IsString()
-  phone: string;
+  tempRegisterToken: string;
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   password: string;
   @IsNotEmpty({ message: 'Giới tính không được để trống' })
   gender: string;
   @IsNotEmpty({ message: 'Ngày sinh không được để trống' })
   dateOfBirth: Date;
-  @IsNotEmpty({ message: 'Loại tài khoản không được để trống' })
-  type: 'email' | 'phone';
   @IsOptional()
   @IsString()
   fcmToken: string;
-  @IsOptional()
-  @IsString()
-  confirm: string;
 
   // Same gateway-populated device fields as LoginDto.
   @IsOptional()
@@ -103,6 +95,15 @@ export class RegisterDto {
   @IsOptional()
   @IsObject()
   deviceInfo?: DeviceInfoDto | null;
+}
+
+export class SendOtpDto {
+  @IsNotEmpty({ message: 'Email không được để trống' })
+  @IsString()
+  email: string;
+  @IsNotEmpty({ message: 'Loại OTP không được để trống' })
+  @IsString()
+  type: 'register' | 'reset-password';
 }
 
 /**
@@ -180,12 +181,12 @@ export class VerifyOtpDto {
   indicator: string;
   @IsNotEmpty({ message: 'Mã OTP không được để trống' })
   otp: string;
+  @IsNotEmpty({ message: 'Loại OTP không được để trống' })
+  @IsString()
+  type: 'register' | 'reset-password';
   @IsOptional()
   @IsString()
-  type: string; // Thêm type tùy chọn reset_password, verify_account
-  @IsOptional()
-  @IsString()
-  userId: string; // Thêm userId tùy chọn
+  userId: string;
 }
 
 /**

@@ -253,7 +253,7 @@ export class AuthService implements OnModuleInit {
     const accessToken = this.jwtService.sign(tokenPayload, {
       secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
       expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN ||
-        '1d') as JwtSignOptions['expiresIn'],
+        '7d') as JwtSignOptions['expiresIn'],
     });
 
     const refreshToken = this.jwtService.sign(tokenPayload, {
@@ -299,43 +299,75 @@ export class AuthService implements OnModuleInit {
     );
   }
 
-  async register(registerDto: RegisterDto) {
-    if (
-      registerDto.type === 'email' &&
-      !Utils.isEmail(registerDto.email || '')
-    ) {
+  async sendOtp(email: string, type: string) {
+    if (!Utils.isEmail(email)) {
       return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
-    if (
-      registerDto.type === 'phone' &&
-      !Utils.isPhone(registerDto.phone || '')
-    ) {
-      return Response.error('Số điện thoại không hợp lệ', 400, 'Bad Request');
+    if (type === 'register') {
+      const existingUser = await this.userModel
+        .findOne({ usr_email: email })
+        .exec();
+      if (existingUser) {
+        return Response.conflict('Email đã được sử dụng');
+      }
+    }
+
+    const otpCode = Utils.generateOtp(6);
+    await this.otpModel.create({
+      indicator: email,
+      otp: otpCode,
+      type,
+    });
+
+    try {
+      await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
+        email,
+        otp: otpCode,
+      });
+    } catch (error) {
+      this.logger.error('Error sending OTP email:', error);
+      return Response.error('Gửi OTP thất bại', 500);
+    }
+
+    return Response.success(null, 'Đã gửi OTP đến email của bạn');
+  }
+
+  async register(registerDto: RegisterDto) {
+    let email: string;
+
+    try {
+      const payload = this.jwtService.verify(registerDto.tempRegisterToken, {
+        secret:
+          process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
+      }) as { email?: string; scope?: string };
+
+      if (payload.scope !== 'register') {
+        return Response.error('Token sai scope', 400, 'Bad Request');
+      }
+      email = payload.email ?? '';
+    } catch {
+      return Response.error(
+        'Token đăng ký không hợp lệ hoặc đã hết hạn',
+        400,
+        'Bad Request',
+      );
     }
 
     const existingUser = await this.userModel
-      .findOne({
-        [registerDto.type === 'email' ? 'usr_email' : 'usr_phone']:
-          registerDto.type === 'email' ? registerDto.email : registerDto.phone,
-      })
+      .findOne({ usr_email: email })
       .exec();
 
     if (existingUser) {
-      return Response.error(
-        registerDto.type === 'email'
-          ? 'Email đã được sử dụng'
-          : 'Số điện thoại đã được sử dụng',
-        400,
-      );
+      return Response.conflict('Email đã tồn tại');
     }
 
     const hashedPassword = await hash(registerDto.password, 10);
 
     const newUser = new this.userModel({
       usr_fullname: registerDto.fullname,
-      usr_email: registerDto.email || '',
-      usr_phone: registerDto.phone || '',
+      usr_email: email,
+      usr_phone: '',
       usr_salt: hashedPassword,
       usr_gender: registerDto.gender || 'other',
       usr_date_of_birth: registerDto.dateOfBirth || '',
@@ -428,8 +460,6 @@ export class AuthService implements OnModuleInit {
       .findOne({ indicator: indicator, otp, type })
       .exec();
 
-    console.log('Verifying OTP for indicator:', indicator, 'with OTP:', otp);
-
     if (!keyEntry) {
       return Response.error(
         'Mã OTP không hợp lệ hoặc đã hết hạn',
@@ -437,6 +467,22 @@ export class AuthService implements OnModuleInit {
         'Invalid OTP',
       );
     }
+
+    // OTP valid — delete it so it can't be reused
+    await this.otpModel.deleteOne({ _id: keyEntry._id }).exec();
+
+    if (type === 'register') {
+      const tempRegisterToken = this.jwtService.sign(
+        { email: indicator, scope: 'register' },
+        {
+          secret:
+            process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
+          expiresIn: '15m',
+        },
+      );
+      return Response.success({ tempRegisterToken }, 'Xác thực OTP thành công');
+    }
+
     if (keyEntry.userId) {
       const user = await this.userModel
         .findOne({ usr_id: keyEntry.userId })
@@ -450,12 +496,11 @@ export class AuthService implements OnModuleInit {
       ]);
       const accessToken = this.jwtService.sign(userData, {
         secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-        expiresIn: '30m', // access token sống 30 phút
+        expiresIn: '30m',
       });
       return Response.success({ accessToken }, 'Xác thực OTP thành công');
     }
-    // OTP hợp lệ, xóa entry sau khi sử dụng
-    await this.otpModel.deleteOne({ _id: keyEntry._id }).exec();
+
     return Response.success(null, 'Xác thực OTP thành công');
   }
 
@@ -527,7 +572,6 @@ export class AuthService implements OnModuleInit {
         await this.otpModel.create({
           indicator: recipientEmail,
           otp: otpCode,
-          expiresAt: Date.now() + 5 * 60 * 1000, // 5 phút
           type: 'reset-password',
           userId: user.usr_id,
         });

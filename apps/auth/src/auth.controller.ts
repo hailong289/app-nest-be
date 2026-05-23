@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import {
   LoginDto,
   RegisterDto,
+  SendOtpDto,
   UpdateAvatarDto,
   UpdatePasswordDto,
   UpdateProfileDto,
@@ -76,6 +77,11 @@ export class AuthController {
   @GrpcMethod('AuthService', 'Register')
   async register(data: RegisterDto) {
     return await this.authService.register(data);
+  }
+
+  @GrpcMethod('AuthService', 'SendOtp')
+  async sendOtp(data: SendOtpDto) {
+    return await this.authService.sendOtp(data.email, data.type);
   }
 
   @GrpcMethod('AuthService', 'Logout')

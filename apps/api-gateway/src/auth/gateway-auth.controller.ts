@@ -2,6 +2,7 @@ import {
   ForgotPasswordDto,
   LoginDto,
   RegisterDto,
+  SendOtpDto,
   UpdateAvatarDto,
   UpdatePasswordDto,
   UpdateProfileDto,
@@ -58,6 +59,7 @@ import {
 interface AuthGrpcService {
   login(data: LoginDto & DeviceContext): Observable<unknown>;
   register(data: RegisterDto & DeviceContext): Observable<unknown>;
+  sendOtp(data: SendOtpDto): Observable<unknown>;
   logout(data: {
     userId: string;
     // jti optional — could be missing if the access token is already
@@ -204,6 +206,14 @@ export class GatewayAuthController {
     }
   }
 
+  @Post('send-otp')
+  async sendOtp(@Body() body: SendOtpDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      (data) => this.authService.sendOtp(data),
+      body,
+    );
+  }
+
   @Post('logout')
   async logout(
     @Req() req: AuthenticatedRequest,
@@ -307,11 +317,21 @@ export class GatewayAuthController {
   }
 
   @Post('verify-otp')
-  async verifyOtp(@Body() body: VerifyOtpDto) {
-    return await this.gatewayService.dispatchGrpcRequest(
+  async verifyOtp(
+    @Body() body: VerifyOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = (await this.gatewayService.dispatchGrpcRequest(
       (data) => this.authService.verifyOtp(data),
       body,
-    );
+    )) as { metadata?: { tempRegisterToken?: string; accessToken?: string } };
+
+    // For reset-password OTP, the metadata contains an accessToken — set cookie.
+    // For register OTP, the metadata contains a tempRegisterToken — just return it.
+    if (result?.metadata?.accessToken && !result?.metadata?.tempRegisterToken) {
+      setAuthCookie(res, result.metadata as AuthCookiePayload);
+    }
+    return result;
   }
 
   @Post('refresh-token')
