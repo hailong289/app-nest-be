@@ -1,31 +1,6 @@
 import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import {
-  callHistoryModel,
-  flashcardModel,
-  flashcardDeckModel,
-  friendshipModel,
-  keysModel,
-  messageHidesModel,
-  messageReactionsModel,
-  messageReadsModel,
-  messagesModel,
-  otpModel,
-  quizModel,
-  roomEventsModel,
-  roomModel,
-  roomsStateModel,
-  roomsUsersStateModel,
-  userModel,
-  documentModel,
-  aIEmbeddingModel,
-  aIUsageLogModel,
-  attachmentModel,
-  notificationModel,
-} from './model';
-import todoProjectModel from './model/todo-project.model';
-import todoModel from './model/todo.model';
 
 @Global()
 @Module({
@@ -48,31 +23,6 @@ import todoModel from './model/todo.model';
         };
       },
     }),
-    MongooseModule.forFeature([
-      messagesModel,
-      userModel,
-      roomModel,
-      friendshipModel,
-      keysModel,
-      otpModel,
-      attachmentModel,
-      roomEventsModel,
-      roomsStateModel,
-      roomsUsersStateModel,
-      messageReadsModel,
-      messageHidesModel,
-      messageReactionsModel,
-      quizModel,
-      flashcardModel,
-      flashcardDeckModel,
-      callHistoryModel,
-      documentModel,
-      aIEmbeddingModel,
-      aIUsageLogModel,
-      notificationModel,
-      todoModel,
-      todoProjectModel,
-    ]),
   ],
   exports: [
     MongooseModule, // quan trọng: export để app con inject Model được

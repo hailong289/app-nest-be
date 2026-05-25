@@ -14,7 +14,10 @@ import {
   RedisModule,
   MongodbModule,
   mongoConfig,
+  keysModel,
+  notificationModel,
 } from 'libs/db/src';
+import { MongooseModule } from '@nestjs/mongoose';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 
@@ -66,6 +69,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
     KafkaAdminModule,
     RedisModule,
     MongodbModule,
+    MongooseModule.forFeature([keysModel, notificationModel]),
   ],
   controllers: [NotificationController],
   providers: [

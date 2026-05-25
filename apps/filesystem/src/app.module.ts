@@ -4,7 +4,8 @@ import { FilesystemController } from './filesystem.controller';
 import { FilesystemService } from './filesystem.service';
 import s3Config from './config/app/s3.config';
 import path from 'path';
-import { mongoConfig, MongodbModule } from 'libs/db/src';
+import { MongooseModule } from '@nestjs/mongoose';
+import { mongoConfig, MongodbModule, userModel, messagesModel, roomModel, attachmentModel } from 'libs/db/src';
 import { DocumentsModule } from './documents/documents.module';
 import { kafkaConfig } from 'libs/kafka';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
@@ -22,6 +23,7 @@ import { SERVICES } from '@app/constants';
       ),
     }),
     MongodbModule,
+    MongooseModule.forFeature([userModel, messagesModel, roomModel, attachmentModel]),
     DocumentsModule,
     KafkaAdminModule,
     SharedKafkaClientModule.registerAsync({

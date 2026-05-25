@@ -34,20 +34,51 @@ services:
   #   depends_on:
   #     - redpanda
 
-  # # MongoDB Database
-  # mongodb:
-  #   image: mongo:7.0
-  #   container_name: mongodb
-  #   ports:
-  #     - "27017:27017"
-  #   environment:
-  #     - MONGO_INITDB_ROOT_USERNAME=admin
-  #     - MONGO_INITDB_ROOT_PASSWORD=password123
-  #     - MONGO_INITDB_DATABASE=appchat
-  #   volumes:
-  #     - mongodb_data:/data/db
-  #     - ./mongo-init:/docker-entrypoint-initdb.d:ro
-  #   restart: unless-stopped
+  # MongoDB Databases for Microservices
+  mongodb-auth:
+    image: mongo:7.0
+    container_name: mongodb-auth
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_auth_data:/data/db
+    restart: unless-stopped
+
+  mongodb-chat:
+    image: mongo:7.0
+    container_name: mongodb-chat
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_chat_data:/data/db
+    restart: unless-stopped
+
+  mongodb-filesystem:
+    image: mongo:7.0
+    container_name: mongodb-filesystem
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb_filesystem_data:/data/db
+    restart: unless-stopped
+
+  mongodb-notification:
+    image: mongo:7.0
+    container_name: mongodb-notification
+    ports:
+      - "27020:27017"
+    volumes:
+      - mongodb_notification_data:/data/db
+    restart: unless-stopped
+
+  mongodb-ai:
+    image: mongo:7.0
+    container_name: mongodb-ai
+    ports:
+      - "27021:27017"
+    volumes:
+      - mongodb_ai_data:/data/db
+    restart: unless-stopped
 
   # # MongoDB Express (Web UI)
   # mongo-express:
@@ -171,5 +202,9 @@ services:
 
 volumes:
   kafka_data:
-  # mongodb_data:
-  # redis_data:
+  redis_data:
+  mongodb_auth_data:
+  mongodb_chat_data:
+  mongodb_filesystem_data:
+  mongodb_notification_data:
+  mongodb_ai_data:
