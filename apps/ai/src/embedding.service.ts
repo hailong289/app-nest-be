@@ -818,6 +818,46 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
     }));
   }
 
+  /**
+   * Batch fetch embeddings by context IDs (cross-service hydration for getMsg)
+   * @param contextIds Array of context IDs to fetch embeddings for
+   */
+  async getEmbeddingsByContextIds(contextIds: string[]) {
+    if (!contextIds || contextIds.length === 0) {
+      return [];
+    }
+
+    const objectIds = contextIds
+      .map((id) => {
+        try {
+          return Utils.convertToObjectIdMongoose(id);
+        } catch {
+          return null;
+        }
+      })
+      .filter((id): id is Types.ObjectId => id !== null);
+
+    if (objectIds.length === 0) {
+      return [];
+    }
+
+    const embeddings = await this.embedModel
+      .find({
+        contextId: { $in: objectIds },
+      })
+      .select('contextId contextType text vector')
+      .lean()
+      .exec();
+
+    return embeddings.map((e) => ({
+      id: e._id.toString(),
+      contextId: e.contextId?.toString() ?? '',
+      contextType: e.contextType ?? '',
+      text: e.text,
+      vector: e.vector,
+    }));
+  }
+
   async processFileEmbedding(
     fileUrl: string,
     fileType: string,

@@ -22,6 +22,8 @@ service TodoService {
     rpc AddProjectMember(AddProjectMemberRequest) returns (TodoProjectResponse);
     rpc RemoveProjectMember(RemoveProjectMemberRequest) returns (TodoProjectResponse);
     rpc GetProjectMembers(GetProjectMembersRequest) returns (GetProjectMembersResponse);
+    // Batch hydration for chat getMsg (database isolation)
+    rpc GetTodoProjectsByIds(GetTodoProjectsByIdsRequest) returns (GetTodoProjectsByIdsResponse);
 }
 
 // ─── Shared messages ───────────────────────────────────────────────────────────
@@ -266,4 +268,17 @@ message GetProjectMembersResponse {
     int32 statusCode = 2;
     string reasonStatusCode = 3;
     GetProjectMembersMetadata metadata = 4;
+}
+
+// ── Batch hydration messages (database isolation) ─────────────────
+
+message GetTodoProjectsByIdsRequest {
+    repeated string todoProjectIds = 1;
+}
+
+message GetTodoProjectsByIdsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated TodoProjectMetadata metadata = 4;
 }

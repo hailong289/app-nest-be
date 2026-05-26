@@ -1,85 +1,24 @@
-// currentUsrId: usr_id của user đang thực hiện truy vấn (string)
-export const buildContactsPipeline = (currentUsrId: string) => [
-  // 1) Lấy toàn bộ user KHÁC current user
-  {
-    $match: {
-      usr_id: { $ne: currentUsrId },
-    },
-  },
-
-  // 2) Lookup Friendships giữa currentUsrId và từng user còn lại
-  {
-    $lookup: {
-      from: 'Friendships',
-      let: { otherId: '$usr_id' },
-      pipeline: [
-        {
-          $match: {
-            $expr: {
-              $or: [
-                {
-                  $and: [
-                    { $eq: ['$frp_userId1', currentUsrId] },
-                    { $eq: ['$frp_userId2', '$$otherId'] },
-                  ],
-                },
-                {
-                  $and: [
-                    { $eq: ['$frp_userId2', currentUsrId] },
-                    { $eq: ['$frp_userId1', '$$otherId'] },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-        {
-          $project: {
-            frp_status: 1,
-            frp_actionUserId: 1,
-          },
-        },
-      ],
-      as: 'friendshipInfo',
-    },
-  },
-
-  // 3) Nếu không có record friendship → set mặc định INVALID
-  {
-    $addFields: {
-      friendshipData: {
-        $cond: [
-          { $gt: [{ $size: '$friendshipInfo' }, 0] },
-          { $first: '$friendshipInfo' },
-          {
-            frp_status: 'INVALID',
-            frp_actionUserId: null,
-          },
-        ],
-      },
-    },
-  },
-
-  // 4) Project về đúng ContactType
-  {
-    $project: {
-      id: '$usr_id',
-      fullname: '$usr_fullname',
-      avatar: '$usr_avatar',
-      email: '$usr_email',
-      phone: '$usr_phone',
-      updatedAt: '$updatedAt',
-      createdAt: '$createdAt',
-      gender: '$usr_gender',
-      status: '$usr_status',
-      dateOfBirth: '$usr_dateOfBirth',
-
-      friendship: '$friendshipData.frp_status',
-      actionUserId: '$friendshipData.frp_actionUserId',
-
-      // Phần online sẽ merge ở code / Redis sau
-      isOnline: { $literal: false },
-      onlineAt: { $literal: null },
-    },
-  },
-];
+/**
+ * Contact list — database-isolated version.
+ *
+ * The old pipeline started from the Users collection (auth DB) and used
+ * a cross-DB $lookup into Friendships. With database isolation, all user
+ * data must come from the Auth service via gRPC.
+ *
+ * New approach (implement in social.service.ts getContacts()):
+ *   1. Call gRPC authGrpcClient.ListUsers({ page, limit, excludeUserId })
+ *      to get all users.
+ *   2. Extract userIds and query friendshipModel.find() for friendship
+ *      statuses between current user and each contact.
+ *   3. Merge friendship status into the user objects at the application
+ *      layer.
+ *
+ * This file is kept as a placeholder for the pipeline shape reference.
+ * The actual logic lives in social.service.ts.
+ *
+ * @deprecated Use gRPC ListUsers + local friendship query instead.
+ */
+export const buildContactsPipeline = (_currentUsrId: string): any[] => {
+  // No MongoDB pipeline needed — all user data comes via gRPC.
+  return [];
+};

@@ -18,6 +18,7 @@ import {
   Logger,
   NotAcceptableException,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
@@ -43,20 +44,32 @@ import {
   buildMessageCorePipeline,
   buildMessageDetailPipeline,
   buildMessagesDetailPipeline,
+  hydrateMessages,
+  AuthGrpcClient,
+  FileSystemGrpcClient,
+  AIGrpcClient,
+  LearningGrpcClient,
 } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
 import { MemberStatus } from 'libs/db/src/mongo/model/call-history.model';
-import { ClientKafka } from '@nestjs/microservices';
+import { ClientKafka, ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
 import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
 
 @Injectable()
-export class HandleChatService {
+export class HandleChatService implements OnModuleInit {
   private readonly utils = Utils;
 
   private readonly log = new Logger();
+
+  // gRPC clients for cross-service database isolation hydration
+  private authGrpcClient: AuthGrpcClient;
+  private filesystemGrpcClient: FileSystemGrpcClient;
+  private aiGrpcClient: AIGrpcClient;
+  private learningGrpcClient: LearningGrpcClient;
+
   constructor(
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
@@ -91,7 +104,46 @@ export class HandleChatService {
     private readonly quizModel: Model<Quiz>,
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
+    @Inject(SERVICES.FILESYSTEM)
+    private readonly filesystemGrpc: ClientGrpc,
+    @Inject(SERVICES.AI)
+    private readonly aiGrpc: ClientGrpc,
+    @Inject(SERVICES.LEARNING)
+    private readonly learningGrpc: ClientGrpc,
   ) {}
+
+  onModuleInit() {
+    this.authGrpcClient = this.authGrpc.getService<AuthGrpcClient>('AuthService');
+    this.filesystemGrpcClient =
+      this.filesystemGrpc.getService<FileSystemGrpcClient>('FileSystemService');
+    this.aiGrpcClient = this.aiGrpc.getService<AIGrpcClient>('AIService');
+    // Learning gRPC combines three separate proto services
+    const quizzSvc = this.learningGrpc.getService<any>('QuizzService');
+    const flashcardSvc = this.learningGrpc.getService<any>('FlashcardService');
+    const todoSvc = this.learningGrpc.getService<any>('TodoService');
+    this.learningGrpcClient = {
+      GetQuizzesByIds: (data: any) => quizzSvc.GetQuizzesByIds(data),
+      GetFlashcardsByIds: (data: any) => flashcardSvc.GetFlashcardsByIds(data),
+      GetTodoProjectsByIds: (data: any) => todoSvc.GetTodoProjectsByIds(data),
+    } as LearningGrpcClient;
+  }
+
+  /**
+   * Post-aggregate hydration helper: calls hydrateMessages with all gRPC clients.
+   * Every message aggregation pipeline result should pass through this method
+   * before being returned to callers.
+   */
+  private async hydrateMsgs(messages: any[]): Promise<any[]> {
+    if (!messages || messages.length === 0) return messages;
+    return hydrateMessages(messages, {
+      authGrpc: this.authGrpcClient,
+      filesystemGrpc: this.filesystemGrpcClient,
+      aiGrpc: this.aiGrpcClient,
+      learningGrpc: this.learningGrpcClient,
+    });
+  }
 
   /**
    * Convert `room_event.payload` (arbitrary object) to `payloadJson` (string)
@@ -225,8 +277,10 @@ export class HandleChatService {
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
-    const msg = await this.messageModel.aggregate(
-      buildMessageDetailPipeline(createNewMsg._id.toString()),
+    const msg = await this.hydrateMsgs(
+      await this.messageModel.aggregate(
+        buildMessageDetailPipeline(createNewMsg._id.toString()),
+      ),
     );
     // Generate content snapshot based on message type
     let contentSnap: string;
@@ -467,7 +521,7 @@ export class HandleChatService {
 
       ...pipeLine,
     ]);
-    const msg = result[0] as Record<string, any>;
+    const [msg] = await this.hydrateMsgs(result);
     return msg ? this.serializeRoomEvent(msg) : msg;
   }
   async markReadUpTo(payload: markReadUpToDto) {
@@ -545,8 +599,10 @@ export class HandleChatService {
         ),
       ),
     );
-    const msg = await this.messageModel.aggregate(
-      buildMessageDetailPipeline(messgeInfo._id.toString()),
+    const msg = await this.hydrateMsgs(
+      await this.messageModel.aggregate(
+        buildMessageDetailPipeline(messgeInfo._id.toString()),
+      ),
     );
     return Response.success(
       {
@@ -622,8 +678,9 @@ export class HandleChatService {
       { $limit: Number(limit) }, // Giới hạn số lượng
       { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
-    // Stringify each message's room_event.payload so it survives gRPC.
-    const serialized = (result as Record<string, any>[]).map((m) =>
+    // Hydrate cross-DB references, then stringify room_event.payload for gRPC.
+    const hydrated = await this.hydrateMsgs(result);
+    const serialized = (hydrated as Record<string, any>[]).map((m) =>
       this.serializeRoomEvent(m),
     );
     return Response.success(serialized, 'Tin nhắn mới thành công');
@@ -709,8 +766,10 @@ export class HandleChatService {
         { upsert: true },
       ),
     ]);
-    const msg = await this.messageModel.aggregate(
-      buildMessageDetailPipeline(msgId),
+    const msg = await this.hydrateMsgs(
+      await this.messageModel.aggregate(
+        buildMessageDetailPipeline(msgId),
+      ),
     );
     return Response.success(
       {
@@ -764,8 +823,10 @@ export class HandleChatService {
         new: true,
       }),
     ]);
-    const msg = await this.messageModel.aggregate(
-      buildMessageDetailPipeline(msgId),
+    const msg = await this.hydrateMsgs(
+      await this.messageModel.aggregate(
+        buildMessageDetailPipeline(msgId),
+      ),
     );
     // Notify clients to refresh room info (pinned messages updated).
     // Lightweight ping — pin events already surface via MSGPINNED, this just
@@ -826,8 +887,10 @@ export class HandleChatService {
       .select('_id');
     const msgIds = findMsg.map((i) => i._id.toHexString());
     msgIds.push(msgId);
-    const msgs = await this.messageModel.aggregate(
-      buildMessagesDetailPipeline(msgIds),
+    const msgs = await this.hydrateMsgs(
+      await this.messageModel.aggregate(
+        buildMessagesDetailPipeline(msgIds),
+      ),
     );
     return Response.success(
       {
@@ -913,8 +976,10 @@ export class HandleChatService {
     );
     await Promise.all([updatePromise, Promise.all(recomputePromises)]);
 
-    const msgs = await this.messageModel.aggregate(
-      buildMessagesDetailPipeline(msgIds),
+    const msgs = await this.hydrateMsgs(
+      await this.messageModel.aggregate(
+        buildMessagesDetailPipeline(msgIds),
+      ),
     );
     return Response.success(
       {
@@ -1018,8 +1083,10 @@ export class HandleChatService {
           );
       }
 
-      const message = await this.messageModel.aggregate(
-        buildMessageDetailPipeline(msg._id.toString()),
+      const message = await this.hydrateMsgs(
+        await this.messageModel.aggregate(
+          buildMessageDetailPipeline(msg._id.toString()),
+        ),
       );
       return Response.success(
         {
@@ -1123,8 +1190,10 @@ export class HandleChatService {
           );
       }
 
-      const msg = await this.messageModel.aggregate(
-        buildMessageDetailPipeline(refreshedHistory.message_id.toString()),
+      const msg = await this.hydrateMsgs(
+        await this.messageModel.aggregate(
+          buildMessageDetailPipeline(refreshedHistory.message_id.toString()),
+        ),
       );
       return Response.success(
         {
@@ -1367,8 +1436,10 @@ export class HandleChatService {
         }
       }
 
-      const msg = await this.messageModel.aggregate(
-        buildMessageDetailPipeline(callHistory.message_id.toString()),
+      const msg = await this.hydrateMsgs(
+        await this.messageModel.aggregate(
+          buildMessageDetailPipeline(callHistory.message_id.toString()),
+        ),
       );
       return Response.success(
         {
@@ -1471,6 +1542,70 @@ export class HandleChatService {
         'Không kiểm tra được trạng thái cuộc gọi',
       );
     }
+  }
+
+  /**
+   * Cross-service: get messages for a room by its room_id (business key).
+   * Returns basic message data suitable for cross-service hydration.
+   * No userId-dependent filtering (no membership check, no clear_before_ts
+   * hiding, no user-specific sender hydration).
+   */
+  async getMessagesByRoomId(
+    roomId: string,
+    limit: number,
+    offset: number,
+  ) {
+    // Resolve the room's MongoDB _id from the business key
+    const room = await this.roomModel
+      .findOne({ room_id: roomId }, { _id: 1 })
+      .lean<{ _id: Types.ObjectId }>();
+    if (!room) {
+      throw new NotFoundException('không tìm thấy phòng');
+    }
+
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const safeOffset = Math.max(Number(offset) || 0, 0);
+
+    const messages = await this.messageModel.aggregate([
+      { $match: { msg_roomId: room._id } },
+      { $sort: { createdAt: -1 } },
+      { $skip: safeOffset },
+      { $limit: safeLimit },
+      { $sort: { createdAt: 1 } },
+      {
+        $project: {
+          id: { $toString: '$_id' },
+          roomId: { $toString: '$msg_roomId' },
+          type: '$msg_type',
+          content: { $ifNull: ['$msg_content', ''] },
+          createdAt: { $toString: '$createdAt' },
+          editedAt: {
+            $ifNull: [{ $toString: '$editedAt' }, ''],
+          },
+          deletedAt: {
+            $ifNull: [{ $toString: '$deletedAt' }, ''],
+          },
+          isDeleted: { $toBool: '$deletedAt' },
+          pinned: { $ifNull: ['$pinned', false] },
+          placeholder: { $ifNull: ['$placeholder', ''] },
+          documentId: { $ifNull: [{ $toString: '$document_id' }, ''] },
+          hiddenBy: { $literal: [] },
+          read_by: { $literal: [] },
+          read_by_count: { $literal: 0 },
+          sender: { $literal: null },
+          attachments: { $literal: [] },
+          reactions: { $literal: [] },
+          reply: { $literal: null },
+          call_history: { $literal: null },
+          quiz: { $literal: null },
+          flashcard: { $literal: null },
+          todoProject: { $literal: null },
+          room_event: { $literal: null },
+        },
+      },
+    ]);
+
+    return messages;
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi

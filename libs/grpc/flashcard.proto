@@ -17,6 +17,8 @@ service FlashcardService {
 
     rpc UpdateFlashcardProgress(UpdateFlashcardProgressRequest) returns (UpdateFlashcardProgressResponse);
     rpc GetFlashcardProgress(GetFlashcardProgressRequest) returns (GetFlashcardProgressResponse);
+    // Batch hydration for chat getMsg (database isolation)
+    rpc GetFlashcardsByIds(GetFlashcardsByIdsRequest) returns (GetFlashcardsByIdsResponse);
 }
 
 // Flashcard messages
@@ -275,4 +277,17 @@ message GetFlashcardProgressResponse {
     int32 statusCode = 2;
     string reasonStatusCode = 3;
     FlashcardProgressMetadata metadata = 4;
+}
+
+// ── Batch hydration messages (database isolation) ─────────────────
+
+message GetFlashcardsByIdsRequest {
+    repeated string flashcardIds = 1;
+}
+
+message GetFlashcardsByIdsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated FlashcardMetadata metadata = 4;
 }

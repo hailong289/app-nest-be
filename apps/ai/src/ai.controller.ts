@@ -182,4 +182,16 @@ export class AIController {
       data.file_url,
     );
   }
+
+  @GrpcMethod('AIService', 'GetEmbeddingsByContextIds')
+  async getEmbeddingsByContextIds(data: { contextIds: string[] }) {
+    const embeddings =
+      await this.embeddingService.getEmbeddingsByContextIds(data.contextIds);
+    return {
+      message: 'Success',
+      statusCode: 200,
+      reasonStatusCode: 'success',
+      metadata: embeddings,
+    };
+  }
 }

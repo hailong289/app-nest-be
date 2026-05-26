@@ -1,5 +1,17 @@
 import Utils from '@app/helpers/utils';
 import { PipelineStage } from 'mongoose';
+import { firstValueFrom } from 'rxjs';
+// ═══════════════════════════════════════════════════════════════════════════
+// DATABASE ISOLATION NOTE:
+// All $lookup stages to foreign DBs (Users, Attachments, aiembeddings,
+// Quizzes, Flashcards) must be replaced with post-aggregate batch gRPC
+// hydration. See CROSS_DB_LOOKUP_PLAN.md §3.1 for pseudocode.
+//
+// Current state: cross-DB lookups remain as-is (marked with "TODO: DB ISOLATION").
+// To complete isolation, use hydrateMessages() below after aggregate.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
 
 /**
  * Build a MongoDB projection expression for a quiz document stored at `$quizDoc`.
@@ -210,8 +222,6 @@ function buildTodoProjectProjection() {
  *
  * Output fields added:
  *   - $roomEventDoc:  the RoomEvent document (or null)
- *   - $roomEventActor: actor user (slim: _id, fullname, avatar, usr_id)
- *   - $roomEventTargets: array of slim users for `targets`
  *
  * The downstream `$project` should expose them via `room_event` (see
  * `buildRoomEventProjection`).
@@ -231,29 +241,6 @@ function roomEventLookupStages(): PipelineStage[] {
       },
     },
     { $addFields: { roomEventDoc: { $first: '$roomEventDoc' } } },
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'roomEventDoc.actor_id',
-        foreignField: '_id',
-        pipeline: [
-          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
-        ],
-        as: 'roomEventActor',
-      },
-    },
-    { $addFields: { roomEventActor: { $first: '$roomEventActor' } } },
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'roomEventDoc.targets',
-        foreignField: '_id',
-        pipeline: [
-          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
-        ],
-        as: 'roomEventTargets',
-      },
-    },
   ];
 }
 
@@ -272,28 +259,13 @@ function buildRoomEventProjection() {
         placeholder: '$roomEventDoc.placeholder',
         payload: '$roomEventDoc.payload',
         createdAt: '$roomEventDoc.createdAt',
-        actor: {
-          $cond: [
-            { $ifNull: ['$roomEventActor', false] },
-            {
-              _id: '$roomEventActor._id',
-              fullname: '$roomEventActor.usr_fullname',
-              avatar: '$roomEventActor.usr_avatar',
-              id: '$roomEventActor.usr_id',
-            },
-            null,
-          ],
-        },
+        // Raw IDs — hydrateMessages replaces with populated user objects
+        actor: { $ifNull: [{ $toString: '$roomEventDoc.actor_id' }, null] },
         targets: {
           $map: {
-            input: { $ifNull: ['$roomEventTargets', []] },
+            input: { $ifNull: ['$roomEventDoc.targets', []] },
             as: 't',
-            in: {
-              _id: '$$t._id',
-              fullname: '$$t.usr_fullname',
-              avatar: '$$t.usr_avatar',
-              id: '$$t.usr_id',
-            },
+            in: { $toString: '$$t' },
           },
         },
       },
@@ -368,83 +340,23 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 1) Sender */
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'msg_sender',
-        foreignField: '_id',
-        pipeline: [
-          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
-        ],
-        as: 'sender',
-      },
-    },
-    { $set: { sender: { $first: '$sender' } } },
-
-    /** * 2) Attachments (array ObjectId -> Attachments._id)
-     * 🔥 UPDATE: Map trực tiếp Summary vào trong từng Attachment
-     */
-    {
-      $lookup: {
-        from: 'Attachments',
-        localField: 'attachment_ids',
-        foreignField: '_id',
-        // Pipeline con để xử lý từng Attachment tìm được
-        pipeline: [
-          // 2.1) Lookup AI Embedding cho TỪNG attachment
-          {
-            $lookup: {
-              from: 'aiembeddings', // Tên collection (thường Mongoose lưu thường)
-              let: { attId: '$_id' }, // Biến attId là ID của Attachment hiện tại
-              pipeline: [
-                {
-                  $match: {
-                    $expr: {
-                      $and: [
-                        { $eq: ['$contextId', '$$attId'] }, // Map theo ID của Attachment
-                        { $eq: ['$contextType', 'file'] }, // Bắt buộc type là file
-                      ],
-                    },
-                  },
-                },
-                { $project: { text: 1, _id: 0 } }, // Chỉ lấy text
-                { $limit: 1 }, // Lấy cái đầu tiên tìm thấy
-              ],
-              as: 'ai_summary_doc',
-            },
-          },
-          // 2.2) Flatten field summary
-          {
-            $addFields: {
-              summary: { $ifNull: [{ $first: '$ai_summary_doc.text' }, null] },
-            },
-          },
-          // 2.3) Project output của Attachment object
-          {
-            $project: {
-              _id: 1,
-              kind: 1,
-              url: 1,
-              name: 1,
-              size: 1,
-              mimeType: 1,
-              thumbUrl: 1,
-              width: 1,
-              height: 1,
-              duration: 1,
-              status: 1,
-              summary: 1, // <--- Field mới nằm ở đây
-            },
-          },
-        ],
-        as: 'attachments',
-      },
-    },
-    // ✅ Ensure attachments is always an array (never null)
+    /** 1) Sender — DB ISOLATION: raw msg_sender, hydrated via gRPC */
     {
       $addFields: {
-        attachments: { $ifNull: ['$attachments', []] },
+        sender: { $toString: '$msg_sender' },
+      },
+    },
+
+    /** * 2) Attachments — DB ISOLATION: raw attachment_ids, hydrated via gRPC */
+    {
+      $addFields: {
+        attachments: {
+          $map: {
+            input: { $ifNull: ['$attachment_ids', []] },
+            as: 'a',
+            in: { $toString: '$$a' },
+          },
+        },
       },
     },
 
@@ -458,16 +370,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
     { $set: { reply_doc: { $first: '$reply_doc' } } },
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'reply_doc.msg_sender',
-        foreignField: '_id',
-        pipeline: [{ $project: { _id: 1, usr_fullname: 1 } }],
-        as: 'reply_sender',
-      },
-    },
-    { $set: { reply_sender: { $first: '$reply_sender' } } },
 
     /** 5.1) Reply hidden (All user) */
     {
@@ -489,7 +391,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 4) Reactions (group theo emoji) */
+    /** 4) Reactions (group theo emoji) — DB ISOLATION: user IDs hydrated via gRPC */
     {
       $lookup: {
         from: 'MessageReactions',
@@ -497,28 +399,9 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         foreignField: 'msg_id',
         pipeline: [
           {
-            $lookup: {
-              from: 'Users',
-              localField: 'user_id',
-              foreignField: '_id',
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    usr_fullname: 1,
-                    usr_avatar: 1,
-                    usr_id: 1,
-                  },
-                },
-              ],
-              as: 'user',
-            },
-          },
-          { $set: { user: { $first: '$user' } } },
-          {
             $group: {
               _id: '$emoji',
-              users: { $push: '$user' },
+              users: { $push: { $toString: '$user_id' } },
               count: { $sum: 1 },
             },
           },
@@ -548,7 +431,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 6.1) 🔥 Read list (toàn bộ ai đã đọc message này) */
+    /** 6.1) Read list (toàn bộ ai đã đọc message này) */
     {
       $lookup: {
         from: 'MessageReads',
@@ -557,34 +440,10 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
           { $match: { $expr: { $eq: ['$msg_id', '$$mid'] } } },
           { $match: { $expr: { $ne: ['$user_id', '$$sender'] } } },
           {
-            $lookup: {
-              from: 'Users',
-              localField: 'user_id',
-              foreignField: '_id',
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    usr_fullname: 1,
-                    usr_avatar: 1,
-                    usr_id: 1,
-                  },
-                },
-              ],
-              as: 'u',
-            },
-          },
-          { $set: { u: { $first: '$u' }, readAt: '$readAt' } },
-          {
             $project: {
               _id: 0,
               readAt: 1,
-              user: {
-                _id: '$u._id',
-                id: '$u.usr_id',
-                fullname: '$u.usr_fullname',
-                avatar: '$u.usr_avatar',
-              },
+              user_id: { $toString: '$user_id' },
             },
           },
         ],
@@ -607,87 +466,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         callHistoryDoc: { $first: '$callHistoryDoc' },
       },
     },
-
-    /** 7.1) Quiz */
-    {
-      $lookup: {
-        from: 'Quizzes',
-        localField: 'quiz_id',
-        foreignField: '_id',
-        as: 'quizDoc',
-      },
-    },
-    {
-      $addFields: {
-        quizDoc: { $first: '$quizDoc' },
-      },
-    },
-
-    /** 7.1b) Flashcard */
-    {
-      $lookup: {
-        from: 'Flashcards',
-        localField: 'flashcard_id',
-        foreignField: '_id',
-        as: 'flashcardDoc',
-      },
-    },
-    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard */
-    {
-      $lookup: {
-        from: 'Flashcards',
-        localField: 'flashcard_id',
-        foreignField: '_id',
-        as: 'flashcardDoc',
-      },
-    },
-    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard */
-    {
-      $lookup: {
-        from: 'Flashcards',
-        localField: 'flashcard_id',
-        foreignField: '_id',
-        as: 'flashcardDoc',
-      },
-    },
-    { $addFields: { flashcardDoc: { $first: '$flashcardDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
 
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
@@ -714,14 +492,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         pinned: '$pinned',
         placeholder: '$placeholder',
 
-        // denormalized
-        sender: {
-          _id: '$sender._id',
-          fullname: '$sender.usr_fullname',
-          avatar: '$sender.usr_avatar',
-          id: '$sender.usr_id',
-        },
-        // 🔥 attachments bây giờ đã có field 'summary' bên trong từng item
+        // denormalized — hydrated via gRPC
+        sender: '$sender',
         attachments: '$attachments',
         reactions: '$reactions',
         reply: {
@@ -732,10 +504,8 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
-              sender: {
-                _id: '$reply_sender._id',
-                name: '$reply_sender.usr_fullname',
-              },
+              // DB ISOLATION: raw msg_sender — hydrateMessages fills in
+              sender: { $ifNull: [{ $toString: '$reply_doc.msg_sender' }, null] },
               isDelete: {
                 $cond: [
                   { $ifNull: ['$reply_doc', false] },
@@ -763,12 +533,12 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
-        quiz: buildQuizProjection(),
-        flashcard: buildFlashcardProjection(),
-        todoProject: buildTodoProjectProjection(),
+        // DB ISOLATION: raw IDs — hydrateMessages fills in full documents
+        quiz: { $ifNull: [{ $toString: '$quiz_id' }, null] },
+        flashcard: { $ifNull: [{ $toString: '$flashcard_id' }, null] },
+        todoProject: { $ifNull: [{ $toString: '$todo_project_id' }, null] },
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
-        // Summary cấp độ message để null, vì giờ dùng summary của attachment
         summary: { $literal: null },
       },
     },
@@ -778,7 +548,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       $unset: [
         'hiddenByDocs',
         'reply_doc',
-        'reply_sender',
         'replyHiddenByDocs',
         'reply_hiddenBy',
         'read_list',
@@ -798,79 +567,23 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
     /** 0) Match đúng cái Message ID cần lấy */
     { $match: { _id: mid } },
 
-    /** 1) Sender */
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'msg_sender',
-        foreignField: '_id',
-        pipeline: [
-          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
-        ],
-        as: 'sender',
-      },
-    },
-    { $set: { sender: { $first: '$sender' } } },
-
-    /** 2) Attachments (array ObjectId -> Attachments._id) + AI Summary */
-    {
-      $lookup: {
-        from: 'Attachments',
-        localField: 'attachment_ids',
-        foreignField: '_id',
-        pipeline: [
-          // 2.1) Lookup AI Embedding
-          {
-            $lookup: {
-              from: 'aiembeddings',
-              let: { attId: '$_id' },
-              pipeline: [
-                {
-                  $match: {
-                    $expr: {
-                      $and: [
-                        { $eq: ['$contextId', '$$attId'] },
-                        { $eq: ['$contextType', 'file'] },
-                      ],
-                    },
-                  },
-                },
-                { $project: { text: 1, _id: 0 } },
-                { $limit: 1 },
-              ],
-              as: 'ai_summary_doc',
-            },
-          },
-          // 2.2) Flatten summary
-          {
-            $addFields: {
-              summary: { $ifNull: [{ $first: '$ai_summary_doc.text' }, null] },
-            },
-          },
-          // 2.3) Project output attachment
-          {
-            $project: {
-              _id: 1,
-              kind: 1,
-              url: 1,
-              name: 1,
-              size: 1,
-              mimeType: 1,
-              thumbUrl: 1,
-              width: 1,
-              height: 1,
-              duration: 1,
-              status: 1,
-              summary: 1,
-            },
-          },
-        ],
-        as: 'attachments',
-      },
-    },
+    /** 1) Sender — DB ISOLATION: raw msg_sender, hydrated via gRPC */
     {
       $addFields: {
-        attachments: { $ifNull: ['$attachments', []] },
+        sender: { $toString: '$msg_sender' },
+      },
+    },
+
+    /** 2) Attachments — DB ISOLATION: raw attachment_ids, hydrated via gRPC */
+    {
+      $addFields: {
+        attachments: {
+          $map: {
+            input: { $ifNull: ['$attachment_ids', []] },
+            as: 'a',
+            in: { $toString: '$$a' },
+          },
+        },
       },
     },
 
@@ -884,17 +597,6 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
     { $set: { reply_doc: { $first: '$reply_doc' } } },
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'reply_doc.msg_sender',
-        foreignField: '_id',
-        pipeline: [{ $project: { _id: 1, usr_fullname: 1 } }],
-        as: 'reply_sender',
-      },
-    },
-    { $set: { reply_sender: { $first: '$reply_sender' } } },
-
     /** 3.1) Reply hidden (All users) */
     {
       $lookup: {
@@ -915,7 +617,7 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
-    /** 4) Reactions (group theo emoji) */
+    /** 4) Reactions (group theo emoji) — DB ISOLATION: user IDs hydrated via gRPC */
     {
       $lookup: {
         from: 'MessageReactions',
@@ -923,28 +625,9 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         foreignField: 'msg_id',
         pipeline: [
           {
-            $lookup: {
-              from: 'Users',
-              localField: 'user_id',
-              foreignField: '_id',
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    usr_fullname: 1,
-                    usr_avatar: 1,
-                    usr_id: 1,
-                  },
-                },
-              ],
-              as: 'user',
-            },
-          },
-          { $set: { user: { $first: '$user' } } },
-          {
             $group: {
               _id: '$emoji',
-              users: { $push: '$user' },
+              users: { $push: { $toString: '$user_id' } },
               count: { $sum: 1 },
             },
           },
@@ -983,34 +666,10 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
           { $match: { $expr: { $eq: ['$msg_id', '$$mid'] } } },
           { $match: { $expr: { $ne: ['$user_id', '$$sender'] } } },
           {
-            $lookup: {
-              from: 'Users',
-              localField: 'user_id',
-              foreignField: '_id',
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    usr_fullname: 1,
-                    usr_avatar: 1,
-                    usr_id: 1,
-                  },
-                },
-              ],
-              as: 'u',
-            },
-          },
-          { $set: { u: { $first: '$u' }, readAt: '$readAt' } },
-          {
             $project: {
               _id: 0,
               readAt: 1,
-              user: {
-                _id: '$u._id',
-                id: '$u.usr_id',
-                fullname: '$u.usr_fullname',
-                avatar: '$u.usr_avatar',
-              },
+              user_id: { $toString: '$user_id' },
             },
           },
         ],
@@ -1034,21 +693,6 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
-    /** 7.1) Quiz */
-    {
-      $lookup: {
-        from: 'Quizzes',
-        localField: 'quiz_id',
-        foreignField: '_id',
-        as: 'quizDoc',
-      },
-    },
-    {
-      $addFields: {
-        quizDoc: { $first: '$quizDoc' },
-      },
-    },
-
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1069,13 +713,8 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         pinned: '$pinned',
         placeholder: '$placeholder',
 
-        // denormalized
-        sender: {
-          _id: '$sender._id',
-          fullname: '$sender.usr_fullname',
-          avatar: '$sender.usr_avatar',
-          id: '$sender.usr_id',
-        },
+        // denormalized — hydrated via gRPC
+        sender: '$sender',
         attachments: '$attachments',
         reactions: '$reactions',
         reply: {
@@ -1086,10 +725,8 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
-              sender: {
-                _id: '$reply_sender._id',
-                name: '$reply_sender.usr_fullname',
-              },
+              // DB ISOLATION: raw msg_sender — hydrateMessages fills in
+              sender: { $ifNull: [{ $toString: '$reply_doc.msg_sender' }, null] },
               isDelete: {
                 $cond: [
                   { $ifNull: ['$reply_doc', false] },
@@ -1117,9 +754,10 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
-        quiz: buildQuizProjection(),
-        flashcard: buildFlashcardProjection(),
-        todoProject: buildTodoProjectProjection(),
+        // DB ISOLATION: raw IDs — hydrateMessages fills in full documents
+        quiz: { $ifNull: [{ $toString: '$quiz_id' }, null] },
+        flashcard: { $ifNull: [{ $toString: '$flashcard_id' }, null] },
+        todoProject: { $ifNull: [{ $toString: '$todo_project_id' }, null] },
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         summary: { $literal: null },
@@ -1131,7 +769,6 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       $unset: [
         'hiddenByDocs',
         'reply_doc',
-        'reply_sender',
         'replyHiddenByDocs',
         'reply_hiddenBy',
         'read_list',
@@ -1150,79 +787,23 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
     /** 0) Match đúng cái Message ID cần lấy */
     { $match: { _id: { $in: mids } } },
 
-    /** 1) Sender */
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'msg_sender',
-        foreignField: '_id',
-        pipeline: [
-          { $project: { _id: 1, usr_fullname: 1, usr_avatar: 1, usr_id: 1 } },
-        ],
-        as: 'sender',
-      },
-    },
-    { $set: { sender: { $first: '$sender' } } },
-
-    /** 2) Attachments (array ObjectId -> Attachments._id) + AI Summary */
-    {
-      $lookup: {
-        from: 'Attachments',
-        localField: 'attachment_ids',
-        foreignField: '_id',
-        pipeline: [
-          // 2.1) Lookup AI Embedding
-          {
-            $lookup: {
-              from: 'aiembeddings',
-              let: { attId: '$_id' },
-              pipeline: [
-                {
-                  $match: {
-                    $expr: {
-                      $and: [
-                        { $eq: ['$contextId', '$$attId'] },
-                        { $eq: ['$contextType', 'file'] },
-                      ],
-                    },
-                  },
-                },
-                { $project: { text: 1, _id: 0 } },
-                { $limit: 1 },
-              ],
-              as: 'ai_summary_doc',
-            },
-          },
-          // 2.2) Flatten summary
-          {
-            $addFields: {
-              summary: { $ifNull: [{ $first: '$ai_summary_doc.text' }, null] },
-            },
-          },
-          // 2.3) Project output attachment
-          {
-            $project: {
-              _id: 1,
-              kind: 1,
-              url: 1,
-              name: 1,
-              size: 1,
-              mimeType: 1,
-              thumbUrl: 1,
-              width: 1,
-              height: 1,
-              duration: 1,
-              status: 1,
-              summary: 1,
-            },
-          },
-        ],
-        as: 'attachments',
-      },
-    },
+    /** 1) Sender — DB ISOLATION: raw msg_sender, hydrated via gRPC */
     {
       $addFields: {
-        attachments: { $ifNull: ['$attachments', []] },
+        sender: { $toString: '$msg_sender' },
+      },
+    },
+
+    /** 2) Attachments — DB ISOLATION: raw attachment_ids, hydrated via gRPC */
+    {
+      $addFields: {
+        attachments: {
+          $map: {
+            input: { $ifNull: ['$attachment_ids', []] },
+            as: 'a',
+            in: { $toString: '$$a' },
+          },
+        },
       },
     },
 
@@ -1236,17 +817,6 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
     { $set: { reply_doc: { $first: '$reply_doc' } } },
-    {
-      $lookup: {
-        from: 'Users',
-        localField: 'reply_doc.msg_sender',
-        foreignField: '_id',
-        pipeline: [{ $project: { _id: 1, usr_fullname: 1 } }],
-        as: 'reply_sender',
-      },
-    },
-    { $set: { reply_sender: { $first: '$reply_sender' } } },
-
     /** 3.1) Reply hidden (All users) */
     {
       $lookup: {
@@ -1267,7 +837,7 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
 
-    /** 4) Reactions (group theo emoji) */
+    /** 4) Reactions (group theo emoji) — DB ISOLATION: user IDs hydrated via gRPC */
     {
       $lookup: {
         from: 'MessageReactions',
@@ -1275,28 +845,9 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         foreignField: 'msg_id',
         pipeline: [
           {
-            $lookup: {
-              from: 'Users',
-              localField: 'user_id',
-              foreignField: '_id',
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    usr_fullname: 1,
-                    usr_avatar: 1,
-                    usr_id: 1,
-                  },
-                },
-              ],
-              as: 'user',
-            },
-          },
-          { $set: { user: { $first: '$user' } } },
-          {
             $group: {
               _id: '$emoji',
-              users: { $push: '$user' },
+              users: { $push: { $toString: '$user_id' } },
               count: { $sum: 1 },
             },
           },
@@ -1335,34 +886,10 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
           { $match: { $expr: { $eq: ['$msg_id', '$$mid'] } } },
           { $match: { $expr: { $ne: ['$user_id', '$$sender'] } } },
           {
-            $lookup: {
-              from: 'Users',
-              localField: 'user_id',
-              foreignField: '_id',
-              pipeline: [
-                {
-                  $project: {
-                    _id: 1,
-                    usr_fullname: 1,
-                    usr_avatar: 1,
-                    usr_id: 1,
-                  },
-                },
-              ],
-              as: 'u',
-            },
-          },
-          { $set: { u: { $first: '$u' }, readAt: '$readAt' } },
-          {
             $project: {
               _id: 0,
               readAt: 1,
-              user: {
-                _id: '$u._id',
-                id: '$u.usr_id',
-                fullname: '$u.usr_fullname',
-                avatar: '$u.usr_avatar',
-              },
+              user_id: { $toString: '$user_id' },
             },
           },
         ],
@@ -1386,21 +913,6 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
 
-    /** 7.1) Quiz */
-    {
-      $lookup: {
-        from: 'Quizzes',
-        localField: 'quiz_id',
-        foreignField: '_id',
-        as: 'quizDoc',
-      },
-    },
-    {
-      $addFields: {
-        quizDoc: { $first: '$quizDoc' },
-      },
-    },
-
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1421,13 +933,8 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         pinned: '$pinned',
         placeholder: '$placeholder',
 
-        // denormalized
-        sender: {
-          _id: '$sender._id',
-          fullname: '$sender.usr_fullname',
-          avatar: '$sender.usr_avatar',
-          id: '$sender.usr_id',
-        },
+        // denormalized — hydrated via gRPC
+        sender: '$sender',
         attachments: '$attachments',
         reactions: '$reactions',
         reply: {
@@ -1438,10 +945,8 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
-              sender: {
-                _id: '$reply_sender._id',
-                name: '$reply_sender.usr_fullname',
-              },
+              // DB ISOLATION: raw msg_sender — hydrateMessages fills in
+              sender: { $ifNull: [{ $toString: '$reply_doc.msg_sender' }, null] },
               isDelete: {
                 $cond: [
                   { $ifNull: ['$reply_doc', false] },
@@ -1469,9 +974,10 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
         call_history: '$callHistoryDoc',
-        quiz: buildQuizProjection(),
-        flashcard: buildFlashcardProjection(),
-        todoProject: buildTodoProjectProjection(),
+        // DB ISOLATION: raw IDs — hydrateMessages fills in full documents
+        quiz: { $ifNull: [{ $toString: '$quiz_id' }, null] },
+        flashcard: { $ifNull: [{ $toString: '$flashcard_id' }, null] },
+        todoProject: { $ifNull: [{ $toString: '$todo_project_id' }, null] },
         // System message context (member added/left, call started/ended, ...)
         room_event: buildRoomEventProjection(),
         summary: { $literal: null },
@@ -1483,7 +989,6 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       $unset: [
         'hiddenByDocs',
         'reply_doc',
-        'reply_sender',
         'replyHiddenByDocs',
         'reply_hiddenBy',
         'read_list',
@@ -1492,4 +997,270 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
   ];
 
   return stages;
+}
+
+// ── Hydration interfaces ───────────────────────────────────────────────────
+
+export interface AuthGrpcClient {
+  GetUserById(data: { userId: string }): any;
+  GetUsersByIds(data: { userIds: string[] }): any;
+}
+
+export interface FileSystemGrpcClient {
+  GetAttachmentsByIds(data: { attachmentIds: string[] }): any;
+}
+
+export interface AIGrpcClient {
+  GetEmbeddingsByContextIds(data: { contextIds: string[] }): any;
+}
+
+export interface LearningGrpcClient {
+  GetQuizzesByIds(data: { quizIds: string[] }): any;
+  GetFlashcardsByIds(data: { flashcardIds: string[] }): any;
+  GetTodoProjectsByIds(data: { todoProjectIds: string[] }): any;
+}
+
+export interface HydrationServices {
+  authGrpc: AuthGrpcClient;
+  filesystemGrpc: FileSystemGrpcClient;
+  aiGrpc: AIGrpcClient;
+  learningGrpc: LearningGrpcClient;
+}
+
+/**
+ * Project a user from the auth gRPC response into the format expected by the FE.
+ */
+function projectUser(u: any): any | null {
+  if (!u) return null;
+  return {
+    _id: u._id,
+    id: u.id ?? u.usr_id,
+    fullname: u.fullname ?? u.usr_fullname,
+    avatar: u.avatar ?? u.usr_avatar,
+  };
+}
+
+/**
+ * Post-aggregate hydration: replaces all raw foreign IDs (output by the
+ * refactored pipelines) with fully populated objects fetched via gRPC.
+ *
+ * Call this on the pipeline result before returning messages to callers.
+ *
+ * @param messages  Raw messages from any of the three pipeline builders.
+ * @param services  Map of gRPC clients keyed by service name.
+ * @returns         Messages with all cross-DB references hydrated.
+ */
+export async function hydrateMessages(
+  messages: any[],
+  services: HydrationServices,
+): Promise<any[]> {
+  if (!messages.length) return messages;
+
+  // ── Step 1: Collect all foreign IDs ───────────────────────────────────
+  const userIds = new Set<string>();
+  const attachmentIds = new Set<string>();
+  const quizIds = new Set<string>();
+  const flashcardIds = new Set<string>();
+  const todoProjectIds = new Set<string>();
+
+  for (const m of messages) {
+    // Sender
+    if (m.sender) userIds.add(String(m.sender));
+    // Reply sender (raw ID in reply.sender)
+    if (m.reply?.sender) userIds.add(String(m.reply.sender));
+    // Reaction users — grouped by emoji, each entry has a users array of IDs
+    if (Array.isArray(m.reactions)) {
+      for (const r of m.reactions) {
+        if (Array.isArray(r.users)) {
+          for (const uid of r.users) {
+            if (uid) userIds.add(String(uid));
+          }
+        }
+      }
+    }
+    // Read receipt users
+    if (Array.isArray(m.read_by)) {
+      for (const r of m.read_by) {
+        if (r.user_id) userIds.add(String(r.user_id));
+      }
+    }
+    // RoomEvent actor + targets (raw IDs in room_event)
+    if (m.room_event) {
+      if (m.room_event.actor) userIds.add(String(m.room_event.actor));
+      if (Array.isArray(m.room_event.targets)) {
+        for (const t of m.room_event.targets) {
+          if (t) userIds.add(String(t));
+        }
+      }
+    }
+    // Attachment IDs
+    if (Array.isArray(m.attachments)) {
+      for (const attId of m.attachments) {
+        if (attId) attachmentIds.add(String(attId));
+      }
+    }
+    // Cross-service document IDs
+    if (m.quiz) quizIds.add(String(m.quiz));
+    if (m.flashcard) flashcardIds.add(String(m.flashcard));
+    if (m.todoProject) todoProjectIds.add(String(m.todoProject));
+  }
+
+  // ── Step 2: Batch gRPC calls in parallel ──────────────────────────────
+  const [usersRes, attachmentsRes, quizzesRes, flashcardsRes, todoProjectsRes] =
+    await Promise.all([
+      userIds.size > 0
+        ? firstValueFrom(
+            services.authGrpc.GetUsersByIds({ userIds: [...userIds] }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+      attachmentIds.size > 0
+        ? firstValueFrom(
+            services.filesystemGrpc.GetAttachmentsByIds({
+              attachmentIds: [...attachmentIds],
+            }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+      quizIds.size > 0
+        ? firstValueFrom(
+            services.learningGrpc.GetQuizzesByIds({ quizIds: [...quizIds] }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+      flashcardIds.size > 0
+        ? firstValueFrom(
+            services.learningGrpc.GetFlashcardsByIds({
+              flashcardIds: [...flashcardIds],
+            }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+      todoProjectIds.size > 0
+        ? firstValueFrom(
+            services.learningGrpc.GetTodoProjectsByIds({
+              todoProjectIds: [...todoProjectIds],
+            }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+  // ── Step 3: Get AI embeddings for attachments (second round-trip) ─────
+  const atts: any[] = (attachmentsRes as any)?.metadata ?? [];
+  const embeddingIds = atts.map((a: any) => String(a._id ?? a.id));
+  const embeddingsRes =
+    embeddingIds.length > 0
+      ? await firstValueFrom(
+          services.aiGrpc.GetEmbeddingsByContextIds({
+            contextIds: embeddingIds,
+          }),
+        ).catch(() => null)
+      : null;
+  const embeddings: any[] = (embeddingsRes as any)?.metadata ?? [];
+
+  // ── Step 4: Build lookup maps ─────────────────────────────────────────
+  const userMap = new Map<string, any>();
+  for (const u of (usersRes as any)?.metadata ?? []) {
+    userMap.set(String(u._id), u);
+  }
+
+  const attMap = new Map<string, any>();
+  for (const a of atts) {
+    attMap.set(String(a._id ?? a.id), a);
+  }
+
+  const quizMap = new Map<string, any>();
+  for (const q of (quizzesRes as any)?.metadata ?? []) {
+    quizMap.set(String(q.quiz_id ?? q._id), q);
+  }
+
+  const flashcardMap = new Map<string, any>();
+  for (const f of (flashcardsRes as any)?.metadata ?? []) {
+    flashcardMap.set(String(f.card_id ?? f._id), f);
+  }
+
+  const todoProjectMap = new Map<string, any>();
+  for (const t of (todoProjectsRes as any)?.metadata ?? []) {
+    todoProjectMap.set(String(t.project_id ?? t._id), t);
+  }
+
+  // Index embeddings by contextId
+  const embeddingMap = new Map<string, any[]>();
+  for (const e of embeddings) {
+    const key = String(e.contextId ?? e.context_id);
+    if (!embeddingMap.has(key)) embeddingMap.set(key, []);
+    embeddingMap.get(key)!.push(e);
+  }
+
+  // ── Step 5: Merge into messages ───────────────────────────────────────
+  return messages.map((m) => ({
+    ...m,
+    // Replace raw sender ID with populated user object
+    sender: projectUser(userMap.get(String(m.sender))),
+    // Replace raw reaction user IDs with populated user objects
+    reactions: Array.isArray(m.reactions)
+      ? m.reactions.map((r: any) => ({
+          ...r,
+          users: (r.users || [])
+            .map((uid: any) => projectUser(userMap.get(String(uid))))
+            .filter(Boolean),
+        }))
+      : m.reactions,
+    // Replace raw reply sender ID with populated user
+    reply: m.reply
+      ? {
+          ...m.reply,
+          sender: projectUser(userMap.get(String(m.reply.sender))),
+        }
+      : m.reply,
+    // Replace raw read_by user_id with populated user objects
+    read_by: Array.isArray(m.read_by)
+      ? m.read_by.map((r: any) => ({
+          readAt: r.readAt,
+          user: projectUser(userMap.get(String(r.user_id))),
+        }))
+      : m.read_by,
+    // Replace raw attachment IDs with populated objects (with embeddings)
+    attachments: Array.isArray(m.attachments)
+      ? m.attachments
+          .map((id: any) => {
+            const att = attMap.get(String(id));
+            if (!att) return null;
+            const emb = embeddingMap.get(String(att._id ?? att.id)) ?? [];
+            const summary = emb.length > 0 ? emb[0].text : null;
+            return {
+              _id: att._id ?? att.id,
+              kind: att.kind,
+              url: att.url,
+              name: att.name,
+              size: att.size,
+              mimeType: att.mimeType,
+              thumbUrl: att.thumbUrl,
+              width: att.width,
+              height: att.height,
+              duration: att.duration,
+              status: att.status,
+              summary,
+              embeddings: emb,
+            };
+          })
+          .filter(Boolean)
+      : m.attachments,
+    // Replace raw quiz/flashcard/todo IDs with full documents
+    quiz: m.quiz ? quizMap.get(String(m.quiz)) ?? null : null,
+    flashcard: m.flashcard ? flashcardMap.get(String(m.flashcard)) ?? null : null,
+    todoProject: m.todoProject
+      ? todoProjectMap.get(String(m.todoProject)) ?? null
+      : null,
+    // Replace raw room_event actor/targets with populated users
+    room_event: m.room_event
+      ? {
+          ...m.room_event,
+          actor: m.room_event.actor
+            ? projectUser(userMap.get(String(m.room_event.actor)))
+            : null,
+          targets: Array.isArray(m.room_event.targets)
+            ? m.room_event.targets
+                .map((t: any) => projectUser(userMap.get(String(t))))
+                .filter(Boolean)
+            : m.room_event.targets,
+        }
+      : m.room_event,
+  }));
 }

@@ -297,6 +297,39 @@ export class FilesystemService {
     return Response.success(mapped, 'Get attachments successful');
   }
 
+  async getAttachmentsByIds(attachmentIds: string[]) {
+    if (!attachmentIds || attachmentIds.length === 0) {
+      return Response.success([], 'No attachment IDs provided');
+    }
+
+    const objectIds = attachmentIds
+      .filter((id) => /^[0-9a-fA-F]{24}$/.test(id))
+      .map((id) => this.utils.convertToObjectIdMongoose(id));
+
+    if (objectIds.length === 0) {
+      return Response.success([], 'No valid attachment IDs provided');
+    }
+
+    const attachments = await this.attachmentModel
+      .find({ _id: { $in: objectIds } })
+      .lean();
+
+    const mapped = attachments.map((att) => ({
+      _id: att._id.toString(),
+      url: att.url,
+      kind: att.kind,
+      name: att.name,
+      mimeType: att.mimeType,
+      size: att.size,
+      status: att.status,
+      width: att.width,
+      height: att.height,
+      duration: att.duration,
+    }));
+
+    return Response.success(mapped, 'Get attachments by IDs successful');
+  }
+
   async processLinks(
     content: string,
     userId: string,

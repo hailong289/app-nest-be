@@ -395,6 +395,19 @@ export class TodoProjectService {
     }
   }
 
+  async getTodoProjectsByIds(projectIds: string[]) {
+    try {
+      const projects = await this.todoProjectModel
+        .find({ project_id: { $in: projectIds } })
+        .lean();
+      return Response.success(
+        projects.map((project) => this.toMetadata(project)),
+      );
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
+  }
+
   async getProjectMembers(data: GetProjectMembersDto) {
     try {
       const project = await this.todoProjectModel

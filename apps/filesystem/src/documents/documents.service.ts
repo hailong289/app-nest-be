@@ -1,3 +1,6 @@
+import { firstValueFrom } from 'rxjs';
+import type { ClientGrpc } from '@nestjs/microservices';
+import { ClientKafka } from '@nestjs/microservices';
 import { CreateDocDto } from '@app/dto';
 import { Response } from '@app/helpers/response';
 import Utils from '@app/helpers/utils';
@@ -14,29 +17,93 @@ import {
   AttachmentContextEnumType,
   Document,
   DocVisibilityEnum,
-  Room,
-  User,
 } from 'libs/db/src';
 import { Model } from 'mongoose';
 import * as Y from 'yjs';
-import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent } from '@app/dto/enum.type';
+
+interface AuthGrpcClient {
+  GetUserById(data: { userId: string }): any;
+  GetUsersByIds(data: { userIds: string[] }): any;
+}
+
+interface ChatGrpcClient {
+  GetRoomById(data: { roomId: string }): any;
+  GetRoomsByIds(data: { roomIds: string[] }): any;
+}
 
 @Injectable()
 export class DocumentsService {
   private readonly utils = Utils;
+  private authGrpcClient: AuthGrpcClient;
+  private chatGrpcClient: ChatGrpcClient;
+
   constructor(
     @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
     @InjectModel(Document.name)
     private readonly docsModel: Model<Document>,
-    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
     @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
+    @Inject(SERVICES.CHAT)
+    private readonly chatGrpc: ClientGrpc,
   ) {}
+
+  onModuleInit() {
+    this.authGrpcClient =
+      this.authGrpc.getService<AuthGrpcClient>('AuthService');
+    this.chatGrpcClient =
+      this.chatGrpc.getService<ChatGrpcClient>('ChatService');
+  }
+
+  /**
+   * Database isolation: fetch user info via gRPC Auth.
+   * Maps gRPC response (unprefixed) to Mongoose-style fields.
+   */
+  private async lookupUsersByIds(userIds: string[]): Promise<any[]> {
+    if (!userIds.length) return [];
+    try {
+      const result = await firstValueFrom(
+        this.authGrpcClient.GetUsersByIds({ userIds }) as any,
+      );
+      const users = (result as any)?.metadata ?? [];
+      return users.map((u: any) => ({
+        _id: u._id,
+        usr_id: u.id ?? u._id,
+        usr_slug: u.slug ?? '',
+        usr_fullname: u.fullname ?? '',
+        usr_avatar: u.avatar ?? '',
+        usr_email: u.email ?? '',
+      }));
+    } catch { return []; }
+  }
+
+  private async lookupUserById(userId: string): Promise<any | null> {
+    const users = await this.lookupUsersByIds([userId]);
+    return users[0] || null;
+  }
+
+  /**
+   * Database isolation: fetch room info via gRPC Chat.
+   */
+  private async lookupRoomsByIds(roomIds: string[]): Promise<any[]> {
+    if (!roomIds.length) return [];
+    try {
+      const result = await firstValueFrom(
+        this.chatGrpcClient.GetRoomsByIds({ roomIds }) as any,
+      );
+      return (result as any)?.metadata ?? [];
+    } catch { return []; }
+  }
+
+  private async lookupRoomById(roomId: string): Promise<any | null> {
+    const rooms = await this.lookupRoomsByIds([roomId]);
+    return rooms[0] || null;
+  }
 
   /**
    * Helper: Check if user has access to document
@@ -80,14 +147,8 @@ export class DocumentsService {
         (doc as { roomIds: unknown[] }).roomIds.length > 0
       ) {
         const roomIdsArray = (doc as { roomIds: string[] }).roomIds;
-        const room = await this.roomModel.findOne({
-          _id: {
-            $in: roomIdsArray.map((i: string) =>
-              this.utils.convertToObjectIdMongoose(i),
-            ),
-          },
-          'room_members.user_id': userObjId,
-        });
+        const firstRoomId = roomIdsArray.length > 0 ? roomIdsArray[0] : null;
+        const room = firstRoomId ? await this.lookupRoomById(firstRoomId) : null;
 
         if (room) {
           const member = room.room_members.find(
@@ -138,17 +199,13 @@ export class DocumentsService {
    */
   private async findRoom(roomId: string, userId: string) {
     // check user
-    const userInfo = await this.userModel.findById(userId);
+    const userInfo = await this.lookupUserById(userId);
     if (!userInfo) {
       throw new NotFoundException('không tìm thấy thông tin người dùng');
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = await this.lookupRoomById(roomId);
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -159,93 +216,23 @@ export class DocumentsService {
    * Helper: Aggregation Pipeline to populate Owner and Shared Users
    */
   private getPopulateDocsPipeline(matchQuery: Record<string, unknown>): any[] {
+    // NOTE: Cross-DB $lookup (Users, Rooms) removed for database isolation.
+    // Owner, shared users, and room info are hydrated post-aggregate
+    // via batch gRPC in hydrateDocument() / hydrateDocuments().
     return [
       { $match: matchQuery },
-      // Lookup Owner
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'ownerId',
-          foreignField: '_id',
-          as: 'owner_info',
-        },
-      },
-      {
-        $unwind: {
-          path: '$owner_info',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      // Unwind sharedWith to populate
-      // --- NEW LOGIC: Merge Room Members into SharedWith ---
-      {
-        $lookup: {
-          from: 'Rooms',
-          localField: 'roomIds',
-          foreignField: '_id',
-          as: 'room_infos',
-        },
-      },
-      {
-        $addFields: {
-          room_members_normalized: {
-            $reduce: {
-              input: '$room_infos',
-              initialValue: [],
-              in: {
-                $concatArrays: [
-                  '$$value',
-                  {
-                    $map: {
-                      input: '$$this.room_members',
-                      as: 'member',
-                      in: {
-                        userId: '$$member.user_id',
-                        role: {
-                          $cond: {
-                            if: { $eq: ['$$member.role', 'guest'] },
-                            then: 'viewer',
-                            else: 'editor',
-                          },
-                        },
-                        sharedAt: '$$member.joinedAt',
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-      },
+      // Normalize room members into sharedWith-like shape (intra-DB only)
+      // Room info is hydrated separately post-aggregate
       {
         $addFields: {
           combined_shared: {
-            $concatArrays: [
-              { $ifNull: ['$sharedWith', []] },
-              { $ifNull: ['$room_members_normalized', []] },
-            ],
+            $ifNull: ['$sharedWith', []],
           },
         },
       },
       {
         $unwind: {
           path: '$combined_shared',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      // Lookup sharedWith user
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'combined_shared.userId',
-          foreignField: '_id',
-          as: 'combined_shared.user_info',
-        },
-      },
-      {
-        $unwind: {
-          path: '$combined_shared.user_info',
           preserveNullAndEmptyArrays: true,
         },
       },
@@ -259,14 +246,7 @@ export class DocumentsService {
               userId: '$combined_shared.userId',
               role: '$combined_shared.role',
               sharedAt: '$combined_shared.sharedAt',
-              user: {
-                _id: '$combined_shared.user_info._id',
-                usr_id: '$combined_shared.user_info.usr_id',
-                usr_slug: '$combined_shared.user_info.usr_slug',
-                usr_fullname: '$combined_shared.user_info.usr_fullname',
-                usr_avatar: '$combined_shared.user_info.usr_avatar',
-                usr_email: '$combined_shared.user_info.usr_email',
-              },
+              // user info hydrated later
             },
           },
         },
@@ -281,14 +261,8 @@ export class DocumentsService {
               cond: { $ifNull: ['$$item.userId', false] },
             },
           },
-          'root.owner': {
-            _id: '$root.owner_info._id',
-            usr_id: '$root.owner_info.usr_id',
-            usr_slug: '$root.owner_info.usr_slug',
-            usr_fullname: '$root.owner_info.usr_fullname',
-            usr_avatar: '$root.owner_info.usr_avatar',
-            usr_email: '$root.owner_info.usr_email',
-          },
+          // Placeholder: owner populated later via gRPC
+          'root.owner': { _id: null, usr_id: '', usr_fullname: '', usr_avatar: '' },
         },
       },
       {
@@ -297,12 +271,9 @@ export class DocumentsService {
       // Cleanup temporary fields
       {
         $project: {
-          owner_info: 0,
-          room_infos: 0,
-          room_members_normalized: 0,
           combined_shared: 0,
           'sharedWith.user_info': 0,
-          yjsSnapshot: 0, // Optimization: Remove heavy binary data
+          yjsSnapshot: 0,
         },
       },
       // Convert ObjectIds and Dates to Strings for gRPC compatibility
@@ -335,14 +306,7 @@ export class DocumentsService {
                 userId: { $toString: '$$sw.userId' },
                 role: '$$sw.role',
                 sharedAt: { $toString: '$$sw.sharedAt' },
-                user: {
-                  _id: { $toString: '$$sw.user._id' },
-                  usr_id: '$$sw.user.usr_id',
-                  usr_slug: '$$sw.user.usr_slug',
-                  usr_fullname: '$$sw.user.usr_fullname',
-                  usr_avatar: '$$sw.user.usr_avatar',
-                  usr_email: '$$sw.user.usr_email',
-                },
+                user: { _id: '', usr_id: '', usr_fullname: '', usr_avatar: '' },
               },
             },
           },
@@ -352,15 +316,99 @@ export class DocumentsService {
   }
 
   /**
-   * Helper: Get formatted document by ID (Standard Output)
+   * Database isolation: hydrate owner, shared users, and room info via batch gRPC.
+   * Replaces the removed $lookup -> Users / $lookup -> Rooms stages.
    */
+  private async hydrateDocuments(docs: any[]): Promise<any[]> {
+    if (!docs.length) return docs;
+
+    const userIds = new Set<string>();
+    const roomIds = new Set<string>();
+
+    for (const d of docs) {
+      if (d.ownerId) userIds.add(String(d.ownerId));
+      d.sharedWith?.forEach((s: any) => s.userId && userIds.add(String(s.userId)));
+      d.roomIds?.forEach((id: any) => roomIds.add(String(id)));
+    }
+
+    const [users, rooms] = await Promise.all([
+      userIds.size ? this.lookupUsersByIds([...userIds]) : Promise.resolve([]),
+      roomIds.size ? this.lookupRoomsByIds([...roomIds]) : Promise.resolve([]),
+    ]);
+
+    const userMap = new Map(users.map(u => [String(u._id), u]));
+    const roomMap = new Map<string, any>();
+    rooms.forEach(r => {
+      const id = String(r._id ?? r.roomId ?? r.id);
+      if (id) roomMap.set(id, r);
+    });
+
+    return docs.map(d => {
+      const owner = d.ownerId ? userMap.get(String(d.ownerId)) : null;
+      const hydratedShared = (d.sharedWith ?? []).map((s: any) => {
+        const u = s.userId ? userMap.get(String(s.userId)) : null;
+        return {
+          ...s,
+          user: u ? {
+            _id: String(u._id ?? ''),
+            usr_id: u.usr_id ?? u.id ?? '',
+            usr_slug: u.usr_slug ?? u.slug ?? '',
+            usr_fullname: u.usr_fullname ?? u.fullname ?? '',
+            usr_avatar: u.usr_avatar ?? u.avatar ?? '',
+            usr_email: u.usr_email ?? u.email ?? '',
+          } : s.user ?? { _id: '', usr_id: '', usr_fullname: '', usr_avatar: '' },
+        };
+      });
+
+      // Merge room members into sharedWith (replaces room_infos lookup)
+      const roomMembersShared: any[] = [];
+      (d.roomIds ?? []).forEach((rid: any) => {
+        const room = roomMap.get(String(rid));
+        room?.room_members?.forEach((m: any) => {
+          const memberUserId = String(m.user_id ?? m.userId ?? '');
+          if (memberUserId) {
+            roomMembersShared.push({
+              userId: memberUserId,
+              role: m.role === 'guest' ? 'viewer' : 'editor',
+              sharedAt: m.joinedAt ?? new Date().toISOString(),
+              user: (() => {
+                const mu = userMap.get(memberUserId);
+                return mu ? {
+                  _id: String(mu._id ?? ''),
+                  usr_id: mu.usr_id ?? mu.id ?? '',
+                  usr_slug: mu.usr_slug ?? mu.slug ?? '',
+                  usr_fullname: mu.usr_fullname ?? mu.fullname ?? '',
+                  usr_avatar: mu.usr_avatar ?? mu.avatar ?? '',
+                  usr_email: mu.usr_email ?? mu.email ?? '',
+                } : { _id: '', usr_id: '', usr_fullname: '', usr_avatar: '' };
+              })(),
+            });
+          }
+        });
+      });
+
+      return {
+        ...d,
+        owner: owner ? {
+          _id: String(owner._id ?? ''),
+          usr_id: owner.usr_id ?? owner.id ?? '',
+          usr_slug: owner.usr_slug ?? owner.slug ?? '',
+          usr_fullname: owner.usr_fullname ?? owner.fullname ?? '',
+          usr_avatar: owner.usr_avatar ?? owner.avatar ?? '',
+          usr_email: owner.usr_email ?? owner.email ?? '',
+        } : d.owner ?? { _id: '', usr_id: '', usr_fullname: '', usr_avatar: '' },
+        sharedWith: [...hydratedShared, ...roomMembersShared],
+      };
+    });
+  }
+
   private async getFormattedDocumentById(docId: string) {
     const docs = await this.docsModel.aggregate(
       this.getPopulateDocsPipeline({
         _id: this.utils.convertToObjectIdMongoose(docId),
       }),
     );
-    const doc = docs[0] as Document & { _id: any };
+    let doc = docs[0] as Document & { _id: any };
 
     if (doc) {
       // Fix: Re-fetch yjsSnapshot directly to ensure binary data is correct
@@ -369,6 +417,7 @@ export class DocumentsService {
         doc.yjsSnapshot = rawDoc.yjsSnapshot;
       }
     }
+    if (doc) doc = (await this.hydrateDocuments([doc]))[0];
     return doc;
   }
 
@@ -420,9 +469,7 @@ export class DocumentsService {
 
     // Dispatch Notification
     if (roomId) {
-      const room = await this.roomModel.findById(
-        this.utils.convertToObjectIdMongoose(roomId),
-      );
+      const room = await this.lookupRoomById(roomId);
       if (room) {
         const memberIds = room.room_members.map((m) => m.user_id.toString());
         // Filter out the creator (owner) if needed, but usually they might want to know it's done?
@@ -644,7 +691,7 @@ export class DocumentsService {
     // Dispatch Notification
     const receivers = new Set<string>();
     if (doc.roomIds && doc.roomIds.length > 0) {
-      const rooms = await this.roomModel.find({ _id: { $in: doc.roomIds } });
+      const rooms = await this.lookupRoomsByIds(doc.roomIds?.map(String) ?? []);
       rooms.forEach((room) => {
         room.room_members.forEach((m) => {
           if (m.user_id.toString() !== userId) {
@@ -656,7 +703,7 @@ export class DocumentsService {
 
     const receiverIds = Array.from(receivers);
     if (receiverIds.length > 0) {
-      const deleter = await this.userModel.findById(userId);
+      const deleter = await this.lookupUserById(userId);
       const deleterName = deleter?.usr_fullname || 'Ai đó';
       await this.utils.dispatchEventKafka(
         this.notificationClient,
@@ -721,8 +768,9 @@ export class DocumentsService {
     const docs = await this.docsModel.aggregate(
       this.getPopulateDocsPipeline(query),
     );
+    const hydrated = await this.hydrateDocuments(docs);
 
-    return Response.success(docs, 'Lấy danh sách tài liệu thành công');
+    return Response.success(hydrated, 'Lấy danh sách tài liệu thành công');
   }
 
   /**
@@ -785,7 +833,7 @@ export class DocumentsService {
     const formattedDoc = await this.getFormattedDocumentById(docId);
 
     // Dispatch Notification
-    const sharer = await this.userModel.findById(userId);
+    const sharer = await this.lookupUserById(userId);
     const sharerName = sharer?.usr_fullname || 'Ai đó';
     await this.utils.dispatchEventKafka(
       this.notificationClient,
@@ -1053,5 +1101,47 @@ export class DocumentsService {
       newDoc._id.toString(),
     );
     return Response.success(formattedDoc, 'Tạo bản sao thành công');
+  }
+
+  /**
+   * =====================================================
+   * Get Documents By IDs
+   * =====================================================
+   * Batch fetch documents by IDs for cross-service hydration.
+   * Returns simplified DocumentCore objects.
+   */
+  async getDocumentsByIds(documentIds: string[]) {
+    if (!documentIds || documentIds.length === 0) {
+      return Response.success([], 'No document IDs provided');
+    }
+
+    const objectIds = documentIds
+      .filter((id) => /^[0-9a-fA-F]{24}$/.test(id))
+      .map((id) => this.utils.convertToObjectIdMongoose(id));
+
+    if (objectIds.length === 0) {
+      return Response.success([], 'No valid document IDs provided');
+    }
+
+    const docs = await this.docsModel
+      .find({ _id: { $in: objectIds } })
+      .lean()
+      .then((d) =>
+        d.map((doc) => {
+          const dAny = doc as any;
+          return {
+            id: dAny._id.toString(),
+            name: dAny.title,
+            ownerId: dAny.ownerId.toString(),
+            createdAt:
+              dAny.createdAt?.toISOString?.() ?? String(dAny.createdAt ?? ''),
+            updatedAt:
+              dAny.updatedAt?.toISOString?.() ?? String(dAny.updatedAt ?? ''),
+            roomIds: (dAny.roomIds ?? []).map((id: any) => id.toString()),
+          };
+        }),
+      );
+
+    return Response.success(docs, 'Get documents by IDs successful');
   }
 }

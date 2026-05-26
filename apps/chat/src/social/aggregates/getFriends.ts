@@ -1,206 +1,140 @@
-export const getFriendsBaseAggregate = (userId: string, search: string) => {
-  const searchMatch = search
-    ? {
-        $or: [
-          { usr_fullname: { $regex: search, $options: 'i' } },
-          { usr_email: { $regex: search, $options: 'i' } },
-          { usr_phone: { $regex: search, $options: 'i' } },
-        ],
-      }
-    : {};
+/**
+ * Database-isolated friendship aggregates.
+ *
+ * All pipelines now start from the Friendships collection (chat DB).
+ * Cross-DB lookups to the Users collection (auth DB) have been removed.
+ * Foreign user IDs (friendId, otherId, blockedUserId) are returned
+ * for later hydration via gRPC Auth service in social.service.ts.
+ */
+
+/**
+ * Match all ACCEPTED friendships where `userId` is either party.
+ * Returns friendship fields + computed `friendId` (the other party).
+ */
+export const getFriendsBaseAggregate = (userId: string) => {
   return [
     {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: '$usr_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$frp_status', 'ACCEPTED'] },
-                  {
-                    $or: [
-                      {
-                        $and: [
-                          { $eq: ['$frp_userId1', userId] },
-                          { $eq: ['$frp_userId2', '$$currentUserId'] },
-                        ],
-                      },
-                      {
-                        $and: [
-                          { $eq: ['$frp_userId2', userId] },
-                          { $eq: ['$frp_userId1', '$$currentUserId'] },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ],
-        as: 'friendship',
-      },
-    },
-    {
-      $addFields: {
-        friendship: { $arrayElemAt: ['$friendship', 0] },
-      },
-    },
-    {
       $match: {
-        friendship: { $ne: null },
-        ...searchMatch,
+        frp_status: 'ACCEPTED',
+        $or: [
+          { frp_userId1: userId },
+          { frp_userId2: userId },
+        ],
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        frp_id: 1,
+        frp_userId1: 1,
+        frp_userId2: 1,
+        frp_actionUserId: 1,
+        frp_status: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        friendId: {
+          $cond: [
+            { $eq: ['$frp_userId1', userId] },
+            '$frp_userId2',
+            '$frp_userId1',
+          ],
+        },
       },
     },
   ];
 };
 
+/**
+ * Paginated version of getFriendsBaseAggregate.
+ * Pagination is applied in-DB; caller hydrates friendIds via gRPC.
+ */
 export const getFriendsAggregate = (
   userId: string,
   page: number,
   limit: number,
-  search: string,
 ) => [
-  ...getFriendsBaseAggregate(userId, search),
+  ...getFriendsBaseAggregate(userId),
   { $skip: (page - 1) * limit },
   { $limit: limit },
 ];
 
+/**
+ * Match PENDING friendships involving `userId`.
+ * For type='received': userId is the target (frp_userId2).
+ * For type='sent': userId is the requester (frp_userId1).
+ * Returns friendship fields + computed `otherId` (the other party).
+ */
 export const getFriendsRequestAggregate = (
   userId: string,
   type: string = 'received',
 ) => {
+  const matchCondition =
+    type === 'received'
+      ? { frp_userId2: userId }
+      : { frp_userId1: userId };
   return [
-    {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: '$usr_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$frp_status', 'PENDING'] },
-                  {
-                    $eq: [
-                      type === 'received' ? '$frp_userId2' : '$frp_userId1',
-                      userId,
-                    ],
-                  },
-                  {
-                    $eq: [
-                      type === 'received' ? '$frp_userId1' : '$frp_userId2',
-                      '$$currentUserId',
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ],
-        as: 'friendship',
-      },
-    },
-    {
-      $addFields: {
-        friendship: { $arrayElemAt: ['$friendship', 0] },
-      },
-    },
     {
       $match: {
-        friendship: { $ne: null },
+        frp_status: 'PENDING',
+        ...matchCondition,
       },
     },
-  ];
-};
-
-export const searchUsersAggregate = (
-  search: string,
-  page: number,
-  limit: number,
-  userId: string,
-) => {
-  const matchSearch = search
-    ? {
-        $or: [
-          { usr_fullname: { $regex: search, $options: 'i' } },
-          { usr_email: { $regex: search, $options: 'i' } },
-          { usr_phone: { $regex: search, $options: 'i' } },
-        ],
-      }
-    : {};
-  return [
-    { $match: { ...matchSearch, usr_id: { $ne: userId } } },
     {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: userId, candidateId: '$usr_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [
-                  {
-                    $and: [
-                      { $eq: ['$frp_userId1', '$$currentUserId'] },
-                      { $eq: ['$frp_userId2', '$$candidateId'] },
-                    ],
-                  },
-                  {
-                    $and: [
-                      { $eq: ['$frp_userId2', '$$currentUserId'] },
-                      { $eq: ['$frp_userId1', '$$candidateId'] },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ],
-        as: 'friendship',
+      $project: {
+        _id: 1,
+        frp_id: 1,
+        frp_userId1: 1,
+        frp_userId2: 1,
+        frp_actionUserId: 1,
+        frp_status: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        otherId:
+          type === 'received' ? '$frp_userId1' : '$frp_userId2',
       },
     },
-    { $match: { friendship: { $eq: [] } } },
   ];
 };
 
+/**
+ * searchUsersAggregate has been removed.
+ * User search is now handled via gRPC auth.SearchUsers + local
+ * friendship status check in social.service.ts.
+ */
+
+/**
+ * Match BLOCKED friendships where `userId` is the action user (blocker).
+ * Returns friendship fields + computed `blockedUserId` (the blocked party).
+ */
 export const getBlockedFriendsAggregate = (userId: string) => {
   return [
     {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: userId },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$frp_status', 'BLOCKED'] },
-                  {
-                    $or: [
-                      { $eq: ['$frp_userId1', '$$currentUserId'] },
-                      { $eq: ['$frp_userId2', '$$currentUserId'] },
-                    ],
-                  },
-                  { $eq: ['$frp_actionUserId', '$$currentUserId'] }, // actionUserId là người dùng đã chặn
-                ],
-              },
-            },
-          },
-        ],
-        as: 'friendship',
-      },
-    },
-    {
-      $addFields: {
-        friendship: { $arrayElemAt: ['$friendship', 0] },
-      },
-    },
-    {
       $match: {
-        friendship: { $ne: null },
+        frp_status: 'BLOCKED',
+        $or: [
+          { frp_userId1: userId },
+          { frp_userId2: userId },
+        ],
+        frp_actionUserId: userId,
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        frp_id: 1,
+        frp_userId1: 1,
+        frp_userId2: 1,
+        frp_actionUserId: 1,
+        frp_status: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        blockedUserId: {
+          $cond: [
+            { $eq: ['$frp_userId1', userId] },
+            '$frp_userId2',
+            '$frp_userId1',
+          ],
+        },
       },
     },
   ];

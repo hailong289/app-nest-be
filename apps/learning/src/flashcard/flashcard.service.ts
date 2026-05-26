@@ -353,6 +353,17 @@ export class FlashcardService {
     }
   }
 
+  async getFlashcardsByIds(flashcardIds: string[]) {
+    try {
+      const flashcards = await this.flashcardModel
+        .find({ card_id: { $in: flashcardIds } })
+        .lean();
+      return Response.success(flashcards);
+    } catch (error) {
+      return Response.error(error.message, 400, 'Bad Request');
+    }
+  }
+
   async getFlashcardProgress(card_id: string, user_id: string) {
     try {
       const progress = await this.flashcardProgressModel.findOne({

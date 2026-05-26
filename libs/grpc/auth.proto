@@ -23,6 +23,9 @@ service AuthService {
   rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse);
   rpc GetUsersByIds(GetUsersByIdsRequest) returns (GetUsersByIdsResponse);
   rpc GetFcmTokensByUserId(GetFcmTokensByUserIdRequest) returns (GetFcmTokensByUserIdResponse);
+  // Batch hydration for social aggregates + contacts (database isolation)
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
 }
 
 // Geo location (best-effort, populated by api-gateway via geoip-lite).
@@ -366,4 +369,33 @@ message GetFcmTokensByUserIdResponse {
 
 message FcmTokens {
   repeated string tokens = 1;
+}
+
+// ── Batch hydration messages (social aggregates + contacts) ─────────
+
+message SearchUsersRequest {
+  string keyword       = 1;
+  int32  page          = 2;
+  int32  limit         = 3;
+  string excludeUserId = 4;
+}
+
+message ListUsersRequest {
+  int32  page          = 1;
+  int32  limit         = 2;
+  string excludeUserId = 3;
+}
+
+message SearchUsersResponse {
+  string          message          = 1;
+  int32           statusCode       = 2;
+  string          reasonStatusCode = 3;
+  repeated User   metadata         = 4;
+}
+
+message ListUsersResponse {
+  string          message          = 1;
+  int32           statusCode       = 2;
+  string          reasonStatusCode = 3;
+  repeated User   metadata         = 4;
 }

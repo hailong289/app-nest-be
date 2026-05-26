@@ -15,7 +15,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
@@ -1002,6 +1002,88 @@ export class AuthService implements OnModuleInit {
 
     const mappedUsers = users.map((user) => {
       const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+      return Utils.unprefix(userData, 'usr_');
+    });
+
+    return Response.success(mappedUsers, 'Lấy danh sách người dùng thành công');
+  }
+
+  /**
+   * Search users by keyword with pagination, excluding a specific user.
+   * Searches across fullname, email, and phone fields.
+   * Used by social aggregates and contacts for batch hydration.
+   */
+  async searchUsers(
+    keyword: string,
+    page: number = 1,
+    limit: number = 20,
+    excludeUserId?: string,
+  ) {
+    const skip = (page - 1) * limit;
+    const regex = new RegExp(Utils.escapeRegex(keyword), 'i');
+
+    const filter: any = {
+      $or: [
+        { usr_fullname: regex },
+        { usr_email: regex },
+        { usr_phone: regex },
+      ],
+    };
+
+    if (excludeUserId) {
+      const norConditions: any[] = [{ usr_id: excludeUserId }];
+      if (Types.ObjectId.isValid(excludeUserId)) {
+        norConditions.push({ _id: new Types.ObjectId(excludeUserId) });
+      }
+      filter.$nor = norConditions;
+    }
+
+    const users = await this.userModel
+      .find(filter)
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .exec();
+
+    const mappedUsers = users.map((user) => {
+      const userData = Utils.omit(user, ['usr_salt', '__v']);
+      return Utils.unprefix(userData, 'usr_');
+    });
+
+    return Response.success(mappedUsers, 'Tìm kiếm người dùng thành công');
+  }
+
+  /**
+   * List all users with pagination, excluding a specific user.
+   * Ordered by creation date (newest first).
+   * Used by social aggregates and contacts for batch hydration.
+   */
+  async listUsers(
+    page: number = 1,
+    limit: number = 20,
+    excludeUserId?: string,
+  ) {
+    const skip = (page - 1) * limit;
+
+    const filter: any = {};
+    if (excludeUserId) {
+      const norConditions: any[] = [{ usr_id: excludeUserId }];
+      if (Types.ObjectId.isValid(excludeUserId)) {
+        norConditions.push({ _id: new Types.ObjectId(excludeUserId) });
+      }
+      filter.$nor = norConditions;
+    }
+
+    const users = await this.userModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean()
+      .exec();
+
+    const mappedUsers = users.map((user) => {
+      const userData = Utils.omit(user, ['usr_salt', '__v']);
       return Utils.unprefix(userData, 'usr_');
     });
 

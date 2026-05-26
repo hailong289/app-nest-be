@@ -93,6 +93,11 @@ export class FlashcardController {
     return await this.flashcardService.deleteFlashcardDeckById(data.deck_id);
   }
 
+  @GrpcMethod('FlashcardService', 'GetFlashcardsByIds')
+  async getFlashcardsByIds(data: { flashcardIds: string[] }) {
+    return await this.flashcardService.getFlashcardsByIds(data.flashcardIds);
+  }
+
   // FlashcardProgress methods
   @GrpcMethod('FlashcardService', 'UpdateFlashcardProgress')
   async updateFlashcardProgress(

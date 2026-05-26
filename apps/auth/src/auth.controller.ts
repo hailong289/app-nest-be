@@ -190,6 +190,34 @@ export class AuthController {
     return await this.authService.getUsersByIds(data.userIds);
   }
 
+  @GrpcMethod('AuthService', 'SearchUsers')
+  async searchUsers(data: {
+    keyword: string;
+    page: number;
+    limit: number;
+    excludeUserId?: string;
+  }) {
+    return await this.authService.searchUsers(
+      data.keyword,
+      data.page || 1,
+      data.limit || 20,
+      data.excludeUserId,
+    );
+  }
+
+  @GrpcMethod('AuthService', 'ListUsers')
+  async listUsers(data: {
+    page: number;
+    limit: number;
+    excludeUserId?: string;
+  }) {
+    return await this.authService.listUsers(
+      data.page || 1,
+      data.limit || 20,
+      data.excludeUserId,
+    );
+  }
+
   @GrpcMethod('AuthService', 'GetFcmTokensByUserId')
   async getFcmTokensByUserId(data: { userId: string }) {
     return await this.authService.getFcmTokensByUserId(data.userId);

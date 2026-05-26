@@ -1,27 +1,40 @@
-import { KafkaEvent, SendFriendRequestDto } from '@app/dto';
+import { SendFriendRequestDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import friendshipModel, {
   Friendship,
 } from 'libs/db/src/mongo/model/friendship.model';
-import userModel, { User } from 'libs/db/src/mongo/model/user.model';
 import { Response } from 'libs/helpers/response';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 
 interface NotificationGrpcClient {
-  PushNotification(data: { userId: string; title: string; content: string; data?: any }): any;
+  PushNotification(data: {
+    userId: string;
+    title: string;
+    content: string;
+    data?: any;
+  }): any;
+}
+
+interface AuthGrpcClient {
+  GetUserById(data: { userId: string }): any;
+  GetUsersByIds(data: { userIds: string[] }): any;
+  SearchUsers(data: {
+    keyword: string;
+    page: number;
+    limit: number;
+    excludeUserId?: string;
+  }): any;
 }
 
 import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
-  getFriendsAggregate,
   getFriendsBaseAggregate,
   getFriendsRequestAggregate,
-  searchUsersAggregate,
   getBlockedFriendsAggregate,
 } from './aggregates/getFriends';
 import { getFriendSuggestionsAggregate } from './aggregates/getFriendSuggestions';
@@ -32,9 +45,9 @@ import { ClientKafka } from '@nestjs/microservices';
 @Injectable()
 export class SocialService {
   private notificationGrpcClient: NotificationGrpcClient;
+  private authGrpcClient: AuthGrpcClient;
 
   constructor(
-    @InjectModel(userModel.name) private readonly userModel: Model<User>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(roomModel.name) private readonly roomModel: Model<Room>,
@@ -43,26 +56,59 @@ export class SocialService {
     private readonly notificationClient: ClientKafka,
     @Inject('NOTIFICATION_GRPC')
     private readonly notificationGrpc: ClientGrpc,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
   ) {}
 
   onModuleInit() {
     this.notificationGrpcClient =
-      this.notificationGrpc.getService<NotificationGrpcClient>('NotificationService');
+      this.notificationGrpc.getService<NotificationGrpcClient>(
+        'NotificationService',
+      );
+    this.authGrpcClient =
+      this.authGrpc.getService<AuthGrpcClient>('AuthService');
   }
 
-  // creeate friendship
+  /**
+   * Database isolation: fetch user info via gRPC Auth service.
+   */
+  private async lookupUsersByIds(userIds: string[]): Promise<any[]> {
+    if (!userIds.length) return [];
+    try {
+      const result = await firstValueFrom(
+        this.authGrpcClient.GetUsersByIds({ userIds }),
+      );
+      const users = result?.metadata ?? [];
+      return users.map((u: any) => ({
+        _id: u._id,
+        usr_id: u.id ?? u._id,
+        usr_fullname: u.fullname ?? '',
+        usr_avatar: u.avatar ?? '',
+        usr_email: u.email ?? '',
+        usr_phone: u.phone ?? '',
+        usr_slug: u.slug ?? '',
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  private async lookupUserById(userId: string): Promise<any | null> {
+    const users = await this.lookupUsersByIds([userId]);
+    return users[0] || null;
+  }
+
+  // create friendship
 
   // Friend requests
   async sendFriendRequest(data: SendFriendRequestDto) {
-    const user = await this.userModel.findOne({
-      _id: new Types.ObjectId(data.frpUserId1),
-    });
+    const user = await this.lookupUserById(data.frpUserId1);
 
     if (!user) {
       return Response.error('Người dùng không tồn tại', 400);
     }
 
-    const receiver = await this.userModel.findOne({ usr_id: data.frpUserId2 }); // id tự động tạo bởi system
+    const receiver = await this.lookupUserById(data.frpUserId2);
     if (!receiver) {
       return Response.error('Người nhận không tồn tại', 400);
     }
@@ -81,13 +127,6 @@ export class SocialService {
       return Response.error('Bạn đã gửi lời mời kết bạn cho người này', 400);
     }
 
-    // const friendship = await this.friendshipModel.create({
-    //   frp_userId1: user.usr_id,
-    //   frp_userId2: receiver.usr_id,
-    //   frp_actionUserId: user.usr_id,
-    //   frp_status: 'PENDING',
-    //   frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
-    // });
     const friendship = await this.friendshipModel.findOneAndUpdate(
       {
         frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
@@ -103,13 +142,13 @@ export class SocialService {
         upsert: true,
       },
     );
-    // gửi notification cho người nhận qua gRPC Notification service
+    // gui notification cho nguoi nhan qua gRPC Notification service
     try {
       await firstValueFrom(
         this.notificationGrpcClient.PushNotification({
           userId: receiver.usr_id,
-          title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
-          content: 'Bạn có một lời mời kết bạn mới',
+          title: `${user.usr_fullname} da gui loi moi ket ban`,
+          content: 'Ban co mot loi moi ket ban moi',
           data: {
             userId: receiver.usr_id,
             senderId: user.usr_id,
@@ -117,12 +156,12 @@ export class SocialService {
             senderAvatar: user.usr_avatar,
             push_type: 'friend_request',
           },
-        },
+        }),
       );
     } catch (error) {
       console.error('Error sending push notification:', error);
     }
-    return Response.success(friendship, 'Gửi lời mời kết bạn thành công');
+    return Response.success(friendship, 'Gui loi moi ket ban thanh cong');
   }
 
   async getFriendRequests(
@@ -131,35 +170,60 @@ export class SocialService {
     limit: number,
     type: string,
   ) {
-    const friendRequests = await this.userModel.aggregate([
-      ...getFriendsRequestAggregate(userId, type),
-      { $sort: { createdAt: -1 } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
-    ]);
+    // 1. Aggregate: get PENDING friendships involving userId
+    const friendships = await this.friendshipModel.aggregate(
+      getFriendsRequestAggregate(userId, type),
+    );
+    const total = friendships.length;
 
-    const total: { total: number }[] = await this.userModel.aggregate([
-      ...getFriendsRequestAggregate(userId, type),
-      { $count: 'total' },
-    ]);
+    // 2. Collect "other" user IDs (the person who sent/received the request)
+    const otherIds = friendships.map((f) => f.otherId);
 
-    const data = friendRequests.map((request: Record<string, any>) => {
+    // 3. Hydrate via gRPC
+    const users = await this.lookupUsersByIds(otherIds);
+    const userMap = new Map(users.map((u) => [u.usr_id, u]));
+
+    // 4. Build response (Friend shape without search — no in-memory filtering)
+    //    Paginate in-memory
+    const start = (page - 1) * limit;
+    const pagedFriendships = friendships.slice(start, start + limit);
+
+    const data = pagedFriendships.map((f: Record<string, any>) => {
+      const user = userMap.get(f.otherId);
       return {
-        ...Utils.unprefix(request, 'usr_'),
-        friendship: Utils.unprefix(request.friendship, 'frp_'),
+        _id: user?._id ?? '',
+        id: f.otherId,
+        fullname: user?.usr_fullname ?? '',
+        email: user?.usr_email ?? '',
+        phone: user?.usr_phone ?? '',
+        gender: user?.usr_gender ?? '',
+        dateOfBirth: user?.usr_dateOfBirth ?? '',
+        avatar: user?.usr_avatar ?? '',
+        status: user?.usr_status ?? '',
+        createdAt: f.createdAt?.toISOString?.() ?? '',
+        updatedAt: f.updatedAt?.toISOString?.() ?? '',
+        friendship: {
+          _id: f._id.toString(),
+          frpId: f.frp_id,
+          userId1: f.frp_userId1,
+          userId2: f.frp_userId2,
+          actionUserId: f.frp_actionUserId,
+          status: f.frp_status,
+          createdAt: f.createdAt?.toISOString?.() ?? '',
+          updatedAt: f.updatedAt?.toISOString?.() ?? '',
+        },
       };
     });
-    console.log('🚀 ~ SocialService ~ data:', data);
 
     return Response.success(
       {
         friendRequests: data,
-        total: total[0]?.total || 0,
-        totalPage: Math.ceil(total[0]?.total || 0 / limit),
-        page: page,
-        limit: limit,
+        total,
+        totalPage: Math.ceil(total / limit),
+        page,
+        limit,
       },
-      'Lấy danh sách lời mời kết bạn thành công',
+      'Lay danh sach loi moi ket ban thanh cong',
     );
   }
 
@@ -170,13 +234,13 @@ export class SocialService {
     usr_id: string;
     senderId: string;
   }) {
-    const user1 = await this.userModel.findOne({ usr_id: usr_id });
-    const user2 = await this.userModel.findOne({ usr_id: senderId });
+    const user1 = await this.lookupUserById(usr_id);
+    const user2 = await this.lookupUserById(senderId);
     if (!user1) {
-      return Response.error('Người dùng gửi không tồn tại', 400);
+      return Response.error('Nguoi dung gui khong ton tai', 400);
     }
     if (!user2) {
-      return Response.error('Người dùng nhận không tồn tại', 400);
+      return Response.error('Nguoi dung nhan khong ton tai', 400);
     }
     const friendship = await this.friendshipModel.findOne({
       frp_id: Utils.pairRoomId(usr_id, senderId),
@@ -184,19 +248,19 @@ export class SocialService {
       frp_status: 'PENDING',
     });
     if (!friendship) {
-      return Response.error('Lời mời kết bạn không tồn tại', 400);
+      return Response.error('Loi moi ket ban khong ton tai', 400);
     }
     await friendship.updateOne({
       frp_status: 'ACCEPTED',
       frp_actionUserId: usr_id,
     });
-    // gửi notification cho người gửi qua gRPC Notification service
+    // gui notification cho nguoi gui qua gRPC Notification service
     try {
       await firstValueFrom(
         this.notificationGrpcClient.PushNotification({
           userId: user2.usr_id,
-          title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
-          content: 'Bạn đã được kết bạn với người dùng',
+          title: `${user1.usr_fullname} da chap nhan loi moi ket ban`,
+          content: 'Ban da duoc ket ban voi nguoi dung',
           data: {
             userId: user1._id,
             senderId: user2._id,
@@ -222,11 +286,11 @@ export class SocialService {
       acceptedAt: new Date(),
       room: null,
     };
-    // tạo phòng chat
+    // tao phong chat
     const payload = {
       userId: user1._id.toString(),
-      name: `Phòng chat ${Utils.pairRoomId(user1.usr_id, user2.usr_id)}`,
-      avatar: '', // Add missing avatar property
+      name: `Phong chat ${Utils.pairRoomId(user1.usr_id, user2.usr_id)}`,
+      avatar: '',
       type: 'private',
       memberIds: [user2.usr_id],
     } as CreateRoomDto;
@@ -250,19 +314,19 @@ export class SocialService {
         result.room = room.metadata;
       }
     } catch (error) {
-      console.error('🔥 Error creating room:', error);
-      // rollback lời mời kết bạn
+      console.error('Error creating room:', error);
+      // rollback loi moi ket ban
       await friendship.updateOne({
         frp_status: 'PENDING',
         frp_actionUserId: senderId,
       });
       return Response.error(
-        'Có lỗi xảy ra khi kết bạn',
+        'Co loi xay ra khi ket ban',
         400,
         'ERROR_CREATE_ROOM',
       );
     }
-    return Response.success(result, 'Chấp nhận lời mời kết bạn thành công');
+    return Response.success(result, 'Chap nhan loi moi ket ban thanh cong');
   }
 
   async rejectFriendRequest({
@@ -272,36 +336,32 @@ export class SocialService {
     usr_id: string;
     senderId: string;
   }) {
-    console.log(
-      '🚀 ~ SocialService ~ rejectFriendRequest ~ senderId:',
-      senderId,
-    );
-    const user1 = await this.userModel.findOne({ usr_id: usr_id });
-    const user2 = await this.userModel.findOne({ usr_id: senderId });
+    const user1 = await this.lookupUserById(usr_id);
+    const user2 = await this.lookupUserById(senderId);
     if (!user1) {
-      return Response.error('Người dùng gửi không tồn tại1', 400);
+      return Response.error('Nguoi dung gui khong ton tai1', 400);
     }
     if (!user2) {
-      return Response.error('Người dùng nhận không tồn tại2', 400);
+      return Response.error('Nguoi dung nhan khong ton tai2', 400);
     }
     const friendship = await this.friendshipModel.findOne({
       frp_id: Utils.pairRoomId(usr_id, senderId),
       frp_status: 'PENDING',
     });
     if (!friendship) {
-      return Response.error('Lời mời kết bạn không tồn tại', 400);
+      return Response.error('Loi moi ket ban khong ton tai', 400);
     }
     await friendship.updateOne({
       frp_status: 'REJECTED',
       frp_actionUserId: usr_id,
     });
-    // gửi notification cho người gửi qua gRPC Notification service
+    // gui notification cho nguoi gui qua gRPC Notification service
     try {
       const response = await firstValueFrom(
         this.notificationGrpcClient.PushNotification({
           userId: user2.usr_id,
-          title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
-          content: 'Bạn đã bị từ chối kết bạn với người dùng',
+          title: `${user1.usr_fullname} da tu choi loi moi ket ban`,
+          content: 'Ban da bi tu choi ket ban voi nguoi dung',
           data: {
             userId: user1._id,
             senderId: user1._id,
@@ -312,9 +372,9 @@ export class SocialService {
         }),
       );
       if (response.statusCode !== 200) {
-        console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
+        console.error('Co loi xay ra khi gui notification:', response);
       } else {
-        console.log('🔥 Gửi notification thành công:', response);
+        console.log('Gui notification thanh cong:', response);
       }
     } catch (error) {
       console.error('Error sending push notification:', error);
@@ -326,7 +386,7 @@ export class SocialService {
         friendshipId: 'friend_' + Date.now(),
         rejectedAt: new Date(),
       },
-      'Từ chối lời mời kết bạn thành công',
+      'Tu choi loi moi ket ban thanh cong',
     );
   }
 
@@ -343,32 +403,50 @@ export class SocialService {
     if (!userId) {
       return Response.success({ suggestions: [], total: 0 }, 'Empty');
     }
-    type SuggestionRow = {
-      _id: string;
-      id: string;
-      fullname: string;
-      avatar: string;
-      email: string;
-      mutualFriendsCount: number;
-      mutualSamples: string[];
-    };
-    const suggestions: SuggestionRow[] = await this.userModel.aggregate(
+
+    // 1. Aggregate: get candidate IDs from Friendships (intra-DB only)
+    const candidates = await this.friendshipModel.aggregate(
       getFriendSuggestionsAggregate(userId, limit),
     );
+
+    if (!candidates.length) {
+      return Response.success({ suggestions: [], total: 0 }, 'No suggestions');
+    }
+
+    // 2. Hydrate candidate user info via gRPC
+    const candidateIds = candidates.map((c) => c._id);
+    const users = await this.lookupUsersByIds(candidateIds);
+    const userMap = new Map(users.map((u) => [u.usr_id, u]));
+
+    // 3. Hydrate mutualVia user names (up to 3 per candidate)
+    const viaIds = [
+      ...new Set(candidates.flatMap((c) => c.mutualVia || [])),
+    ];
+    const viaUsers = await this.lookupUsersByIds(viaIds);
+    const viaNameMap = new Map(viaUsers.map((u) => [u.usr_id, u.usr_fullname]));
+
+    // 4. Build suggestions matching FriendSuggestion proto
+    const suggestions = candidates.map((c) => {
+      const user = userMap.get(c._id);
+      return {
+        _id: user?._id ?? '',
+        id: user?.usr_id ?? c._id,
+        fullname: user?.usr_fullname ?? '',
+        avatar: user?.usr_avatar ?? '',
+        email: user?.usr_email ?? '',
+        mutualFriendsCount: c.mutualFriendsCount ?? 0,
+        mutualSamples: (c.mutualVia || []).map(
+          (v: string) => viaNameMap.get(v) || '',
+        ),
+      };
+    });
+
     return Response.success(
       {
-        suggestions: suggestions.map((s) => ({
-          _id: s._id ?? '',
-          id: s.id ?? '',
-          fullname: s.fullname ?? '',
-          avatar: s.avatar ?? '',
-          email: s.email ?? '',
-          mutualFriendsCount: s.mutualFriendsCount ?? 0,
-          mutualSamples: Array.isArray(s.mutualSamples) ? s.mutualSamples : [],
-        })),
+        suggestions,
         total: suggestions.length,
       },
-      'Lấy gợi ý kết bạn thành công',
+      'Lay goi y ket ban thanh cong',
     );
   }
 
@@ -378,33 +456,68 @@ export class SocialService {
     limit: number,
     search: string,
   ) {
-    const friends = await this.userModel.aggregate(
-      getFriendsAggregate(userId, page, limit, search),
+    // 1. Aggregate: get all accepted friendships (intra-DB only)
+    const friendships = await this.friendshipModel.aggregate(
+      getFriendsBaseAggregate(userId),
     );
 
-    const sumTotal: { total: number }[] = await this.userModel.aggregate([
-      ...getFriendsBaseAggregate(userId, search),
-      {
-        $count: 'total',
-      },
-    ]);
+    // 2. Extract friend IDs and hydrate via gRPC
+    const friendIds = friendships.map((f) => f.friendId);
+    const users = await this.lookupUsersByIds(friendIds);
+    const userMap = new Map(users.map((u) => [u.usr_id, u]));
 
-    const data = (friends || []).map((friend: Record<string, any>) => {
+    // 3. Build friend records matching Friend proto shape
+    let data = friendships.map((f: Record<string, any>) => {
+      const user = userMap.get(f.friendId);
       return {
-        ...Utils.unprefix(friend, 'usr_'),
-        friendship: Utils.unprefix(friend.friendship, 'frp_'),
+        _id: user?._id ?? '',
+        id: f.friendId,
+        fullname: user?.usr_fullname ?? '',
+        email: user?.usr_email ?? '',
+        phone: user?.usr_phone ?? '',
+        gender: user?.usr_gender ?? '',
+        dateOfBirth: user?.usr_dateOfBirth ?? '',
+        avatar: user?.usr_avatar ?? '',
+        status: user?.usr_status ?? '',
+        createdAt: f.createdAt?.toISOString?.() ?? '',
+        updatedAt: f.updatedAt?.toISOString?.() ?? '',
+        friendship: {
+          _id: f._id.toString(),
+          frpId: f.frp_id,
+          userId1: f.frp_userId1,
+          userId2: f.frp_userId2,
+          actionUserId: f.frp_actionUserId,
+          status: f.frp_status,
+          createdAt: f.createdAt?.toISOString?.() ?? '',
+          updatedAt: f.updatedAt?.toISOString?.() ?? '',
+        },
       };
     });
 
+    // 4. Apply search filter in-memory (user data now lives in auth DB)
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      data = data.filter(
+        (f) =>
+          f.fullname?.toLowerCase().includes(lowerSearch) ||
+          f.email?.toLowerCase().includes(lowerSearch) ||
+          f.phone?.toLowerCase().includes(lowerSearch),
+      );
+    }
+
+    // 5. Paginate in-memory
+    const total = data.length;
+    const pagedData = data.slice((page - 1) * limit, page * limit);
+
     return Response.success(
       {
-        friends: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
-        total: sumTotal[0]?.total || 0,
-        totalPage: Math.ceil((sumTotal[0]?.total || 0) / limit),
-        page: page,
-        limit: limit,
+        friends: pagedData,
+        total,
+        totalPage: Math.ceil(total / limit),
+        page,
+        limit,
       },
-      'Lấy danh sách bạn bè thành công',
+      'Lay danh sach ban be thanh cong',
     );
   }
 
@@ -414,49 +527,78 @@ export class SocialService {
     limit: number,
     userId: string,
   ) {
-    const users = await this.userModel.aggregate([
-      ...searchUsersAggregate(search, page, limit, userId),
-      { $sort: { createdAt: -1 } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
-      {
-        $project: {
-          usr_id: 1,
-          usr_fullname: 1,
-          usr_email: 1,
-          usr_phone: 1,
-          usr_gender: 1,
-          usr_dateOfBirth: 1,
-          usr_avatar: 1,
-          usr_status: 1,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      },
-    ]);
+    // 1. Search users via gRPC Auth service (replaces cross-DB aggregate)
+    const result = await firstValueFrom(
+      this.authGrpcClient.SearchUsers({
+        keyword: search,
+        page,
+        limit,
+        excludeUserId: userId,
+      }),
+    );
 
-    const totalAgg: { total: number }[] = await this.userModel.aggregate([
-      ...searchUsersAggregate(search, page, limit, userId),
-      { $count: 'total' },
-    ]);
+    const users: any[] = result?.metadata ?? [];
 
-    const data = users.map((user) => Utils.unprefix(user, 'usr_'));
+    // 2. Check friendship status with each user
+    const candidateIds = users.map((u: any) => u.id ?? u._id);
+    const friendships = await this.friendshipModel.find({
+      $or: [
+        { frp_userId1: userId, frp_userId2: { $in: candidateIds } },
+        { frp_userId2: userId, frp_userId1: { $in: candidateIds } },
+      ],
+    });
+    const friendshipMap = new Map<string, Record<string, any>>();
+    for (const f of friendships) {
+      const otherId =
+        f.frp_userId1 === userId ? f.frp_userId2 : f.frp_userId1;
+      friendshipMap.set(otherId, f.toObject());
+    }
+
+    // 3. Filter out users with any existing relationship (matches old behavior:
+    //    friends, pending, blocked, rejected are all excluded from search).
+    const existingRelationUserIds = new Set<string>();
+    for (const f of friendships) {
+      const otherId =
+        f.frp_userId1 === userId ? f.frp_userId2 : f.frp_userId1;
+      existingRelationUserIds.add(otherId);
+    }
+
+    // 4. Build response: only users without existing relationships
+    const data = users
+      .filter((u: any) => {
+        const uid = u.id ?? u._id;
+        return !existingRelationUserIds.has(uid);
+      })
+      .map((u: any) => ({
+        _id: u._id ?? '',
+        id: u.id ?? '',
+        fullname: u.fullname ?? '',
+        email: u.email ?? '',
+        phone: u.phone ?? '',
+        gender: u.gender ?? '',
+        dateOfBirth: u.dateOfBirth ?? '',
+        avatar: u.avatar ?? '',
+        status: u.status ?? '',
+        createdAt: u.createdAt ?? '',
+        updatedAt: u.updatedAt ?? '',
+      }));
+
     return Response.success(
       {
         users: data,
-        total: totalAgg[0]?.total || 0,
-        totalPage: Math.ceil(totalAgg[0]?.total || 0 / limit),
-        page: page,
-        limit: limit,
+        total: data.length,
+        totalPage: Math.ceil(data.length / limit),
+        page,
+        limit,
       },
-      'Danh sách người dùng được tìm kiếm',
+      'Danh sach nguoi dung duoc tim kiem',
     );
   }
 
   async removeFriend(friendId: string, actionUserId: string) {
-    const friend = await this.userModel.findOne({ usr_id: friendId });
+    const friend = await this.lookupUserById(friendId);
     if (!friend) {
-      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+      return Response.error('Nguoi dung khong ton tai', 400, 'USER_NOT_FOUND');
     }
     const friendship = await this.friendshipModel.findOne({
       $or: [
@@ -467,7 +609,7 @@ export class SocialService {
     });
     if (!friendship) {
       return Response.error(
-        'Bạn đã xóa kết bạn với người dùng này',
+        'Ban da xoa ket ban voi nguoi dung nay',
         400,
         'DATA_NOT_FOUND',
       );
@@ -475,17 +617,17 @@ export class SocialService {
     await friendship.deleteOne();
     const pairRoomId1 = Utils.pairRoomId(friend.usr_id, actionUserId);
     const pairRoomId2 = Utils.pairRoomId(actionUserId, friend.usr_id);
-    // xóa phòng chat
+    // xoa phong chat
     await this.roomModel.deleteOne({
       $or: [{ room_id: pairRoomId1 }, { room_id: pairRoomId2 }],
     });
-    return Response.success(friendship, 'Xóa bạn thành công');
+    return Response.success(friendship, 'Xoa ban thanh cong');
   }
 
   async blockFriend(friendId: string, actionUserId: string) {
-    const friend = await this.userModel.findOne({ usr_id: friendId });
+    const friend = await this.lookupUserById(friendId);
     if (!friend) {
-      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+      return Response.error('Nguoi dung khong ton tai', 400, 'USER_NOT_FOUND');
     }
     const friendship = await this.friendshipModel.findOneAndUpdate(
       {
@@ -505,18 +647,18 @@ export class SocialService {
     );
     if (!friendship) {
       return Response.error(
-        'Bạn đã chặn người dùng này',
+        'Ban da chan nguoi dung nay',
         400,
         'DATA_NOT_FOUND',
       );
     }
-    return Response.success(friendship, 'Chặn bạn thành công');
+    return Response.success(friendship, 'Chan ban thanh cong');
   }
 
   async openBlockedFriend(friendId: string, actionUserId: string) {
-    const friend = await this.userModel.findOne({ usr_id: friendId });
+    const friend = await this.lookupUserById(friendId);
     if (!friend) {
-      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+      return Response.error('Nguoi dung khong ton tai', 400, 'USER_NOT_FOUND');
     }
     const friendship = await this.friendshipModel.findOneAndDelete({
       $or: [
@@ -527,10 +669,10 @@ export class SocialService {
       frp_actionUserId: actionUserId,
     });
     if (!friendship) {
-      return Response.error('Bạn đã mở chặn bạn bè này', 400, 'DATA_NOT_FOUND');
+      return Response.error('Ban da mo chan ban be nay', 400, 'DATA_NOT_FOUND');
     }
 
-    return Response.success(friendship, 'Mở chặn thành công');
+    return Response.success(friendship, 'Mo chan thanh cong');
   }
 
   async getBlockedFriends(
@@ -539,54 +681,90 @@ export class SocialService {
     limit: number = 10,
     search: string = '',
   ) {
-    const searchMatch = search
-      ? {
-          $or: [
-            { usr_fullname: { $regex: search, $options: 'i' } },
-            { usr_email: { $regex: search, $options: 'i' } },
-            { usr_phone: { $regex: search, $options: 'i' } },
-          ],
-        }
-      : {};
-    const blockedFriends = await this.userModel.aggregate([
-      ...getBlockedFriendsAggregate(userId),
-      { $sort: { createdAt: -1 } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
-      { $match: searchMatch },
-    ]);
+    // 1. Aggregate: get blocked friendships (intra-DB only)
+    const friendships = await this.friendshipModel.aggregate(
+      getBlockedFriendsAggregate(userId),
+    );
 
-    const totalAgg: { total: number }[] = await this.userModel.aggregate([
-      ...getBlockedFriendsAggregate(userId),
-      { $count: 'total' },
-    ]);
-    const data = blockedFriends.map((friend: Record<string, any>) => {
+    // 2. Extract blocked user IDs and hydrate via gRPC
+    const blockedUserIds = friendships.map((f) => f.blockedUserId);
+    const users = await this.lookupUsersByIds(blockedUserIds);
+    const userMap = new Map(users.map((u) => [u.usr_id, u]));
+
+    // 3. Build blocked user records
+    let data = friendships.map((f: Record<string, any>) => {
+      const user = userMap.get(f.blockedUserId);
       return {
-        ...Utils.unprefix(friend, 'usr_'),
-        friendship: Utils.unprefix(friend.friendship, 'frp_'),
+        _id: user?._id ?? '',
+        id: f.blockedUserId,
+        fullname: user?.usr_fullname ?? '',
+        email: user?.usr_email ?? '',
+        phone: user?.usr_phone ?? '',
+        gender: user?.usr_gender ?? '',
+        dateOfBirth: user?.usr_dateOfBirth ?? '',
+        avatar: user?.usr_avatar ?? '',
+        status: user?.usr_status ?? '',
+        createdAt: f.createdAt?.toISOString?.() ?? '',
+        updatedAt: f.updatedAt?.toISOString?.() ?? '',
+        friendship: {
+          _id: f._id.toString(),
+          frpId: f.frp_id,
+          userId1: f.frp_userId1,
+          userId2: f.frp_userId2,
+          actionUserId: f.frp_actionUserId,
+          status: f.frp_status,
+          createdAt: f.createdAt?.toISOString?.() ?? '',
+          updatedAt: f.updatedAt?.toISOString?.() ?? '',
+        },
       };
     });
 
+    // 4. Apply search filter in-memory
+    if (search) {
+      const lowerSearch = search.toLowerCase();
+      data = data.filter(
+        (f) =>
+          f.fullname?.toLowerCase().includes(lowerSearch) ||
+          f.email?.toLowerCase().includes(lowerSearch) ||
+          f.phone?.toLowerCase().includes(lowerSearch),
+      );
+    }
+
+    // 5. Paginate in-memory
+    const total = data.length;
+    const pagedData = data.slice((page - 1) * limit, page * limit);
+
     return Response.success(
       {
-        blockedUsers: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
-        total: totalAgg[0]?.total || 0,
-        totalPage: Math.ceil((totalAgg[0]?.total || 0) / limit),
-        page: page,
-        limit: limit,
+        blockedUsers: pagedData,
+        total,
+        totalPage: Math.ceil(total / limit),
+        page,
+        limit,
       },
-      'Lấy danh sách người dùng đã chặn thành công',
+      'Lay danh sach nguoi dung da chan thanh cong',
     );
   }
 
   async getFriendByUserId(userId: string) {
-    const friend = await this.userModel.findOne({ usr_id: userId });
+    const friend = await this.lookupUserById(userId);
     if (!friend) {
-      return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
+      return Response.error('Nguoi dung khong ton tai', 400, 'USER_NOT_FOUND');
     }
     return Response.success(
-      Utils.unprefix(friend, 'usr_'),
-      'Lấy thông tin bạn thành công',
+      {
+        _id: friend._id ?? '',
+        id: friend.usr_id ?? '',
+        fullname: friend.usr_fullname ?? '',
+        email: friend.usr_email ?? '',
+        phone: friend.usr_phone ?? '',
+        gender: friend.usr_gender ?? '',
+        dateOfBirth: friend.usr_dateOfBirth ?? '',
+        avatar: friend.usr_avatar ?? '',
+        status: friend.usr_status ?? '',
+        slug: friend.usr_slug ?? '',
+      },
+      'Lay thong tin ban thanh cong',
     );
   }
 }
@@ -599,6 +777,5 @@ interface ChatGatewayResponse<T = any> {
     msgId: string;
     members: Array<Record<string, any>>;
     roomId: string;
-    // Có thể bổ sung các trường khác nếu cần
   };
 }

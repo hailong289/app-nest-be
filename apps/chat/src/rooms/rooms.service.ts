@@ -1,3 +1,5 @@
+import { Inject } from '@nestjs/common';
+import { ClientGrpc } from '@nestjs/microservices';
 import {
   ChangeNickNameMemberDto,
   ChangeRoleMemberDto,
@@ -34,31 +36,42 @@ import {
   Message,
   Room,
   RoomEvent,
-  User,
   EventRoomType,
   RoomsUsersState,
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import { buildMessageDetailPipeline } from '../handle-chat/Pipeline/getMsg';
+import { SERVICES } from '@app/constants';
+import { firstValueFrom } from 'rxjs';
+
+interface AuthGrpcClient {
+  GetUserById(data: { userId: string }): any;
+  GetUsersByIds(data: { userIds: string[] }): any;
+}
 
 @Injectable()
 export class RoomsService {
   private readonly utils = Utils;
   private readonly key = REDISKEY;
   private readonly log = new Logger();
+  private authGrpcClient: AuthGrpcClient;
+
   constructor(
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(RoomEvent.name) private readonly roomEvent: Model<RoomEvent>,
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
     private readonly redis: RedisService,
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
     private readonly emitter: RemoteSocketEmitter,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
   ) {}
 
   async onModuleInit() {
+    this.authGrpcClient =
+      this.authGrpc.getService<AuthGrpcClient>('AuthService');
     await this.syncAllUserRoomsToRedis();
   }
 
@@ -225,83 +238,14 @@ export class RoomsService {
     });
   }
 
-  private handlePipeline(userId: string): PipelineStage[] {
+  private handlePipeline(userId: string, usrId: string): PipelineStage[] {
     const uid = this.utils.convertToObjectIdMongoose(userId);
 
     const pipeline: PipelineStage[] = [
       /** 1) Chỉ các phòng mà tôi là member */
-      { $match: { 'room_members.user_id': uid } },
-      /** 1.1) Lấy usr_id của user hiện tại */
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'room_members.user_id', // nhưng lọc đúng user hiện tại
-          foreignField: '_id',
-          pipeline: [
-            { $match: { _id: uid } },
-            { $project: { _id: 1, usr_id: 1 } },
-          ],
-          as: 'currentUserInfo',
-        },
-      },
-      { $set: { currentUserInfo: { $first: '$currentUserInfo' } } },
-
-      /** 2) Map info user vào room_members (1 lookup) */
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'room_members.user_id',
-          foreignField: '_id',
-          pipeline: [{ $project: { _id: 1, usr_fullname: 1, usr_avatar: 1 } }],
-          as: 'membersInfo',
-        },
-      },
-      {
-        $addFields: {
-          members: {
-            $map: {
-              input: '$room_members',
-              as: 'm',
-              in: {
-                $let: {
-                  vars: {
-                    u: {
-                      $first: {
-                        $filter: {
-                          input: '$membersInfo',
-                          as: 'u',
-                          cond: { $eq: ['$$u._id', '$$m.user_id'] },
-                        },
-                      },
-                    },
-                  },
-                  in: {
-                    $mergeObjects: [
-                      '$$m', // giữ nguyên toàn bộ dữ liệu gốc của member
-                      {
-                        avatar: '$$u.usr_avatar', // chỉ cập nhật/ghi đè field avatar
-                        name: {
-                          $cond: [
-                            {
-                              $or: [
-                                { $not: ['$$m.name'] },
-                                { $eq: ['$$m.name', ''] },
-                              ],
-                            },
-                            '$$u.usr_fullname',
-                            '$$m.name',
-                          ],
-                        },
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      { $unset: 'membersInfo' },
+      // NOTE (database isolation): $lookup → Users stages removed.
+      // `currentUserInfo`, `members` (avatar/name), and `last_message_sender`
+      // are hydrated post-aggregate via batch gRPC `GetUsersByIds` in callers.
 
       /** 3) RoomsState (theo ObjectId) */
       {
@@ -415,25 +359,9 @@ export class RoomsService {
         },
       },
       { $set: { last_message_doc: { $first: '$last_message_doc' } } },
-      {
-        $lookup: {
-          from: 'Users',
-          let: {
-            sid: {
-              $ifNull: [
-                '$state.last_message_snapshot.sender_id',
-                '$last_message_doc.msg_sender',
-              ],
-            },
-          },
-          pipeline: [
-            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
-            { $project: { _id: 1, usr_id: 1, usr_fullname: 1, usr_avatar: 1 } },
-          ],
-          as: 'last_message_sender',
-        },
-      },
-      { $set: { last_message_sender: { $first: '$last_message_sender' } } },
+      // NOTE: $lookup -> Users for last_message_sender removed (database isolation).
+      // The sender info is hydrated post-aggregate if needed.
+      { $set: { last_message_sender: null } },
 
       /** 5) RoomsUsersState của tôi */
       {
@@ -620,7 +548,7 @@ export class RoomsService {
           unread_count_calc: { $ifNull: [{ $first: '$unread.cnt' }, 0] },
         },
       },
-      { $unset: ['unread', '_baseTs', '_lastMsgTs', '_lastMsgSender'] },
+      { $unset: ['unread', '_baseTs', '_lastMsgTs'] },
 
       /** 10) Avatar & tên hiển thị (private fallback) */
       {
@@ -808,11 +736,14 @@ export class RoomsService {
           },
         },
       },
+      /** Add current user's usr_id via $literal (database isolation — no Users collection) */
+      { $addFields: { _myUsrId: { $literal: usrId } } },
+
       /** Friendship state cho private room (block) */
       {
         $lookup: {
           from: 'Friendships',
-          let: { rid: '$room_id', myUsrId: '$currentUserInfo.usr_id' },
+          let: { rid: '$room_id', myUsrId: '$_myUsrId' },
           pipeline: [
             {
               $match: {
@@ -871,7 +802,7 @@ export class RoomsService {
                   {
                     $eq: [
                       '$friendship.frp_actionUserId',
-                      '$currentUserInfo.usr_id',
+                      '$_myUsrId',
                     ],
                   },
                 ],
@@ -935,12 +866,12 @@ export class RoomsService {
                   ],
                 },
                 sender: {
-                  _id: '$last_message_sender._id',
-                  id: '$last_message_sender.usr_id',
-                  name: '$last_message_sender.usr_fullname',
-                  avatar: '$last_message_sender.usr_avatar',
+                  _id: null,
+                  id: null,
+                  name: null,
+                  avatar: null,
                 },
-                isMine: { $eq: ['$last_message_sender._id', uid] },
+                isMine: { $eq: ['$_lastMsgSender', uid] },
               },
               {
                 id: null,
@@ -971,6 +902,7 @@ export class RoomsService {
           pinned_count: 1,
           isBlocked: 1,
           blockByMine: 1,
+          _lastMsgSender: 1,
           roomEvents: 1,
         },
       },
@@ -979,20 +911,106 @@ export class RoomsService {
     return pipeline;
   }
 
-  public async getUserInfo(userId: string) {
-    const user = await this.userModel
-      .findOne({
-        _id: this.utils.convertToObjectIdMongoose(userId),
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_fullname: 1,
-        usr_id: 1,
-      })
-      .exec();
+  /**
+   * Database isolation helper: fetch user info via gRPC Auth service.
+   * Maps gRPC User (unprefixed) fields to Mongoose-style fields.
+   */
+  private async lookupUsersByIds(userIds: string[]): Promise<any[]> {
+    if (!userIds.length) return [];
+    try {
+      const result = await firstValueFrom(
+        this.authGrpcClient.GetUsersByIds({ userIds }),
+      );
+      const users = result?.metadata ?? [];
+      return users.map((u: any) => ({
+        _id: u._id,
+        usr_id: u.id ?? u._id,
+        usr_fullname: u.fullname ?? '',
+        usr_avatar: u.avatar ?? '',
+      }));
+    } catch {
+      return [];
+    }
+  }
 
-    return user;
+  private async lookupUserById(userId: string): Promise<any | null> {
+    const users = await this.lookupUsersByIds([userId]);
+    return users[0] || null;
+  }
+
+  /**
+   * Post-aggregate hydration: batch-fill user info (sender, members) via gRPC
+   * after the pipeline runs (replaces old $lookup → Users).
+   */
+  private async hydrateRooms(rooms: any[]): Promise<any[]> {
+    if (!rooms.length) return rooms;
+
+    const userIds = new Set<string>();
+
+    for (const room of rooms) {
+      // Collect sender IDs from _lastMsgSender (kept in final projection)
+      const senderId = room._lastMsgSender
+        ?? room.last_message_doc?.msg_sender
+        ?? room.state?.last_message_snapshot?.sender_id;
+      if (senderId) userIds.add(String(senderId));
+
+      // Collect member user IDs
+      room.members?.forEach((m: any) => {
+        if (m.user_id) userIds.add(String(m.user_id));
+      });
+    }
+
+    const users = await this.lookupUsersByIds([...userIds]);
+    const userMap = new Map(users.map((u) => [String(u._id), u]));
+
+    return rooms.map((room) => {
+      const senderId = String(
+        room._lastMsgSender
+          ?? room.last_message_doc?.msg_sender
+          ?? '',
+      );
+      const sender = userMap.get(senderId);
+
+      // Hydrate members with fresh user info
+      const hydratedMembers = room.members?.map((m: any) => {
+        const u = userMap.get(String(m.user_id));
+        return {
+          ...m,
+          avatar: u?.usr_avatar ?? m.avatar ?? '',
+          name: u?.usr_fullname ?? m.name ?? '',
+        };
+      });
+
+      return {
+        ...room,
+        members: hydratedMembers,
+        last_message: {
+          ...room.last_message,
+          sender: sender
+            ? {
+                _id: sender._id,
+                id: sender.usr_id,
+                name: sender.usr_fullname,
+                avatar: sender.usr_avatar,
+              }
+            : room.last_message?.sender ?? null,
+        },
+      };
+    });
+  }
+
+  public async getUserInfo(userId: string) {
+    try {
+      const result = await firstValueFrom(
+        this.authGrpcClient.GetUserById({ userId }),
+      );
+      if (result?.statusCode === 200 && result?.metadata) {
+        return result.metadata;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
   async create(payload: CreateRoomDto) {
     // create array save log
@@ -1008,17 +1026,8 @@ export class RoomsService {
     if (!userId) {
       throw new BadRequestException('không tìm thấy người dùng');
     }
-    // lấy thông tin người tạo phòng
-    const getInforUserCreateRoom = await this.userModel
-      .findOne({
-        _id: this.utils.convertToObjectIdMongoose(userId),
-      })
-      .select({
-        _id: 1,
-        usr_id: 1,
-        usr_fullname: 1,
-      })
-      .exec();
+    // lấy thông tin người tạo phòng qua gRPC Auth (database isolation)
+    const getInforUserCreateRoom = await this.lookupUserById(userId);
     if (!getInforUserCreateRoom) {
       throw new BadRequestException('không tìm thấy người dùng');
     }
@@ -1033,20 +1042,8 @@ export class RoomsService {
       // joinedAt: new Date(),
     });
 
-    // kiem tra thong tin thanh vien
-    const checkMemberIds = await this.userModel
-      .find({
-        usr_id: {
-          $in: memberIds,
-        },
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_id: 1,
-        usr_fullname: 1,
-      })
-      .exec();
+    // kiem tra thong tin thanh vien qua gRPC Auth (database isolation)
+    const checkMemberIds = await this.lookupUsersByIds(memberIds);
 
     if (checkMemberIds.length > 1 && type === 'private') {
       throw new BadRequestException('thành viên không hợp lệ');
@@ -1505,18 +1502,8 @@ export class RoomsService {
     }
 
     const roomMember = roomInfo.room_members;
-    // lấy thông tin user
-    const users = await this.userModel
-      .find({
-        usr_id: { $in: memberIds },
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_fullname: 1,
-        usr_id: 1,
-      })
-      .exec();
+    // lấy thông tin user qua gRPC Auth (database isolation)
+    const users = await this.lookupUsersByIds(memberIds);
     // push only the user id strings to match roomMember's string[] type
     roomMember.push(
       ...users.map((u) => {
@@ -1586,6 +1573,12 @@ export class RoomsService {
       throw new NotFoundException('không tìm thấy người dùng');
     }
 
+    // Look up user's usr_id via gRPC (database isolation — no Users collection)
+    const userInfo = await this.getUserInfo(userId);
+    if (!userInfo) {
+      throw new NotFoundException('người dùng không tồn tại');
+    }
+
     // xu lý filter
     const matchType = type && type !== 'all' ? { room_type: type } : {};
     const objectId = this.utils.convertToObjectIdMongoose(userId);
@@ -1610,7 +1603,7 @@ export class RoomsService {
           ...matchType,
         },
       },
-      ...this.handlePipeline(userId),
+      ...this.handlePipeline(userId, userInfo.usr_id),
       // Drop rooms with no resolvable name BEFORE pagination — happens
       // when a private counterpart was deleted (pipeline leaves `name`
       // empty) or a group room has no title + no derivable fallback.
@@ -1634,7 +1627,8 @@ export class RoomsService {
           ]
         : []),
     ]);
-    return Response.success(listRooms, 'tất cả danh sách phòng');
+    const hydrated = await this.hydrateRooms(listRooms);
+    return Response.success(hydrated, 'tất cả danh sách phòng');
   }
   async changeLinkAvatarRoom(payload: ChangelinkAvatarRoomDto) {
     const { userId, roomId, link } = payload;
@@ -1770,16 +1764,16 @@ export class RoomsService {
           ],
         },
       },
-      ...this.handlePipeline(userId),
+      ...this.handlePipeline(userId, userInfo.usr_id),
       {
         $limit: 1,
       },
     ]);
-    // console.log('🚀 ~ RoomsService ~ getRoomInfo ~ listRooms:', listRooms);
     if (listRooms.length === 0) {
       throw new NotFoundException('không tìm thấy thông tin phòng');
     }
-    return listRooms[0] as Record<string, any>;
+    const [hydrated] = await this.hydrateRooms(listRooms);
+    return hydrated as Record<string, any>;
   }
 
   // xử lý thay đổi nick name của thành viên
@@ -1946,7 +1940,7 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
     // get info user
-    const userInfo = await this.userModel.findById(
+    const userInfo = await this.lookupUserById(
       this.utils.convertToObjectIdMongoose(userId),
     );
     if (!userInfo) {
@@ -1986,7 +1980,7 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
     // get info user
-    const userInfo = await this.userModel.findById(
+    const userInfo = await this.lookupUserById(
       this.utils.convertToObjectIdMongoose(userId),
     );
     if (!userInfo) {
@@ -2016,6 +2010,114 @@ export class RoomsService {
     });
   }
 
+  /**
+   * Cross-service: get a single room by its room_id (business key).
+   * Returns room data without user hydration — the caller is responsible
+   * for enriching member info via auth gRPC.
+   */
+  async getRoomById(roomId: string) {
+    const rooms = await this.roomModel.aggregate([
+      { $match: { room_id: roomId } },
+      { $limit: 1 },
+      {
+        $project: {
+          _id: { $toString: '$_id' },
+          id: '$room_id',
+          roomId: '$room_id',
+          type: '$room_type',
+          name: '$room_name',
+          avatar: '$room_avatar',
+          members: {
+            $map: {
+              input: { $ifNull: ['$room_members', []] },
+              as: 'm',
+              in: {
+                id: { $ifNull: ['$$m.id', ''] },
+                user_id: { $toString: '$$m.user_id' },
+                role: { $ifNull: ['$$m.role', 'member'] },
+                name: { $ifNull: ['$$m.name', ''] },
+                joinedAt: {
+                  $ifNull: [{ $toString: '$$m.joinedAt' }, ''],
+                },
+              },
+            },
+          },
+          updatedAt: { $toString: '$updatedAt' },
+          createdAt: { $toString: '$createdAt' },
+          // User-specific fields default to false/0/null for cross-service use
+          is_read: { $literal: false },
+          unread_count: { $literal: 0 },
+          pinned: { $literal: false },
+          muted: { $literal: false },
+          last_read_id: { $literal: '' },
+          isBlocked: { $literal: false },
+          blockByMine: { $literal: false },
+          pinned_count: { $literal: 0 },
+          pinned_messages: { $literal: [] },
+          roomEvents: { $literal: [] },
+          last_message: { $literal: null },
+        },
+      },
+    ]);
+
+    if (rooms.length === 0) {
+      throw new NotFoundException('không tìm thấy phòng');
+    }
+    return rooms[0];
+  }
+
+  /**
+   * Cross-service: batch get rooms by their room_id values.
+   * Returns room data without user hydration.
+   */
+  async getRoomsByIds(roomIds: string[]) {
+    if (!roomIds || roomIds.length === 0) {
+      return [];
+    }
+
+    return this.roomModel.aggregate([
+      { $match: { room_id: { $in: roomIds } } },
+      {
+        $project: {
+          _id: { $toString: '$_id' },
+          id: '$room_id',
+          roomId: '$room_id',
+          type: '$room_type',
+          name: '$room_name',
+          avatar: '$room_avatar',
+          members: {
+            $map: {
+              input: { $ifNull: ['$room_members', []] },
+              as: 'm',
+              in: {
+                id: { $ifNull: ['$$m.id', ''] },
+                user_id: { $toString: '$$m.user_id' },
+                role: { $ifNull: ['$$m.role', 'member'] },
+                name: { $ifNull: ['$$m.name', ''] },
+                joinedAt: {
+                  $ifNull: [{ $toString: '$$m.joinedAt' }, ''],
+                },
+              },
+            },
+          },
+          updatedAt: { $toString: '$updatedAt' },
+          createdAt: { $toString: '$createdAt' },
+          is_read: { $literal: false },
+          unread_count: { $literal: 0 },
+          pinned: { $literal: false },
+          muted: { $literal: false },
+          last_read_id: { $literal: '' },
+          isBlocked: { $literal: false },
+          blockByMine: { $literal: false },
+          pinned_count: { $literal: 0 },
+          pinned_messages: { $literal: [] },
+          roomEvents: { $literal: [] },
+          last_message: { $literal: null },
+        },
+      },
+    ]);
+  }
+
   async DeletedRoom({ roomId, userId }: DeletedRoomDto) {
     if (!userId)
       throw new NotFoundException('bạn không phải thành viên nhóm này');
@@ -2025,7 +2127,7 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
     // get info user
-    const userInfo = await this.userModel.findById(
+    const userInfo = await this.lookupUserById(
       this.utils.convertToObjectIdMongoose(userId),
     );
     if (!userInfo) {

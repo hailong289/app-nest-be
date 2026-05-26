@@ -10,6 +10,9 @@ service FileSystemService {
     rpc UploadSingleFileForUser(InputUploadSingleFileForUser)returns (UploadSingleFileForUserResponse);
     rpc UploadMultipleFilesForUser(InputUploadMultipleFilesForUser) returns (UploadMultipleFilesForUserResponse);
     rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse);
+    // Batch hydration for chat getMsg (database isolation)
+    rpc GetAttachmentsByIds(GetAttachmentsByIdsRequest) returns (GetAttachmentsByIdsResponse);
+    rpc GetDocumentsByIds(GetDocumentsByIdsRequest) returns (GetDocumentsByIdsResponse);
 }
 
 message FileRequest {
@@ -148,3 +151,35 @@ message GetAttachmentsResponse {
     repeated UploadSingleFileForUserCore metadata = 4;
 }
 
+// ── Batch hydration messages (database isolation) ─────────────────
+
+message GetAttachmentsByIdsRequest {
+    repeated string attachmentIds = 1;
+}
+
+message GetAttachmentsByIdsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated UploadSingleFileForUserCore metadata = 4;
+}
+
+message GetDocumentsByIdsRequest {
+    repeated string documentIds = 1;
+}
+
+message GetDocumentsByIdsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated DocumentCore metadata = 4;
+}
+
+message DocumentCore {
+    string id = 1;
+    string name = 2;
+    string ownerId = 3;
+    string createdAt = 4;
+    string updatedAt = 5;
+    repeated string roomIds = 6;
+}

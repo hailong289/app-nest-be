@@ -6,6 +6,10 @@ Project hiện tại là một NestJS Monorepo với **9 microservice**. Docker 
 
 > **Định hướng chung (Giải pháp A — gRPC)**: Mọi cross-service data access đều thực hiện qua **synchronous gRPC call** đến service chủ sở hữu model. Không emit Kafka event để sync data, không duplicate dữ liệu sang DB khác. Service chủ sở hữu là **single source of truth**.
 
+### Tài liệu liên quan
+- 📄 [`CROSS_DB_LOOKUP_PLAN.md`](./CROSS_DB_LOOKUP_PLAN.md) — chi tiết refactor pipeline có `$lookup` cross-DB (phần phức tạp nhất)
+- 📄 [`ENV_MIGRATION_PLAN.md`](./ENV_MIGRATION_PLAN.md) — env vars mới/deprecated cần thêm khi migration
+
 ---
 
 ## Hiện trạng phân tích

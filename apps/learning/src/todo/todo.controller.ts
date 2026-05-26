@@ -134,4 +134,9 @@ export class TodoController {
   async getProjectMembers(data: GetProjectMembersDto) {
     return await this.todoProjectService.getProjectMembers(data);
   }
+
+  @GrpcMethod('TodoService', 'GetTodoProjectsByIds')
+  async getTodoProjectsByIds(data: { todoProjectIds: string[] }) {
+    return await this.todoProjectService.getTodoProjectsByIds(data.todoProjectIds);
+  }
 }

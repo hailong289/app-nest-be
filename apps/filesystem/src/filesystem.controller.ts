@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod, Payload, EventPattern } from '@nestjs/microservices';
 import { FilesystemService } from './filesystem.service';
+import { DocumentsService } from './documents/documents.service';
 import { Response } from '@app/helpers/response';
 import {
   MultipleFilesUploadDto,
@@ -13,7 +14,10 @@ import {
 
 @Controller()
 export class FilesystemController {
-  constructor(private readonly filesystemService: FilesystemService) {}
+  constructor(
+    private readonly filesystemService: FilesystemService,
+    private readonly documentsService: DocumentsService,
+  ) {}
 
   @EventPattern(KafkaEvent.PROCESS_LINK)
   async handleProcessLink(
@@ -155,6 +159,42 @@ export class FilesystemController {
       console.error('❌ Get attachments error:', error);
       return Response.error(
         'Lấy danh sách file thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
+  }
+
+  @GrpcMethod('FileSystemService', 'GetAttachmentsByIds')
+  async getAttachmentsByIds(
+    @Payload() data: { attachmentIds: string[] },
+  ) {
+    try {
+      return await this.filesystemService.getAttachmentsByIds(
+        data.attachmentIds,
+      );
+    } catch (error) {
+      console.error('❌ Get attachments by IDs error:', error);
+      return Response.error(
+        'Lấy danh sách file thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
+  }
+
+  @GrpcMethod('FileSystemService', 'GetDocumentsByIds')
+  async getDocumentsByIds(@Payload() data: { documentIds: string[] }) {
+    try {
+      return await this.documentsService.getDocumentsByIds(
+        data.documentIds,
+      );
+    } catch (error) {
+      console.error('❌ Get documents by IDs error:', error);
+      return Response.error(
+        'Lấy danh sách tài liệu thất bại',
         400,
         'ERROR_FILESYSTEM',
         error instanceof Error ? error.message : 'Unknown error',

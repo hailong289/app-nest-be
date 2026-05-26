@@ -122,6 +122,17 @@ export class QuizzService {
     return Response.success(null, 'Quiz deleted successfully');
   }
 
+  async getQuizzesByIds(quizIds: string[]) {
+    try {
+      const quizzes = await this.quizModel
+        .find({ quiz_id: { $in: quizIds } })
+        .lean();
+      return Response.success(quizzes);
+    } catch (error) {
+      return Response.error((error as Error).message, 400, 'Bad Request');
+    }
+  }
+
   async getQuizResults(quizId: string) {
     const filter = Types.ObjectId.isValid(quizId)
       ? { _id: new Types.ObjectId(quizId) }

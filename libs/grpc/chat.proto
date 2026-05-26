@@ -38,6 +38,8 @@ service ChatService {
   // Cross-service data access (database isolation)
   rpc GetRoomById(GetRoomByIdRequest) returns (GetRoomByIdResponse);
   rpc GetMessagesByRoomId(GetMessagesByRoomIdRequest) returns (GetMessagesByRoomIdResponse);
+  // Batch hydration (database isolation)
+  rpc GetRoomsByIds(GetRoomsByIdsRequest) returns (GetRoomsByIdsResponse);
 
 }
 // Requests and Responses
@@ -721,4 +723,15 @@ message GetMessagesByRoomIdResponse {
   int32                  statusCode       = 2;
   string                 reasonStatusCode = 3;
   repeated MessageCore   metadata         = 4;
+}
+
+message GetRoomsByIdsRequest {
+  repeated string roomIds = 1;
+}
+
+message GetRoomsByIdsResponse {
+  string                      message          = 1;
+  int32                       statusCode       = 2;
+  string                      reasonStatusCode = 3;
+  repeated metadataGetRoomsType metadata        = 4;
 }

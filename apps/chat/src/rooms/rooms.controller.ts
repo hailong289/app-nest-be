@@ -15,6 +15,7 @@ import {
   PinnedRoomDto,
   RemoveMemberRoomDto,
 } from '@app/dto/room.dto';
+import { Response } from '@app/helpers/response';
 
 @Controller('rooms')
 export class RoomsController {
@@ -79,6 +80,18 @@ export class RoomsController {
   @GrpcMethod('ChatService', 'MutedRoom')
   async MutedRoom(@Body() payload: MutedRoomDto) {
     return this.roomsService.MutedRoom(payload);
+  }
+
+  @GrpcMethod('ChatService', 'GetRoomById')
+  async GetRoomById(@Body() payload: { roomId: string }) {
+    const result = await this.roomsService.getRoomById(payload.roomId);
+    return Response.success(result);
+  }
+
+  @GrpcMethod('ChatService', 'GetRoomsByIds')
+  async GetRoomsByIds(@Body() payload: { roomIds: string[] }) {
+    const result = await this.roomsService.getRoomsByIds(payload.roomIds);
+    return Response.success(result);
   }
 
   @GrpcMethod('ChatService', 'DeletedRoom')

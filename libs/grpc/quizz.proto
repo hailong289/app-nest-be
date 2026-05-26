@@ -11,6 +11,8 @@ service QuizzService {
     rpc DeleteQuizz(DeleteQuizzRequest) returns (DeleteQuizzResponse);
     rpc SubmitQuizz(SubmitQuizzRequest) returns (SubmitQuizzResponse);
     rpc GetQuizzResults(GetQuizzResultsRequest) returns (GetQuizzResultsResponse);
+    // Batch hydration for chat getMsg (database isolation)
+    rpc GetQuizzesByIds(GetQuizzesByIdsRequest) returns (GetQuizzesByIdsResponse);
 }
 
 message CreateQuizzRequest {
@@ -242,4 +244,17 @@ message QuizMetadata {
     string updatedAt = 16;
     bool is_send = 18;
     repeated QuizResultItem quiz_results = 19;
+}
+
+// ── Batch hydration messages (database isolation) ─────────────────
+
+message GetQuizzesByIdsRequest {
+    repeated string quizIds = 1;
+}
+
+message GetQuizzesByIdsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    repeated QuizMetadata metadata = 4;
 }

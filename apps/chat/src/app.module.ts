@@ -15,6 +15,9 @@ import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import authConfig from './config/app/auth.config';
 import notificationGrpcConfig from './config/app/notification.config';
+import filesystemConfig from './config/app/filesystem.config';
+import aiConfig from './config/app/ai.config';
+import learningConfig from './config/app/learning.config';
 
 @Module({
   imports: [
@@ -24,7 +27,7 @@ import notificationGrpcConfig from './config/app/notification.config';
         process.cwd(),
         `apps/chat/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [redisConfig, mongoConfig, kafkaConfig, authConfig, notificationGrpcConfig],
+      load: [redisConfig, mongoConfig, kafkaConfig, authConfig, notificationGrpcConfig, filesystemConfig, aiConfig, learningConfig],
     }),
     KafkaAdminModule,
     MongodbModule,

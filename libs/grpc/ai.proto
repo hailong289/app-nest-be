@@ -14,6 +14,8 @@ service AIService {
   rpc Translation(TranslationRequest) returns (TranslationResponse);
   rpc Quizz(QuizzRequest) returns (QuizzResponse);
   rpc GenerateFlashcard(GenerateFlashcardRequest) returns (GenerateFlashcardResponse);
+  // Batch hydration for chat getMsg (database isolation)
+  rpc GetEmbeddingsByContextIds(GetEmbeddingsByContextIdsRequest) returns (GetEmbeddingsByContextIdsResponse);
 }
 
 message FileRequest {
@@ -179,3 +181,23 @@ message GenerateFlashcardResponse {
   GenerateFlashcardMetadata metadata = 4;
 }
 
+// ── Batch hydration messages (database isolation) ─────────────────
+
+message GetEmbeddingsByContextIdsRequest {
+  repeated string contextIds = 1;
+}
+
+message GetEmbeddingsByContextIdsResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  repeated EmbeddingCore metadata = 4;
+}
+
+message EmbeddingCore {
+  string id = 1;
+  string contextId = 2;
+  string contextType = 3;
+  string text = 4;
+  repeated double vector = 5;
+}

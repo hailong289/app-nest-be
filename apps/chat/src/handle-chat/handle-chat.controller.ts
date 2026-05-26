@@ -109,6 +109,28 @@ export class HandleChatController {
     return result;
   }
 
+  @GrpcMethod('ChatService', 'GetMessagesByRoomId')
+  async GetMessagesByRoomId(
+    @Body()
+    payload: {
+      roomId: string;
+      limit: number;
+      offset: number;
+    },
+  ) {
+    const result = await this.hdChat.getMessagesByRoomId(
+      payload.roomId,
+      payload.limit,
+      payload.offset,
+    );
+    return {
+      message: 'OK',
+      statusCode: 200,
+      reasonStatusCode: 'OK',
+      metadata: result,
+    };
+  }
+
   @GrpcMethod('ChatService', 'GetCallHistory')
   async GetCallHistory(
     @Body()
