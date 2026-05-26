@@ -14,8 +14,11 @@ import {
   roomModel,
   roomsStateModel,
   roomsUsersStateModel,
+  SharedBullModule,
   userModel,
 } from 'libs/db/src';
+import { ROOM_MEMBERSHIP_SYNC_QUEUE } from './room-membership-sync.constants';
+import { RoomMembershipSyncProcessor } from './room-membership-sync.processor';
 
 @Module({
   imports: [
@@ -32,9 +35,12 @@ import {
     ]),
     RedisModule,
     RemoteEmitterModule,
+    // Queue cho bulk USER_ROOMS sAdd khi tạo group lớn / add nhiều member.
+    // Worker xử lý theo lô 50/lần để khỏi đè connection pool.
+    SharedBullModule.registerQueue(ROOM_MEMBERSHIP_SYNC_QUEUE),
   ],
   controllers: [RoomsController],
-  providers: [RoomsService],
+  providers: [RoomsService, RoomMembershipSyncProcessor],
   exports: [RoomsService],
 })
 export class RoomsModule {}
