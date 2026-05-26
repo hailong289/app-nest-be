@@ -5,6 +5,8 @@ import {
   UpdateProfileDto,
   SearchUserDto,
 } from '@app/dto';
+import { Inject } from '@nestjs/common';
+import { ClientGrpc } from '@nestjs/microservices';
 import {
   Inject,
   Injectable,
@@ -21,9 +23,15 @@ import Utils from 'libs/helpers/utils';
 import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
-import { Otp } from 'libs/db/src/mongo/model/otp.model';
 import { RedisService } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
+import { SERVICES } from '@app/constants';
+import { firstValueFrom } from 'rxjs';
+
+interface NotificationGrpcClient {
+  CreateOtp(data: { indicator: string; type: string; channel: string }): any;
+  VerifyOtp(data: { indicator: string; otp: string; type: string }): any;
+}
 
 /**
  * Subset of the device-origin fields shared by LoginDto / RegisterDto /
@@ -177,12 +185,17 @@ export class AuthService implements OnModuleInit {
   constructor(
     @InjectModel(Userschema.name) private readonly userModel: Model<User>,
     @InjectModel('Key') private readonly keyModel: Model<Key>,
-    @InjectModel('Otp') private readonly otpModel: Model<Otp>,
     private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
+    @Inject(SERVICES.NOTIFICATION)
+    private readonly notificationGrpc: ClientGrpc,
   ) {}
 
+  private notificationGrpcClient: NotificationGrpcClient;
+
   async onModuleInit() {
+    this.notificationGrpcClient =
+      this.notificationGrpc.getService<NotificationGrpcClient>('NotificationService');
     this.logger.log('Syncing FCM tokens to Redis...');
     try {
       // Per-device docs now hold a single fcmToken (string|null) instead
@@ -424,38 +437,44 @@ export class AuthService implements OnModuleInit {
     otp: string,
     type: string = 'reset-password',
   ) {
-    const keyEntry = await this.otpModel
-      .findOne({ indicator: indicator, otp, type })
-      .exec();
-
     console.log('Verifying OTP for indicator:', indicator, 'with OTP:', otp);
 
-    if (!keyEntry) {
+    // Gọi gRPC Notification service để verify OTP (notification là chủ sở hữu OTP model)
+    const grpcResult = await firstValueFrom(
+      this.notificationGrpcClient.VerifyOtp({
+        indicator,
+        otp,
+        type,
+      }),
+    );
+
+    if (!grpcResult || grpcResult.statusCode !== 200) {
       return Response.error(
-        'Mã OTP không hợp lệ hoặc đã hết hạn',
+        grpcResult?.message || 'Mã OTP không hợp lệ hoặc đã hết hạn',
         400,
         'Invalid OTP',
       );
     }
-    if (keyEntry.userId) {
+
+    // Đối với mobile forgot-password flow: tìm user bằng indicator (email)
+    // để generate access token cho password reset
+    if (type === 'reset-password') {
       const user = await this.userModel
-        .findOne({ usr_id: keyEntry.userId })
+        .findOne({ usr_email: indicator })
         .exec();
-      if (!user) {
-        return Response.error('Tài khoản không tồn tại', 404);
+      if (user) {
+        const userData: Record<string, any> = Utils.omit(user.toObject(), [
+          'usr_salt',
+          '__v',
+        ]);
+        const accessToken = this.jwtService.sign(userData, {
+          secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
+          expiresIn: '30m',
+        });
+        return Response.success({ accessToken }, 'Xác thực OTP thành công');
       }
-      const userData: Record<string, any> = Utils.omit(user.toObject(), [
-        'usr_salt',
-        '__v',
-      ]);
-      const accessToken = this.jwtService.sign(userData, {
-        secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-        expiresIn: '30m', // access token sống 30 phút
-      });
-      return Response.success({ accessToken }, 'Xác thực OTP thành công');
     }
-    // OTP hợp lệ, xóa entry sau khi sử dụng
-    await this.otpModel.deleteOne({ _id: keyEntry._id }).exec();
+
     return Response.success(null, 'Xác thực OTP thành công');
   }
 
@@ -511,20 +530,14 @@ export class AuthService implements OnModuleInit {
 
     try {
       if (isMobile) {
-        // Lưu OTP vào database để verify
-        const otpCode = Utils.generateOtp(6);
-        await this.otpModel.create({
-          indicator: email,
-          otp: otpCode,
-          expiresAt: Date.now() + 5 * 60 * 1000, // 5 phút
-          type: 'reset-password',
-          userId: user.usr_id,
-        });
-        // Gửi OTP về email thông qua Notification Service
-        await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
-          email: email,
-          otp: otpCode,
-        });
+        // Gọi gRPC Notification service để tạo OTP + gửi email
+        await firstValueFrom(
+          this.notificationGrpcClient.CreateOtp({
+            indicator: email,
+            type: 'reset-password',
+            channel: 'email',
+          }),
+        );
         return Response.success(null, 'Đã gửi mã OTP đến email của bạn');
       }
       const userData: Record<string, any> = Utils.omit(user.toObject(), [
@@ -533,9 +546,11 @@ export class AuthService implements OnModuleInit {
       ]);
       const accessToken = this.jwtService.sign(userData, {
         secret: process.env.JWT_ACCESS_SECRET || 'access_secret',
-        expiresIn: '30m', // access token sống 30 phút
+        expiresIn: '30m',
       });
-      // Gửi token về email thông qua Notification Service
+      // Gửi token về email thông qua Notification Service (Kafka)
+      // Note: forgot-password email vẫn dùng Kafka pattern hiện có
+      // vì notification service vẫn có handler cho FORGOT_PASSWORD event
       await axios.post(`${this.gatewayUrl}/api/notifications/forgot-password`, {
         email: email,
         token: accessToken,
@@ -942,5 +957,86 @@ export class AuthService implements OnModuleInit {
     const mappedUsers = users.map((user) => Utils.unprefix(user, 'usr_'));
 
     return Response.success(mappedUsers, 'Tìm kiếm thành công');
+  }
+
+  // ── Cross-service RPC methods (database isolation) ─────────────────
+
+  /**
+   * Lấy thông tin user theo userId (ObjectId hoặc usr_id).
+   * Được gọi bởi: chat, filesystem, ai, learning services qua gRPC.
+   */
+  async getUserById(userId: string) {
+    const user = await this.userModel
+      .findOne({
+        $or: [
+          { _id: Utils.isValidObjectId(userId) ? userId : undefined },
+          { usr_id: userId },
+        ].filter((cond) => Object.values(cond)[0] !== undefined),
+      })
+      .exec();
+
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+
+    const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+    return Response.success(
+      Utils.unprefix(userData, 'usr_'),
+      'Lấy thông tin người dùng thành công',
+    );
+  }
+
+  /**
+   * Lấy danh sách users theo danh sách userIds.
+   * Được gọi bởi: chat, learning services qua gRPC (batch lookup).
+   */
+  async getUsersByIds(userIds: string[]) {
+    const users = await this.userModel
+      .find({
+        $or: [
+          { _id: { $in: userIds.filter(Utils.isValidObjectId) } },
+          { usr_id: { $in: userIds } },
+        ],
+      })
+      .exec();
+
+    const mappedUsers = users.map((user) => {
+      const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
+      return Utils.unprefix(userData, 'usr_');
+    });
+
+    return Response.success(mappedUsers, 'Lấy danh sách người dùng thành công');
+  }
+
+  /**
+   * Lấy FCM tokens của một user.
+   * Được gọi bởi: notification service qua gRPC (thay vì đọc keysModel trực tiếp).
+   */
+  async getFcmTokensByUserId(userId: string) {
+    // Primary: Redis
+    try {
+      const tokens = await this.redis.sMembers(
+        this.key.USER_FCM_TOKENS(userId),
+      );
+      if (tokens.length > 0) {
+        return Response.success({ tokens }, 'Lấy FCM tokens thành công');
+      }
+    } catch (error) {
+      this.logger.error(`Redis error fetching FCM tokens for ${userId}:`, error);
+    }
+
+    // Fallback: MongoDB (Key model — auth là chủ sở hữu)
+    const keys = await this.keyModel
+      .find(
+        { tkn_userId: userId, tkn_fcmToken: { $exists: true, $ne: null, $type: 'string' } },
+        'tkn_fcmToken',
+      )
+      .lean();
+
+    const tokens = keys
+      .map((k) => k.tkn_fcmToken as string)
+      .filter(Boolean);
+
+    return Response.success({ tokens }, 'Lấy FCM tokens thành công');
   }
 }

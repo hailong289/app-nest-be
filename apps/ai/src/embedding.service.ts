@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, FilterQuery, Types } from 'mongoose';
 import crypto from 'crypto';
@@ -7,9 +7,15 @@ import { ConfigService } from '@nestjs/config';
 import { AIEmbedding } from 'libs/db/src/mongo/model/AIEmbedding.model';
 import { Attachment } from 'libs/db/src/mongo/model/Attachment.model';
 import { Document } from 'libs/db/src/mongo/model/Document.model';
-import { Message } from 'libs/db/src/mongo/model/messages.model';
+import { ClientGrpc } from '@nestjs/microservices';
+import { SERVICES } from '@app/constants';
+import { firstValueFrom } from 'rxjs';
 import axios from 'axios';
 import Utils from '@app/helpers/utils';
+
+interface ChatGrpcClient {
+  GetMessagesByRoomId(data: { roomId: string; limit: number; offset: number }): any;
+}
 
 /**
  * Strip Vietnamese diacritics + lowercase. Mirrors the `normalizeVi` hook in
@@ -29,6 +35,15 @@ function normalizeVi(s = ''): string {
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
   private readonly gemini: GoogleGenerativeAI;
+  private chatGrpcClient: ChatGrpcClient;
+
+  private getChatClient(): ChatGrpcClient {
+    if (!this.chatGrpcClient) {
+      this.chatGrpcClient =
+        this.chatGrpc.getService<ChatGrpcClient>('ChatService');
+    }
+    return this.chatGrpcClient;
+  }
 
   constructor(
     private cfg: ConfigService,
@@ -38,8 +53,8 @@ export class EmbeddingService {
     private readonly attachmentModel: Model<Attachment>,
     @InjectModel(Document.name)
     private readonly documentModel: Model<Document>,
-    @InjectModel(Message.name)
-    private readonly messageModel: Model<Message>,
+    @Inject(SERVICES.CHAT)
+    private readonly chatGrpc: ClientGrpc,
   ) {
     if (typeof global.crypto === 'undefined') {
       (global as any).crypto = crypto;
@@ -443,13 +458,27 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       const messageIds = sortedAll.map((r) => r.messageId).filter((id) => !!id);
       const systemMessageIds = new Set<string>();
       if (messageIds.length > 0) {
-        const systemDocs = await this.messageModel
-          .find({ _id: { $in: messageIds }, msg_type: 'system' }, { _id: 1 })
-          .lean()
-          .exec();
-        systemDocs.forEach((d) =>
-          systemMessageIds.add(String((d as { _id: unknown })._id)),
-        );
+        // Database isolation: check system messages via gRPC Chat service
+        // Since we can't query specific message IDs via gRPC, we fetch recent
+        // messages and filter client-side for system types
+        try {
+          const chatResult = await firstValueFrom(
+            this.getChatClient().GetMessagesByRoomId({
+              roomId: String(roomObjectId),
+              limit: 500,
+              offset: 0,
+            }),
+          );
+          const allMessages: any[] = chatResult?.metadata ?? [];
+          const idSet = new Set(messageIds.map(String));
+          allMessages.forEach((m: any) => {
+            if (idSet.has(String(m.id)) && m.type === 'system') {
+              systemMessageIds.add(String(m.id));
+            }
+          });
+        } catch (error) {
+          this.logger.error('Error fetching messages from Chat gRPC:', error);
+        }
       }
 
       const ranked = sortedAll
@@ -492,21 +521,33 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       const normalized = normalizeVi(trimmed);
       const safe = Utils.escapeRegex(normalized);
 
-      const docs = await this.messageModel
-        .find({
-          msg_roomId: roomObjectId,
-          msg_content_norm: { $regex: safe, $options: 'i' },
-          deletedAt: null,
-          // Exclude system messages (member added/left, call started/ended,
-          // ...) — they're notifications, not actual chat content the user
-          // would search for.
-          msg_type: { $ne: 'system' },
+      // Database isolation: fetch messages via gRPC Chat service
+      const chatResult = await firstValueFrom(
+        this.getChatClient().GetMessagesByRoomId({
+          roomId: String(roomObjectId),
+          limit: limit * 5, // Fetch more to have enough after client-side filter
+          offset: 0,
+        }),
+      );
+      const docs: any[] = (chatResult?.metadata ?? [])
+        .filter((m: any) => {
+          // Client-side filter: match regex + exclude system + not deleted
+          if (m.type === 'system') return false;
+          if (!m.content) return false;
+          return new RegExp(safe, 'i').test(m.content);
         })
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .select('_id msg_roomId msg_content createdAt')
-        .lean()
-        .exec();
+        .slice(0, limit)
+        .sort((a: any, b: any) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        })
+        .map((m: any) => ({
+          _id: m.id,
+          msg_roomId: m.roomId,
+          msg_content: m.content,
+          createdAt: m.createdAt ? new Date(m.createdAt) : new Date(),
+        }));
 
       this.logger.log(
         `[Fallback] Keyword search on Messages found ${docs.length} hits for "${query}" in room ${roomObjectId.toString()}`,

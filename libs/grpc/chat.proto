@@ -35,6 +35,9 @@ service ChatService {
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
   rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
   rpc MutedRoom(inputMutedRoom) returns (outputGetRoom);
+  // Cross-service data access (database isolation)
+  rpc GetRoomById(GetRoomByIdRequest) returns (GetRoomByIdResponse);
+  rpc GetMessagesByRoomId(GetMessagesByRoomIdRequest) returns (GetMessagesByRoomIdResponse);
 
 }
 // Requests and Responses
@@ -692,4 +695,30 @@ message TodoProjectCore {
   string createdAt = 9;
   string updatedAt = 10;
   repeated string project_members = 11;
+}
+
+// ── Cross-service RPC messages (database isolation) ─────────────────
+
+message GetRoomByIdRequest {
+  string roomId = 1;
+}
+
+message GetRoomByIdResponse {
+  string              message          = 1;
+  int32               statusCode       = 2;
+  string              reasonStatusCode = 3;
+  metadataGetRoomsType metadata        = 4;
+}
+
+message GetMessagesByRoomIdRequest {
+  string roomId = 1;
+  int32  limit  = 2;
+  int32  offset = 3;
+}
+
+message GetMessagesByRoomIdResponse {
+  string                 message          = 1;
+  int32                  statusCode       = 2;
+  string                 reasonStatusCode = 3;
+  repeated MessageCore   metadata         = 4;
 }

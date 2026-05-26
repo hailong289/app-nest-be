@@ -13,6 +13,8 @@ import {
 } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
+import authConfig from './config/app/auth.config';
+import notificationGrpcConfig from './config/app/notification.config';
 
 @Module({
   imports: [
@@ -22,7 +24,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
         process.cwd(),
         `apps/chat/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [redisConfig, mongoConfig, kafkaConfig],
+      load: [redisConfig, mongoConfig, kafkaConfig, authConfig, notificationGrpcConfig],
     }),
     KafkaAdminModule,
     MongodbModule,

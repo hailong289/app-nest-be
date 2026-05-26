@@ -14,14 +14,14 @@ import {
   roomModel,
   roomsStateModel,
   roomsUsersStateModel,
-  userModel,
 } from 'libs/db/src';
+import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
+import { SERVICES } from '@app/constants';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       messagesModel,
-      userModel,
       roomModel,
       roomEventsModel,
       roomsStateModel,
@@ -29,9 +29,16 @@ import {
       messageReadsModel,
       messageHidesModel,
       messageReactionsModel,
+      // Removed: userModel — user info accessed via gRPC Auth service
     ]),
     RedisModule,
     RemoteEmitterModule,
+    // gRPC client to Auth service for user info
+    GrpcClientModule.registerAsync({
+      name: SERVICES.AUTH,
+      configKey: 'auth',
+      packages: ['auth'],
+    }),
   ],
   controllers: [RoomsController],
   providers: [RoomsService],

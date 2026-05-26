@@ -1,11 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
   ProjectStatus,
   TodoProject,
 } from 'libs/db/src/mongo/model/todo-project.model';
-import { User } from 'libs/db/src/mongo/model/user.model';
 import { Model, Types } from 'mongoose';
+import { ClientGrpc } from '@nestjs/microservices';
+import { SERVICES } from '@app/constants';
+import { firstValueFrom } from 'rxjs';
+
+interface AuthGrpcClient {
+  GetUsersByIds(data: { userIds: string[] }): any;
+}
 import Utils from 'libs/helpers/utils';
 import { Response } from 'libs/helpers/response';
 import {
@@ -24,12 +30,19 @@ import {
 
 @Injectable()
 export class TodoProjectService {
+  private authGrpcClient: AuthGrpcClient;
+
   constructor(
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
   ) {}
+
+  onModuleInit() {
+    this.authGrpcClient =
+      this.authGrpc.getService<AuthGrpcClient>('AuthService');
+  }
 
   private toMetadata(project: Record<string, any>) {
     return {
@@ -401,19 +414,34 @@ export class TodoProjectService {
         userFilter.usr_fullname = { $regex: data.search.trim(), $options: 'i' };
       }
 
-      const users = await this.userModel
-        .find(userFilter)
-        .select('_id usr_id usr_fullname usr_email usr_phone usr_avatar')
-        .lean();
+      // Lấy thông tin user qua gRPC Auth service (database isolation)
+      let users: any[] = [];
+      try {
+        const grpcResult = await firstValueFrom(
+          this.authGrpcClient.GetUsersByIds({
+            userIds: memberObjectIds.map((id: any) => id.toString()),
+          }),
+        );
+        users = grpcResult?.metadata ?? [];
+        // Filter by search if needed
+        if (data.search?.trim()) {
+          const searchLower = data.search.trim().toLowerCase();
+          users = users.filter((u: any) =>
+            (u.fullname ?? '').toLowerCase().includes(searchLower),
+          );
+        }
+      } catch (error) {
+        console.error('Error fetching users from Auth:', error);
+      }
 
       const members = users.map((u: any) => ({
-        _id: u._id?.toString() ?? '',
-        usr_id: u.usr_id ?? '',
-        fullname: u.usr_fullname ?? '',
-        email: u.usr_email ?? '',
-        phone: u.usr_phone ?? '',
-        avatar: u.usr_avatar ?? '',
-        is_creator: u._id?.toString() === creatorId,
+        _id: u._id ?? u.id ?? '',
+        usr_id: u.id ?? u.usr_id ?? '',
+        fullname: u.fullname ?? '',
+        email: u.email ?? '',
+        phone: u.phone ?? '',
+        avatar: u.avatar ?? '',
+        is_creator: (u._id ?? u.id)?.toString() === creatorId,
       }));
 
       return Response.success({

@@ -11,6 +11,10 @@ service NotificationService {
   rpc MarkNotificationAsRead(MarkNotificationAsReadRequest) returns (MarkNotificationAsReadResponse);
   rpc MarkAllNotificationsAsRead(MarkAllNotificationsAsReadRequest) returns (MarkAllNotificationsAsReadResponse);
   rpc DeleteNotification(DeleteNotificationRequest) returns (DeleteNotificationResponse);
+  // Cross-service RPCs (database isolation)
+  rpc CreateOtp(CreateOtpRequest) returns (CreateOtpResponse);
+  rpc VerifyOtp(VerifyOtpRequest) returns (VerifyOtpResponse);
+  rpc PushNotification(PushNotificationRequest) returns (PushNotificationResponse);
 }
 
 message PushNotificationTestRequest {
@@ -93,4 +97,51 @@ message Notification {
   string noti_level = 10; // 'info' | 'success' | 'warning' | 'error'
   google.protobuf.Timestamp createdAt = 11;
   google.protobuf.Timestamp updatedAt = 12;
+}
+
+// ── Cross-service RPC messages (database isolation) ─────────────────
+
+message CreateOtpRequest {
+  string indicator = 1; // email or phone
+  string type      = 2; // 'register' | 'reset-password' | 'login'
+  string channel   = 3; // 'email' | 'sms'
+}
+
+message CreateOtpResponse {
+  string message          = 1;
+  int32  statusCode       = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
+}
+
+message VerifyOtpRequest {
+  string indicator = 1; // email or phone
+  string otp       = 2;
+  string type      = 3; // 'register' | 'reset-password' | 'login'
+}
+
+message VerifyOtpResponse {
+  string message          = 1;
+  int32  statusCode       = 2;
+  string reasonStatusCode = 3;
+  VerifyOtpMetadata metadata = 4;
+}
+
+message VerifyOtpMetadata {
+  bool   valid       = 1;
+  string accessToken = 2; // optional, only for mobile login flow
+}
+
+message PushNotificationRequest {
+  string userId  = 1;
+  string title   = 2;
+  string content = 3;
+  google.protobuf.Struct data = 4;
+}
+
+message PushNotificationResponse {
+  string message          = 1;
+  int32  statusCode       = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
 }

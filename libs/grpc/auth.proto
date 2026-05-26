@@ -19,6 +19,10 @@ service AuthService {
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc LogoutDevice(LogoutDeviceRequest) returns (LogoutResponse);
   rpc LogoutAllDevices(LogoutAllDevicesRequest) returns (LogoutResponse);
+  // Cross-service data access (database isolation)
+  rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse);
+  rpc GetUsersByIds(GetUsersByIdsRequest) returns (GetUsersByIdsResponse);
+  rpc GetFcmTokensByUserId(GetFcmTokensByUserIdRequest) returns (GetFcmTokensByUserIdResponse);
 }
 
 // Geo location (best-effort, populated by api-gateway via geoip-lite).
@@ -325,3 +329,41 @@ message SearchUserResponse {
   repeated User metadata         = 4;
 }
 
+// ── Cross-service RPC messages (database isolation) ─────────────────
+
+message GetUserByIdRequest {
+  string userId = 1;
+}
+
+message GetUserByIdResponse {
+  string message          = 1;
+  int32  statusCode       = 2;
+  string reasonStatusCode = 3;
+  User   metadata         = 4;
+}
+
+message GetUsersByIdsRequest {
+  repeated string userIds = 1;
+}
+
+message GetUsersByIdsResponse {
+  string          message          = 1;
+  int32           statusCode       = 2;
+  string          reasonStatusCode = 3;
+  repeated User   metadata         = 4;
+}
+
+message GetFcmTokensByUserIdRequest {
+  string userId = 1;
+}
+
+message GetFcmTokensByUserIdResponse {
+  string          message          = 1;
+  int32           statusCode       = 2;
+  string          reasonStatusCode = 3;
+  FcmTokens       metadata         = 4;
+}
+
+message FcmTokens {
+  repeated string tokens = 1;
+}

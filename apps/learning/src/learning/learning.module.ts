@@ -17,7 +17,8 @@ import { TodoService } from '../todo/todo.service';
 import TodoSchema from 'libs/db/src/mongo/model/todo.model';
 import TodoProjectSchema from 'libs/db/src/mongo/model/todo-project.model';
 import { TodoProjectService } from '../todo/todo-project.service';
-import userModel from 'libs/db/src/mongo/model/user.model';
+import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
+import { SERVICES } from '@app/constants';
 
 @Module({
   imports: [
@@ -28,20 +29,17 @@ import userModel from 'libs/db/src/mongo/model/user.model';
       flashcardProgressModel,
       TodoSchema,
       TodoProjectSchema,
-      userModel,
     ]),
+    // gRPC client to Auth service for user info
+    GrpcClientModule.registerAsync({
+      name: SERVICES.AUTH,
+      configKey: 'auth',
+      packages: ['auth'],
+    }),
   ],
   controllers: [
     QuizzController,
     FlashcardController,
-    // TodoController owns ALL 19 @GrpcMethod handlers for `TodoService`
-    // — both todo.* and project.* (it injects TodoProjectService and
-    // forwards). The standalone TodoProjectController in
-    // apps/learning/src/todo/todo-project.controller.ts is a leftover
-    // duplicate; keeping both registered creates two handlers for the
-    // same gRPC method (e.g. CreateProject) and NestJS silently picks
-    // one — easy way to ship "no-op" endpoints. Don't add
-    // TodoProjectController here.
     TodoController,
   ],
   providers: [QuizzService, FlashcardService, TodoService, TodoProjectService],

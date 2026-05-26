@@ -177,4 +177,21 @@ export class AuthController {
   async searchUser(data: SearchUserDto) {
     return await this.authService.searchUser(data);
   }
+
+  // ── Cross-service gRPC handlers (database isolation) ──────────────
+
+  @GrpcMethod('AuthService', 'GetUserById')
+  async getUserById(data: { userId: string }) {
+    return await this.authService.getUserById(data.userId);
+  }
+
+  @GrpcMethod('AuthService', 'GetUsersByIds')
+  async getUsersByIds(data: { userIds: string[] }) {
+    return await this.authService.getUsersByIds(data.userIds);
+  }
+
+  @GrpcMethod('AuthService', 'GetFcmTokensByUserId')
+  async getFcmTokensByUserId(data: { userId: string }) {
+    return await this.authService.getFcmTokensByUserId(data.userId);
+  }
 }

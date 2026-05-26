@@ -5,10 +5,16 @@ import { InjectModel } from '@nestjs/mongoose';
 import friendshipModel, {
   Friendship,
 } from 'libs/db/src/mongo/model/friendship.model';
-import keysModel, { Key } from 'libs/db/src/mongo/model/keys.model';
 import userModel, { User } from 'libs/db/src/mongo/model/user.model';
 import { Response } from 'libs/helpers/response';
 import { Model, Types } from 'mongoose';
+import { ClientGrpc } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
+
+interface NotificationGrpcClient {
+  PushNotification(data: { userId: string; title: string; content: string; data?: any }): any;
+}
+
 import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
@@ -25,16 +31,25 @@ import { ClientKafka } from '@nestjs/microservices';
 
 @Injectable()
 export class SocialService {
+  private notificationGrpcClient: NotificationGrpcClient;
+
   constructor(
     @InjectModel(userModel.name) private readonly userModel: Model<User>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
-    @InjectModel(keysModel.name) private readonly keyModel: Model<Key>,
     @InjectModel(roomModel.name) private readonly roomModel: Model<Room>,
     private readonly roomService: RoomsService,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    @Inject('NOTIFICATION_GRPC')
+    private readonly notificationGrpc: ClientGrpc,
   ) {}
+
+  onModuleInit() {
+    this.notificationGrpcClient =
+      this.notificationGrpc.getService<NotificationGrpcClient>('NotificationService');
+  }
+
   // creeate friendship
 
   // Friend requests
@@ -88,19 +103,13 @@ export class SocialService {
         upsert: true,
       },
     );
-    // gửi notification cho người nhận
-    const fcmTokens = await this.keyModel.find(
-      { tkn_userId: receiver._id },
-      { tkn_fcmToken: 1 },
-    );
-    if (fcmTokens.length > 0) {
-      Utils.dispatchEventKafka(
-        this.notificationClient,
-        KafkaEvent.PUSH_NOTIFICATION,
-        {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+    // gửi notification cho người nhận qua gRPC Notification service
+    try {
+      await firstValueFrom(
+        this.notificationGrpcClient.PushNotification({
+          userId: receiver.usr_id,
           title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
-          message: 'Bạn có một lời mời kết bạn mới',
+          content: 'Bạn có một lời mời kết bạn mới',
           data: {
             userId: receiver.usr_id,
             senderId: user.usr_id,
@@ -110,6 +119,8 @@ export class SocialService {
           },
         },
       );
+    } catch (error) {
+      console.error('Error sending push notification:', error);
     }
     return Response.success(friendship, 'Gửi lời mời kết bạn thành công');
   }
@@ -179,19 +190,13 @@ export class SocialService {
       frp_status: 'ACCEPTED',
       frp_actionUserId: usr_id,
     });
-    // gửi notification cho người gửi
-    const fcmTokens = await this.keyModel.find(
-      { tkn_userId: user2._id },
-      { tkn_fcmToken: 1 },
-    );
-    if (fcmTokens.length > 0) {
-      Utils.dispatchEventKafka(
-        this.notificationClient,
-        KafkaEvent.PUSH_NOTIFICATION,
-        {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+    // gửi notification cho người gửi qua gRPC Notification service
+    try {
+      await firstValueFrom(
+        this.notificationGrpcClient.PushNotification({
+          userId: user2.usr_id,
           title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
-          message: 'Bạn đã được kết bạn với người dùng',
+          content: 'Bạn đã được kết bạn với người dùng',
           data: {
             userId: user1._id,
             senderId: user2._id,
@@ -199,8 +204,10 @@ export class SocialService {
             senderAvatar: user2.usr_avatar,
             push_type: 'friend_request',
           },
-        },
+        }),
       );
+    } catch (error) {
+      console.error('Error sending push notification:', error);
     }
     const result: {
       frpId: string;
@@ -288,19 +295,13 @@ export class SocialService {
       frp_status: 'REJECTED',
       frp_actionUserId: usr_id,
     });
-    // gửi notification cho người gửi
-    const fcmTokens = await this.keyModel.find(
-      { tkn_userId: user2._id },
-      { tkn_fcmToken: 1 },
-    );
-    if (fcmTokens.length > 0) {
-      Utils.dispatchEventKafka(
-        this.notificationClient,
-        KafkaEvent.PUSH_NOTIFICATION,
-        {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+    // gửi notification cho người gửi qua gRPC Notification service
+    try {
+      const response = await firstValueFrom(
+        this.notificationGrpcClient.PushNotification({
+          userId: user2.usr_id,
           title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
-          message: 'Bạn đã bị từ chối kết bạn với người dùng',
+          content: 'Bạn đã bị từ chối kết bạn với người dùng',
           data: {
             userId: user1._id,
             senderId: user1._id,
@@ -308,14 +309,15 @@ export class SocialService {
             senderAvatar: user1.usr_avatar,
             push_type: 'friend_rejected',
           },
-        },
-      ).then((response) => {
-        if (response.statusCode !== 200) {
-          console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
-        } else {
-          console.log('🔥 Gửi notification thành công:', response);
-        }
-      });
+        }),
+      );
+      if (response.statusCode !== 200) {
+        console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
+      } else {
+        console.log('🔥 Gửi notification thành công:', response);
+      }
+    } catch (error) {
+      console.error('Error sending push notification:', error);
     }
     return Response.success(
       {

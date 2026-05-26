@@ -80,6 +80,15 @@ services:
       - mongodb_ai_data:/data/db
     restart: unless-stopped
 
+  mongodb-learning:
+    image: mongo:7.0
+    container_name: mongodb-learning
+    ports:
+      - "27022:27017"
+    volumes:
+      - mongodb_learning_data:/data/db
+    restart: unless-stopped
+
   # # MongoDB Express (Web UI)
   # mongo-express:
   #   image: mongo-express:1.0.2
@@ -208,3 +217,4 @@ volumes:
   mongodb_filesystem_data:
   mongodb_notification_data:
   mongodb_ai_data:
+  mongodb_learning_data:

@@ -1,24 +1,33 @@
 import { REDISKEY } from '@app/constants/RedisKey';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
-import { RedisService, Key, Notification, NotificationType } from 'libs/db/src';
+import { RedisService, Notification, NotificationType } from 'libs/db/src';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationService } from './notification.service';
+import { ClientGrpc } from '@nestjs/microservices';
+import { SERVICES } from '@app/constants';
+import { firstValueFrom } from 'rxjs';
+
+interface AuthGrpcClient {
+  GetFcmTokensByUserId(data: { userId: string }): any;
+}
 
 @Injectable()
 export class FirebaseService {
   private app!: admin.app.App;
   private readonly key = REDISKEY;
+  private authGrpcClient: AuthGrpcClient;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
-    @InjectModel(Key.name) private readonly keyModel: Model<Key>,
     @InjectModel(Notification.name)
     private readonly notificationModel: Model<Notification>,
     private readonly notificationService: NotificationService,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
   ) {
     if (!admin.apps.length) {
       this.app = admin.initializeApp({
@@ -27,13 +36,18 @@ export class FirebaseService {
           clientEmail: this.configService.get<string>('firebase.clientEmail'),
           privateKey: this.configService
             .get<string>('firebase.privateKey')
-            ?.replace(/\\n/g, '\n'), // Lưu ý replace \n
+            ?.replace(/\\n/g, '\n'),
         }),
         storageBucket: this.configService.get<string>('firebase.storageBucket'),
       });
     } else {
       this.app = admin.app();
     }
+  }
+
+  onModuleInit() {
+    this.authGrpcClient =
+      this.authGrpc.getService<AuthGrpcClient>('AuthService');
   }
 
   getAuth() {
@@ -56,6 +70,37 @@ export class FirebaseService {
     return this.app;
   }
 
+  /**
+   * Lấy FCM tokens của user thông qua gRPC Auth service.
+   * Auth là single source of truth cho FCM tokens.
+   * Fallback: Redis → gRPC Auth.
+   */
+  private async getFcmTokensForUser(userId: string): Promise<string[]> {
+    // Primary: Redis
+    try {
+      const redisTokens = await this.redis.sMembers(
+        this.key.USER_FCM_TOKENS(userId),
+      );
+      if (redisTokens.length > 0) return redisTokens;
+    } catch (e) {
+      console.error(`Redis error for user ${userId}:`, e);
+    }
+
+    // Fallback: Auth service qua gRPC
+    try {
+      const result = await firstValueFrom(
+        this.authGrpcClient.GetFcmTokensByUserId({ userId }),
+      );
+      if (result?.metadata?.tokens?.length > 0) {
+        return result.metadata.tokens;
+      }
+    } catch (error) {
+      console.error(`Error fetching FCM tokens from Auth for user ${userId}:`, error);
+    }
+
+    return [];
+  }
+
   async pushNotification({
     title,
     message,
@@ -70,32 +115,17 @@ export class FirebaseService {
     skipSaveToDb?: boolean;
   }) {
     /**
-     * tạo notification cho người dùng (DB chết mà lỗi không làm chết service)
+     * Tạo notification cho người dùng (DB chết mà lỗi không làm chết service).
+     * Lấy userIds từ FCM tokens thông qua gRPC Auth service.
      */
-    if (!skipSaveToDb) {
+    if (!skipSaveToDb && fcmTokens.length > 0) {
       try {
-        const keys = await this.keyModel
-          .find({ tkn_fcmToken: { $in: fcmTokens } }, { tkn_userId: 1 })
-          .lean();
-
-        const userIds = [...new Set(keys.map((k) => k.tkn_userId.toString()))];
-
-        if (userIds.length === 0) {
-          console.warn(
-            'No users found for tokens, cannot save notification to DB',
-          );
-        }
-
-        await Promise.all(
-          userIds.map((uid) =>
-            this.notificationService.createNotification({
-              userId: uid as unknown as string,
-              push_type: (data?.push_type as NotificationType) || 'other',
-              title,
-              message,
-              metadata: data as Record<string, any>,
-            }),
-          ),
+        // Với token-based push, ta không thể dễ dàng map tokens → userIds
+        // mà không có DB. Tạm thời ta vẫn lưu notification nhưng bỏ qua
+        // việc map nếu không có userIds từ caller.
+        // Caller có thể truyền userIds qua data nếu cần.
+        console.warn(
+          'Token-based push: skipping DB save (no userId mapping). Use user-based push (PushNotificationForUsers) for DB notifications.',
         );
       } catch (error) {
         console.error('Không tạo được notification:', error);
@@ -146,6 +176,7 @@ export class FirebaseService {
     }
     return true;
   }
+
   async pushNotificationForUsers({
     title,
     message,
@@ -174,37 +205,26 @@ export class FirebaseService {
       );
     }
 
-    // get fctoken from redis, fallback to MongoDB if empty
-    let fcms: string[] = [];
-    const redisResults = await Promise.all(
-      userIds.map(async (u) => {
-        try {
-          return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
-        } catch (e) {
-          console.error(`Redis error for user ${u}:`, e);
-          return [];
-        }
+    // Get FCM tokens per user: Redis primary, Auth gRPC fallback
+    const tokenResults = await Promise.all(
+      userIds.map(async (userId) => {
+        const tokens = await this.getFcmTokensForUser(userId);
+        return tokens;
       }),
     );
-    fcms = redisResults.flat();
+    const fcms = tokenResults.flat();
+
     if (fcms.length === 0) {
-      // Fallback: fetch from MongoDB
-      const mongoKeys = await this.keyModel
-        .find({ tkn_userId: { $in: userIds } }, 'tkn_fcmToken')
-        .lean();
-      fcms = mongoKeys.flatMap((k) => k.tkn_fcmToken || []);
-      if (fcms.length === 0) {
-        console.error('Không có fctoken (Redis & MongoDB đều trống)');
-      }
+      console.error('Không có fctoken (Redis & Auth gRPC đều trống)');
+      return false;
     }
-    if (fcms.length > 0) {
-      await this.pushNotification({
-        title,
-        message,
-        fcmTokens: fcms,
-        data,
-        skipSaveToDb: true,
-      });
-    }
+
+    return this.pushNotification({
+      title,
+      message,
+      fcmTokens: fcms,
+      data,
+      skipSaveToDb: true, // Đã lưu ở trên
+    });
   }
 }

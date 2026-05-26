@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Inject } from '@nestjs/common';
 import { GrpcMethod, MessagePattern, Payload } from '@nestjs/microservices';
 import { NotificationService } from './notification.service';
 import { Response } from '@app/helpers/response';
@@ -161,6 +161,8 @@ export class NotificationController {
     return this.pushNotificationForUser({ ...data, saveToDb: true });
   }
 
+  // ── gRPC methods ──────────────────────────────────────────────────
+
   @GrpcMethod('NotificationService', 'PushNotificationTest')
   async pushNotificationTest(
     @Payload()
@@ -193,5 +195,42 @@ export class NotificationController {
   @GrpcMethod('NotificationService', 'DeleteNotification')
   async deleteNotification(@Payload() data: { notificationId: string }) {
     return await this.notificationService.deleteNotification(data);
+  }
+
+  // ── Cross-service gRPC handlers (database isolation) ──────────────
+
+  @GrpcMethod('NotificationService', 'CreateOtp')
+  async createOtpGrpc(
+    @Payload() data: { indicator: string; type: string; channel: string },
+  ) {
+    return await this.notificationService.createOtp(data);
+  }
+
+  @GrpcMethod('NotificationService', 'VerifyOtp')
+  async verifyOtpGrpc(
+    @Payload() data: { indicator: string; otp: string; type: string },
+  ) {
+    return await this.notificationService.verifyOtp(data);
+  }
+
+  @GrpcMethod('NotificationService', 'PushNotification')
+  async pushNotificationGrpc(
+    @Payload()
+    data: {
+      userId: string;
+      title: string;
+      content: string;
+      data?: Record<string, any>;
+    },
+  ) {
+    // Nhận userId từ caller, notification service tự lấy FCM tokens từ Auth
+    await this.firebaseService.pushNotificationForUsers({
+      title: data.title,
+      message: data.content,
+      userIds: [data.userId],
+      data: data.data,
+      saveToDb: true,
+    });
+    return Response.success(null, 'Push notification sent successfully');
   }
 }

@@ -15,12 +15,14 @@ import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
 import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
-import Userschema from 'libs/db/src/mongo/model/user.model';
-import MessageSchema from 'libs/db/src/mongo/model/messages.model';
 import { mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { AiLogUseService } from './ai-log-use.service';
+import authConfig from './config/app/auth.config';
+import chatConfig from './config/app/chat.config';
+import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
+import { SERVICES } from '@app/constants';
 
 @Module({
   imports: [
@@ -30,7 +32,7 @@ import { AiLogUseService } from './ai-log-use.service';
         process.cwd(),
         `apps/ai/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [googleConfig, mongoConfig, kafkaConfig],
+      load: [googleConfig, mongoConfig, kafkaConfig, authConfig, chatConfig],
     }),
     KafkaAdminModule,
     MongodbModule,
@@ -38,9 +40,19 @@ import { AiLogUseService } from './ai-log-use.service';
     MongooseModule.forFeature([
       AIUsageLogSchema,
       AIEmbeddingSchema,
-      Userschema,
-      MessageSchema,
+      // Removed: Userschema, MessageSchema — accessed via gRPC
     ]),
+    // gRPC clients for cross-service data access (database isolation)
+    GrpcClientModule.registerAsync({
+      name: SERVICES.AUTH,
+      configKey: 'auth',
+      packages: ['auth'],
+    }),
+    GrpcClientModule.registerAsync({
+      name: SERVICES.CHAT,
+      configKey: 'chat',
+      packages: ['chat'],
+    }),
   ],
   controllers: [AIController],
   providers: [
