@@ -1039,7 +1039,7 @@ export class RoomsService {
     });
 
     // kiem tra thong tin thanh vien
-    const checkMemberIds = await this.userModel
+    const checkMemberIdsRaw = await this.userModel
       .find({
         usr_id: {
           $in: memberIds,
@@ -1052,6 +1052,16 @@ export class RoomsService {
         usr_fullname: 1,
       })
       .exec();
+
+    // Lọc creator ra khỏi danh sách member: FE đôi khi vô tình truyền cả
+    // usr_id của chính creator trong `memberIds`. Trước đây code không lọc
+    // nên `room_members` chứa creator 2 lần (1 admin + 1 member) — thấy rõ
+    // trong các room cũ. Sau khi thêm unique index (user_id, room_id) trên
+    // RoomsUsersState, dup này gây E11000 lúc insertMany.
+    const creatorIdStr = getInforUserCreateRoom._id.toString();
+    const checkMemberIds = checkMemberIdsRaw.filter(
+      (m) => m._id.toString() !== creatorIdStr,
+    );
 
     if (checkMemberIds.length > 1 && type === 'private') {
       throw new BadRequestException('thành viên không hợp lệ');
