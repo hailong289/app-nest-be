@@ -37,6 +37,14 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+interface CacheStats {
+  requests: number;
+  requestedUserIds: number;
+  memoryHits: number;
+  redisHits: number;
+  grpcLookups: number;
+}
+
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const MEMORY_TTL_MS = 60_000;          // 60 seconds for in-memory
@@ -52,6 +60,13 @@ export class UserCacheService implements OnModuleInit {
 
   /** In-memory LRU cache: userId -> { data, expiresAt } */
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly stats: CacheStats = {
+    requests: 0,
+    requestedUserIds: 0,
+    memoryHits: 0,
+    redisHits: 0,
+    grpcLookups: 0,
+  };
 
   constructor(
     @Inject(SERVICES.AUTH) private readonly authGrpc: ClientGrpc,
@@ -82,6 +97,9 @@ export class UserCacheService implements OnModuleInit {
   async getUsersByIdsCached(userIds: string[]): Promise<GrpcUser[]> {
     if (!userIds.length) return [];
 
+    this.stats.requests += 1;
+    this.stats.requestedUserIds += userIds.length;
+
     const result: GrpcUser[] = [];
     const redisCheck: string[] = [];
 
@@ -90,6 +108,7 @@ export class UserCacheService implements OnModuleInit {
       const entry = this.cache.get(id);
       if (entry && entry.expiresAt > Date.now()) {
         result.push(entry.data);
+        this.stats.memoryHits += 1;
       } else {
         redisCheck.push(id);
       }
@@ -119,6 +138,7 @@ export class UserCacheService implements OnModuleInit {
           // Restore in in-memory cache (LRU with fresh TTL)
           this.setInMemory(userId, parsed);
           result.push(parsed);
+          this.stats.redisHits += 1;
         } catch {
           // Corrupt JSON — fall through to gRPC
           grpcLookup.push(userId);
@@ -131,6 +151,7 @@ export class UserCacheService implements OnModuleInit {
     if (grpcLookup.length === 0) return result;
 
     // ── Tier 3: gRPC (source of truth) ───────────────────────────────────
+    this.stats.grpcLookups += grpcLookup.length;
     try {
       const grpcResult = await firstValueFrom(
         this.authGrpcClient.GetUsersByIds({ userIds: grpcLookup }),
@@ -151,7 +172,29 @@ export class UserCacheService implements OnModuleInit {
       // Return whatever we managed to collect from caches so far
     }
 
+    this.logStatsPeriodically();
     return result;
+  }
+
+  /**
+   * Runtime stats for verification/benchmarking cache hit ratio.
+   */
+  getStats() {
+    const hitCount = this.stats.memoryHits + this.stats.redisHits;
+    const requested = this.stats.requestedUserIds || 1;
+    return {
+      ...this.stats,
+      hitCount,
+      hitRatio: hitCount / requested,
+    };
+  }
+
+  resetStats(): void {
+    this.stats.requests = 0;
+    this.stats.requestedUserIds = 0;
+    this.stats.memoryHits = 0;
+    this.stats.redisHits = 0;
+    this.stats.grpcLookups = 0;
   }
 
   /**
@@ -226,5 +269,13 @@ export class UserCacheService implements OnModuleInit {
     if (evicted > 0) {
       this.logger.debug(`Evicted ${evicted} expired entries from in-memory cache`);
     }
+  }
+
+  private logStatsPeriodically(): void {
+    if (this.stats.requests % 50 !== 0) return;
+    const s = this.getStats();
+    this.logger.log(
+      `cache stats: requests=${s.requests}, userIds=${s.requestedUserIds}, hits=${s.hitCount}, hitRatio=${(s.hitRatio * 100).toFixed(1)}%, grpcLookups=${s.grpcLookups}`,
+    );
   }
 }

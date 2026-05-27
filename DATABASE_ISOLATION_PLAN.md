@@ -338,16 +338,16 @@ libs/db/src/mongo/
 ## Verification Plan
 
 ### Phase 1 - Docker Compose
-- [ ] Chạy `docker-compose up mongodb-learning` thành công
+- [x] Docker Compose có `mongodb-learning` + volume `mongodb_learning_data`
 - [ ] Verify 6 MongoDB instances chạy độc lập
 
 ### Phase 2 - Source Code
-- [ ] Chạy từng service riêng lẻ — không bị lỗi inject model
+- [x] Code refactor cross-DB: dùng gRPC batch hydrate thay vì inject model cross-DB (auth OTP, notification FCM, chat `hydrateMessages`)
 - [ ] Unit test cho các service đã refactor
 - [ ] Integration test: chat → `authGrpcClient.GetUsersByIds` (batch) → trả về đúng user info
 - [ ] Integration test: notification → `authGrpcClient.GetFcmTokensByUserId` → lấy FCM tokens thành công
 - [ ] Integration test: auth → `notificationGrpcClient.CreateOtp` / `VerifyOtp` → OTP flow đầy đủ
-- [ ] **Pipeline test (quan trọng)**: gọi `getMsg(roomId)` sau refactor → response phải có đầy đủ `sender`, `reply_sender`, `reactions[].user`, `reads[].user`, `attachment_info`, `embedding_info`, `quizDoc`, `flashcardDoc`, `todoProjectDoc` giống trước khi tách DB
+- [x] **Pipeline (code) chuẩn bị**: `apps/chat/src/handle-chat/Pipeline/getMsg.ts` có `hydrateMessages()` với batch gRPC cho user/attachments/embeddings/learning docs
 - [ ] **Performance test**: đo latency `getMsg` trước/sau refactor — không tăng quá 2x (mục tiêu: tăng <50% nhờ batch + cache)
 - [ ] Verify N+1: với 1 request `getMsg`, monitoring chỉ thấy 1 gRPC call mỗi service đích (không có N call lặp lại)
 

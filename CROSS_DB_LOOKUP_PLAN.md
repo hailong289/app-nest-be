@@ -485,7 +485,7 @@ async getUsersByIdsCached(userIds: string[]) {
 Pipeline cross-DB là phần khó nhất trong toàn bộ migration. Đề xuất thứ tự:
 
 1. **Trước tiên**: Thêm batch proto methods (`GetUsersByIds`, `GetRoomsByIds`, `GetAttachmentsByIds`, `GetEmbeddingsByContextIds`, `GetQuizzesByIds`, `GetFlashcardsByIds`, `GetTodoProjectsByIds`). Test gRPC server-side trả đúng data.
-2. **Setup caching layer** ở chat service (LRU + optional Redis). Test với mock data.
+2. ✅ **Setup caching layer** ở chat service (LRU + optional Redis). (đã gắn vào `getMsg` hydrate path)
 3. **Refactor pipeline đơn giản trước**: `documents.service.ts` (filesystem) — ít lookup, dễ test correctness.
 4. **Refactor social aggregates**: đảo chiều pipeline, test với dataset có vài chục friendships.
 5. **Refactor `rooms.service.ts`**: nhiều lookup nhưng pattern tương tự, có thể tái sử dụng helper từ social.
@@ -499,6 +499,7 @@ Pipeline cross-DB là phần khó nhất trong toàn bộ migration. Đề xuấ
 ## 7. Verification
 
 ### Correctness
+- [x] Build check: `yarn build:chat` pass sau khi refactor hydrate + cache integration
 - [ ] Snapshot test: chạy `getMsg(roomId)` với fixture data — so sánh response JSON (cũ vs mới), phải bằng nhau (ngoại trừ field order)
 - [ ] Test edge case: message của user đã bị xóa → `sender = null`, không crash
 - [ ] Test edge case: attachment đã bị xóa → `attachment_infos` skip ID đó
@@ -508,6 +509,7 @@ Pipeline cross-DB là phần khó nhất trong toàn bộ migration. Đề xuấ
 - [ ] Benchmark `getMsg(roomId, limit=50)` — đo p50, p95, p99 latency
 - [ ] Target: p95 không tăng quá 50% so với baseline trước refactor
 - [ ] Verify N+1: monitoring (Datadog/Grafana) hiển thị chỉ 1 gRPC call mỗi service đích cho 1 request
+- [x] Cache instrumentation: `UserCacheService` đã có stats hit/miss (`getStats`, `resetStats`) để đo hit ratio khi benchmark
 - [ ] Verify cache hit ratio: tầng LRU cache > 80% sau warm-up
 
 ### Manual
@@ -517,6 +519,60 @@ Pipeline cross-DB là phần khó nhất trong toàn bộ migration. Đề xuấ
 - [ ] Message gắn quiz/flashcard/todo → load đầy đủ
 - [ ] Mở document chia sẻ với nhiều user → owner_info + room_infos + shared users hiện đúng
 - [ ] Mở danh sách bạn bè / gợi ý kết bạn → user info đầy đủ, mutual count chính xác
+
+### Benchmark runbook (thực thi nhanh)
+
+> Mục tiêu: có số liệu thực để tick các mục Performance ở trên (`p50/p95/p99`, `N+1`, `cache hit ratio`).
+
+1. **Chuẩn bị môi trường**
+   - Start đủ service liên quan (`chat`, `auth`, `filesystem`, `ai`, `learning`, `redis`, `mongodb-*`).
+   - Chọn 1 `roomId` có dữ liệu thực (>=100 messages, có reaction/read/attachment nếu có thể).
+   - Dùng script benchmark:
+     - `yarn bench:getmsg` (script: `libs/scripts/benchmark-getmsg.ts`)
+
+   Ví dụ chạy chuẩn:
+
+   ```bash
+   BENCH_BASE_URL=http://localhost:5000 \
+   BENCH_ROOM_ID=<room_id> \
+   BENCH_TOKEN=<jwt_token> \
+   BENCH_LIMIT=50 \
+   BENCH_WARMUP=40 \
+   BENCH_REQUESTS=300 \
+   BENCH_CONCURRENCY=10 \
+   yarn bench:getmsg
+   ```
+
+   Tuỳ chọn auth bằng cookie:
+
+   ```bash
+   BENCH_BASE_URL=http://localhost:5000 \
+   BENCH_ROOM_ID=<room_id> \
+   BENCH_COOKIE="accessToken=<token>" \
+   yarn bench:getmsg
+   ```
+
+2. **Reset cache stats trước khi đo**
+   - Dùng REPL / debug hook gọi `userCache.resetStats()` ở chat service.
+   - Xác nhận stats về 0 trước warm-up.
+
+3. **Warm-up**
+   - Gọi endpoint/API `getMsg(roomId, limit=50)` khoảng 30-50 lần đầu để làm nóng cache.
+   - Không ghi nhận số liệu giai đoạn này.
+
+4. **Đo chính thức**
+   - Gọi `getMsg(roomId, limit=50)` thêm 200-500 requests (tuỳ môi trường).
+   - Thu latency từng request (ms) để tính `p50`, `p95`, `p99`.
+   - Đồng thời đọc `userCache.getStats()` hoặc log định kỳ của `UserCacheService`.
+
+5. **Đánh giá**
+   - `p95` mới <= `1.5x` baseline cũ.
+   - `hitRatio >= 0.8` sau warm-up.
+   - Không thấy pattern N+1 (mỗi request chỉ 1 batch call / service đích).
+
+6. **Cập nhật checklist**
+   - Tick các mục Performance nếu đạt tiêu chí.
+   - Nếu chưa đạt, ghi rõ nguyên nhân (cache miss cao, room data skew, network gRPC, ...).
 
 ---
 

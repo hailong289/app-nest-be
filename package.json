@@ -62,6 +62,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./apps/app-nest-be/test/jest-e2e.json",
     "kafka:create-topics": "ts-node -r tsconfig-paths/register libs/scripts/create-topics.ts",
+    "bench:getmsg": "ts-node -r tsconfig-paths/register libs/scripts/benchmark-getmsg.ts",
     "kill:all:ports": "ts-node -r tsconfig-paths/register killport.sh"
   },
   "dependencies": {

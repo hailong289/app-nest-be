@@ -1025,6 +1025,11 @@ export interface HydrationServices {
   filesystemGrpc: FileSystemGrpcClient;
   aiGrpc: AIGrpcClient;
   learningGrpc: LearningGrpcClient;
+  /**
+   * Optional override for user hydration (e.g. use cached lookups instead of
+   * calling auth gRPC directly).
+   */
+  getUsersByIds?: (userIds: string[]) => Promise<any[]>;
 }
 
 /**
@@ -1033,7 +1038,7 @@ export interface HydrationServices {
 function projectUser(u: any): any | null {
   if (!u) return null;
   return {
-    _id: u._id,
+    _id: u._id ?? u.id ?? u.usr_id,
     id: u.id ?? u.usr_id,
     fullname: u.fullname ?? u.usr_fullname,
     avatar: u.avatar ?? u.usr_avatar,
@@ -1106,13 +1111,17 @@ export async function hydrateMessages(
   }
 
   // ── Step 2: Batch gRPC calls in parallel ──────────────────────────────
-  const [usersRes, attachmentsRes, quizzesRes, flashcardsRes, todoProjectsRes] =
+  const [usersArr, attachmentsRes, quizzesRes, flashcardsRes, todoProjectsRes] =
     await Promise.all([
       userIds.size > 0
-        ? firstValueFrom(
-            services.authGrpc.GetUsersByIds({ userIds: [...userIds] }),
-          ).catch(() => null)
-        : Promise.resolve(null),
+        ? services.getUsersByIds
+          ? services.getUsersByIds([...userIds]).catch(() => [])
+          : firstValueFrom(
+              services.authGrpc.GetUsersByIds({ userIds: [...userIds] }),
+            )
+              .then((res: any) => res?.metadata ?? [])
+              .catch(() => [])
+        : Promise.resolve([]),
       attachmentIds.size > 0
         ? firstValueFrom(
             services.filesystemGrpc.GetAttachmentsByIds({
@@ -1156,8 +1165,9 @@ export async function hydrateMessages(
 
   // ── Step 4: Build lookup maps ─────────────────────────────────────────
   const userMap = new Map<string, any>();
-  for (const u of (usersRes as any)?.metadata ?? []) {
-    userMap.set(String(u._id), u);
+  for (const u of usersArr ?? []) {
+    const key = String(u?._id ?? u?.id ?? u?.usr_id);
+    if (key && key !== 'undefined' && key !== 'null') userMap.set(key, u);
   }
 
   const attMap = new Map<string, any>();

@@ -36,6 +36,7 @@ import {
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
+import { UserCacheService } from '../cache/user-cache.service';
 import {
   buildMessageCorePipeline,
   buildMessageDetailPipeline,
@@ -80,6 +81,7 @@ export class HandleChatService implements OnModuleInit {
     @InjectModel(RoomsState.name)
     private readonly RoomsStateModel: Model<RoomsState>,
     private readonly roomService: RoomsService,
+    private readonly userCache: UserCacheService,
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
     @InjectModel(MessageReaction.name)
@@ -134,6 +136,8 @@ export class HandleChatService implements OnModuleInit {
       filesystemGrpc: this.filesystemGrpcClient,
       aiGrpc: this.aiGrpcClient,
       learningGrpc: this.learningGrpcClient,
+      // Use cached user hydration to reduce gRPC calls during scroll.
+      getUsersByIds: (userIds) => this.userCache.getUsersByIdsCached(userIds),
     });
   }
 
