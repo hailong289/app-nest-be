@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { firstValueFrom } from 'rxjs';
@@ -27,6 +27,8 @@ interface AuthGrpcClient {
   GetUserById(data: { userId: string }): any;
   GetUsersByIds(data: { userIds: string[] }): any;
 }
+
+type GrpcListResponse<T> = { metadata?: T[] };
 
 // ── Cache entry ─────────────────────────────────────────────────────────────
 
@@ -133,7 +135,8 @@ export class UserCacheService implements OnModuleInit {
       const grpcResult = await firstValueFrom(
         this.authGrpcClient.GetUsersByIds({ userIds: grpcLookup }),
       );
-      const grpcUsers: GrpcUser[] = grpcResult?.metadata ?? [];
+      const grpcUsers: GrpcUser[] =
+        (grpcResult as GrpcListResponse<GrpcUser>)?.metadata ?? [];
 
       // Populate both caches with fresh data
       for (const user of grpcUsers) {

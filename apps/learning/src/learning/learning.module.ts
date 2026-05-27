@@ -36,6 +36,11 @@ import { SERVICES } from '@app/constants';
       configKey: 'auth',
       packages: ['auth'],
     }),
+    GrpcClientModule.registerAsync({
+      name: SERVICES.CHAT,
+      configKey: 'chat',
+      packages: ['chat'],
+    }),
   ],
   controllers: [
     QuizzController,

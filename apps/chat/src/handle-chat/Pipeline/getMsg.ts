@@ -1167,17 +1167,23 @@ export async function hydrateMessages(
 
   const quizMap = new Map<string, any>();
   for (const q of (quizzesRes as any)?.metadata ?? []) {
-    quizMap.set(String(q.quiz_id ?? q._id), q);
+    for (const key of [q._id, q.id, q.quiz_id]) {
+      if (key) quizMap.set(String(key), q);
+    }
   }
 
   const flashcardMap = new Map<string, any>();
   for (const f of (flashcardsRes as any)?.metadata ?? []) {
-    flashcardMap.set(String(f.card_id ?? f._id), f);
+    for (const key of [f._id, f.id, f.card_id]) {
+      if (key) flashcardMap.set(String(key), f);
+    }
   }
 
   const todoProjectMap = new Map<string, any>();
   for (const t of (todoProjectsRes as any)?.metadata ?? []) {
-    todoProjectMap.set(String(t.project_id ?? t._id), t);
+    for (const key of [t.id, t._id, t.project_id]) {
+      if (key) todoProjectMap.set(String(key), t);
+    }
   }
 
   // Index embeddings by contextId

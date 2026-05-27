@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Notification, NotificationType, Otp } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { firstValueFrom } from 'rxjs';
 
@@ -14,6 +14,8 @@ interface AuthGrpcClient {
   GetFcmTokensByUserId(data: { userId: string }): any;
   GetUserById(data: { userId: string }): any;
 }
+
+type GrpcResponse<T = any> = { metadata?: T };
 
 @Injectable()
 export class NotificationService {
@@ -217,8 +219,9 @@ export class NotificationService {
       const result = await firstValueFrom(
         this.authGrpcClient.GetFcmTokensByUserId({ userId }),
       );
-      if (result?.metadata?.tokens) {
-        return result.metadata.tokens;
+      const response = result as GrpcResponse<{ tokens?: string[] }>;
+      if (response?.metadata?.tokens) {
+        return response.metadata.tokens;
       }
       return [];
     } catch (error) {

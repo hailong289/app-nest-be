@@ -5,13 +5,14 @@ import {
   TodoProject,
 } from 'libs/db/src/mongo/model/todo-project.model';
 import { Model, Types } from 'mongoose';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { firstValueFrom } from 'rxjs';
 
 interface AuthGrpcClient {
   GetUsersByIds(data: { userIds: string[] }): any;
 }
+type GrpcResponse<T = any> = { metadata?: T };
 import Utils from 'libs/helpers/utils';
 import { Response } from 'libs/helpers/response';
 import {
@@ -46,6 +47,7 @@ export class TodoProjectService {
 
   private toMetadata(project: Record<string, any>) {
     return {
+      id: project._id?.toString() ?? project.id ?? '',
       project_id: project.project_id ?? '',
       project_name: project.project_name ?? '',
       project_description: project.project_description ?? '',
@@ -397,8 +399,16 @@ export class TodoProjectService {
 
   async getTodoProjectsByIds(projectIds: string[]) {
     try {
+      const objectIds = projectIds
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
       const projects = await this.todoProjectModel
-        .find({ project_id: { $in: projectIds } })
+        .find({
+          $or: [
+            { project_id: { $in: projectIds } },
+            ...(objectIds.length ? [{ _id: { $in: objectIds } }] : []),
+          ],
+        })
         .lean();
       return Response.success(
         projects.map((project) => this.toMetadata(project)),
@@ -435,7 +445,7 @@ export class TodoProjectService {
             userIds: memberObjectIds.map((id: any) => id.toString()),
           }),
         );
-        users = grpcResult?.metadata ?? [];
+        users = (grpcResult as GrpcResponse<any[]>)?.metadata ?? [];
         // Filter by search if needed
         if (data.search?.trim()) {
           const searchLower = data.search.trim().toLowerCase();

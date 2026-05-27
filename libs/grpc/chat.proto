@@ -38,6 +38,7 @@ service ChatService {
   // Cross-service data access (database isolation)
   rpc GetRoomById(GetRoomByIdRequest) returns (GetRoomByIdResponse);
   rpc GetMessagesByRoomId(GetMessagesByRoomIdRequest) returns (GetMessagesByRoomIdResponse);
+  rpc AddAttachmentToMessage(AddAttachmentToMessageRequest) returns (AddAttachmentToMessageResponse);
   // Batch hydration (database isolation)
   rpc GetRoomsByIds(GetRoomsByIdsRequest) returns (GetRoomsByIdsResponse);
 
@@ -723,6 +724,18 @@ message GetMessagesByRoomIdResponse {
   int32                  statusCode       = 2;
   string                 reasonStatusCode = 3;
   repeated MessageCore   metadata         = 4;
+}
+
+message AddAttachmentToMessageRequest {
+  string messageId = 1;
+  string attachmentId = 2;
+}
+
+message AddAttachmentToMessageResponse {
+  string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  google.protobuf.Struct metadata = 4;
 }
 
 message GetRoomsByIdsRequest {

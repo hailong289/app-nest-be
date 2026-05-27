@@ -47,6 +47,7 @@ message TodoProjectMetadata {
     string createdAt           = 9;
     string updatedAt           = 10;
     repeated string project_members = 11;
+    string id                  = 12; // MongoDB _id for cross-service references
 }
 
 message TodoMetadata {

@@ -189,6 +189,10 @@ class Utils {
     return new Types.ObjectId(id);
   }
 
+  static isValidObjectId(id: unknown): id is string {
+    return typeof id === 'string' && Types.ObjectId.isValid(id);
+  }
+
   static pairRoomId(a: string, b: string) {
     const sa = String(a),
       sb = String(b);

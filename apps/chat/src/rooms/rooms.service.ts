@@ -1,5 +1,5 @@
 import { Inject } from '@nestjs/common';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import {
   ChangeNickNameMemberDto,
   ChangeRoleMemberDto,
@@ -49,6 +49,11 @@ interface AuthGrpcClient {
   GetUserById(data: { userId: string }): any;
   GetUsersByIds(data: { userIds: string[] }): any;
 }
+
+type GrpcResponse<T = any> = {
+  statusCode?: number;
+  metadata?: T;
+};
 
 @Injectable()
 export class RoomsService {
@@ -921,7 +926,7 @@ export class RoomsService {
       const result = await firstValueFrom(
         this.authGrpcClient.GetUsersByIds({ userIds }),
       );
-      const users = result?.metadata ?? [];
+      const users = (result as GrpcResponse<any[]>)?.metadata ?? [];
       return users.map((u: any) => ({
         _id: u._id,
         usr_id: u.id ?? u._id,
@@ -1004,8 +1009,18 @@ export class RoomsService {
       const result = await firstValueFrom(
         this.authGrpcClient.GetUserById({ userId }),
       );
-      if (result?.statusCode === 200 && result?.metadata) {
-        return result.metadata;
+      const response = result as GrpcResponse<Record<string, any>>;
+      if (response?.statusCode === 200 && response?.metadata) {
+        const user = response.metadata;
+        return {
+          ...user,
+          _id: user._id ?? user.id ?? '',
+          usr_id: user.usr_id ?? user.id ?? user._id,
+          usr_fullname: user.usr_fullname ?? user.fullname ?? '',
+          usr_avatar: user.usr_avatar ?? user.avatar ?? '',
+          usr_email: user.usr_email ?? user.email ?? '',
+          usr_phone: user.usr_phone ?? user.phone ?? '',
+        };
       }
       return null;
     } catch {
@@ -1940,9 +1955,7 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
     // get info user
-    const userInfo = await this.lookupUserById(
-      this.utils.convertToObjectIdMongoose(userId),
-    );
+    const userInfo = await this.lookupUserById(userId);
     if (!userInfo) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
@@ -1980,9 +1993,7 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
     // get info user
-    const userInfo = await this.lookupUserById(
-      this.utils.convertToObjectIdMongoose(userId),
-    );
+    const userInfo = await this.lookupUserById(userId);
     if (!userInfo) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
@@ -2127,9 +2138,7 @@ export class RoomsService {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
     // get info user
-    const userInfo = await this.lookupUserById(
-      this.utils.convertToObjectIdMongoose(userId),
-    );
+    const userInfo = await this.lookupUserById(userId);
     if (!userInfo) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }

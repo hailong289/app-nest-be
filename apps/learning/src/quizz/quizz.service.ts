@@ -1,7 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Quiz } from 'libs/db/src/mongo/model/quiz.model';
-import { Message } from 'libs/db/src/mongo/model/messages.model';
 import { Model, Types } from 'mongoose';
 import {
   AnswerSubmitDto,
@@ -9,7 +8,7 @@ import {
   UpdateQuizzDto,
 } from './dto/quizz.dto';
 import { Response } from 'libs/helpers/response';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { firstValueFrom } from 'rxjs';
 
@@ -17,20 +16,29 @@ interface AuthGrpcClient {
   GetUsersByIds(data: { userIds: string[] }): any;
 }
 
+interface ChatGrpcClient {
+  GetMessagesByRoomId(data: { roomId: string; limit: number; offset: number }): any;
+}
+
+type GrpcResponse<T = any> = { metadata?: T };
+
 @Injectable()
 export class QuizzService {
   private authGrpcClient: AuthGrpcClient;
+  private chatGrpcClient: ChatGrpcClient;
 
   constructor(
     @InjectModel(Quiz.name) private readonly quizModel: Model<Quiz>,
-    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
     @Inject(SERVICES.AUTH)
     private readonly authGrpc: ClientGrpc,
+    @Inject(SERVICES.CHAT)
+    private readonly chatGrpc: ClientGrpc,
   ) {}
 
   onModuleInit() {
     this.authGrpcClient =
       this.authGrpc.getService<AuthGrpcClient>('AuthService');
+    this.chatGrpcClient = this.chatGrpc.getService<ChatGrpcClient>('ChatService');
   }
 
   async createQuizz(data: CreateQuizzDto) {
@@ -78,18 +86,26 @@ export class QuizzService {
       this.quizModel.countDocuments(filter),
     ]);
 
-    const quizObjectIds = quizzes.map((q) => q._id);
-
-    const sentMessages = await this.messageModel
-      .find({ quiz_id: { $in: quizObjectIds } })
-      .select('quiz_id')
-      .lean();
-
-    const sentSet = new Set(sentMessages.map((m) => m.quiz_id?.toString()));
+    const sentSet = new Set<string>();
+    try {
+      const chatResult = (await firstValueFrom(
+        this.chatGrpcClient.GetMessagesByRoomId({
+          roomId,
+          limit: 500,
+          offset: 0,
+        }),
+      )) as GrpcResponse<any[]>;
+      for (const message of chatResult.metadata ?? []) {
+        const quizId = message?.quiz?.id ?? message?.quiz?.quiz_id;
+        if (quizId) sentSet.add(String(quizId));
+      }
+    } catch {
+      // Best-effort only: learning owns quizzes, chat owns sent-message state.
+    }
 
     const data = quizzes.map((q) => ({
       ...q,
-      is_send: sentSet.has(q._id.toString()),
+      is_send: sentSet.has(q._id.toString()) || sentSet.has(q.quiz_id),
     }));
 
     return Response.success({
@@ -124,8 +140,16 @@ export class QuizzService {
 
   async getQuizzesByIds(quizIds: string[]) {
     try {
+      const objectIds = quizIds
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
       const quizzes = await this.quizModel
-        .find({ quiz_id: { $in: quizIds } })
+        .find({
+          $or: [
+            { quiz_id: { $in: quizIds } },
+            ...(objectIds.length ? [{ _id: { $in: objectIds } }] : []),
+          ],
+        })
         .lean();
       return Response.success(quizzes);
     } catch (error) {
@@ -160,7 +184,7 @@ export class QuizzService {
         const grpcResult = await firstValueFrom(
           this.authGrpcClient.GetUsersByIds({ userIds }),
         );
-        const users = grpcResult?.metadata ?? [];
+        const users = (grpcResult as GrpcResponse<any[]>)?.metadata ?? [];
         for (const u of users) {
           userMap.set(u.id || u._id, u);
         }
@@ -197,7 +221,17 @@ export class QuizzService {
 
   async submitAnswer(answer: AnswerSubmitDto) {
     try {
-      const { quiz_id, user_id, answers, started_at, time_taken } = answer;
+      const payload = answer as AnswerSubmitDto & {
+        quiz_id: string;
+        user_id?: string;
+      };
+      const {
+        quiz_id,
+        answers,
+        started_at,
+        time_taken,
+      } = payload;
+      const user_id = payload.user_id ?? payload.userId;
       const userId = new Types.ObjectId(user_id);
 
       const quiz = await this.quizModel.findOne({ quiz_id }).lean();

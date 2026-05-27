@@ -131,6 +131,16 @@ export class HandleChatController {
     };
   }
 
+  @GrpcMethod('ChatService', 'AddAttachmentToMessage')
+  async AddAttachmentToMessage(
+    @Body() payload: { messageId: string; attachmentId: string },
+  ) {
+    return this.hdChat.addAttachmentToMessage(
+      payload.messageId,
+      payload.attachmentId,
+    );
+  }
+
   @GrpcMethod('ChatService', 'GetCallHistory')
   async GetCallHistory(
     @Body()

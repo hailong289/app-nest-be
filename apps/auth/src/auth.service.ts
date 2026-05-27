@@ -5,8 +5,7 @@ import {
   UpdateProfileDto,
   SearchUserDto,
 } from '@app/dto';
-import { Inject } from '@nestjs/common';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import {
   Inject,
   Injectable,
@@ -32,6 +31,13 @@ interface NotificationGrpcClient {
   CreateOtp(data: { indicator: string; type: string; channel: string }): any;
   VerifyOtp(data: { indicator: string; otp: string; type: string }): any;
 }
+
+type GrpcResponse<T = any> = {
+  message?: string;
+  statusCode?: number;
+  reasonStatusCode?: string;
+  metadata?: T;
+};
 
 /**
  * Subset of the device-origin fields shared by LoginDto / RegisterDto /
@@ -440,13 +446,13 @@ export class AuthService implements OnModuleInit {
     console.log('Verifying OTP for indicator:', indicator, 'with OTP:', otp);
 
     // Gọi gRPC Notification service để verify OTP (notification là chủ sở hữu OTP model)
-    const grpcResult = await firstValueFrom(
+    const grpcResult = (await firstValueFrom(
       this.notificationGrpcClient.VerifyOtp({
         indicator,
         otp,
         type,
       }),
-    );
+    )) as GrpcResponse;
 
     if (!grpcResult || grpcResult.statusCode !== 200) {
       return Response.error(

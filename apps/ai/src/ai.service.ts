@@ -4,13 +4,15 @@ import { GoogleModerationProvider } from './google.provider';
 import { Model } from 'mongoose';
 import { EmbeddingService } from './embedding.service';
 import { MulterFile } from '@app/dto';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { firstValueFrom } from 'rxjs';
 
 interface ChatGrpcClient {
   GetMessagesByRoomId(data: { roomId: string; limit: number; offset: number }): any;
 }
+
+type GrpcResponse<T = any> = { metadata?: T };
 
 import axios from 'axios';
 import { basename } from 'node:path';
@@ -58,13 +60,13 @@ export class AIService {
     }
     // Fallback: tìm kiếm qua gRPC Chat service (database isolation)
     try {
-      const grpcResult = await firstValueFrom(
+      const grpcResult = (await firstValueFrom(
         this.chatGrpcClient.GetMessagesByRoomId({
           roomId,
           limit,
           offset: 0,
         }),
-      );
+      )) as GrpcResponse<any[]>;
       const messages = grpcResult?.metadata ?? [];
       // Client-side filter by text
       const regex = new RegExp(text, 'i');

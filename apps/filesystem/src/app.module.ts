@@ -14,8 +14,6 @@ import { SERVICES } from '@app/constants';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import authConfig from './config/app/auth.config';
 import chatConfig from './config/app/chat.config';
-import { APP_FILTER } from '@nestjs/core';
-import { AllExceptionsFilter } from './all.filter';
 
 @Module({
   imports: [

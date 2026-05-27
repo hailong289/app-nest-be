@@ -355,8 +355,16 @@ export class FlashcardService {
 
   async getFlashcardsByIds(flashcardIds: string[]) {
     try {
+      const objectIds = flashcardIds
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
       const flashcards = await this.flashcardModel
-        .find({ card_id: { $in: flashcardIds } })
+        .find({
+          $or: [
+            { card_id: { $in: flashcardIds } },
+            ...(objectIds.length ? [{ _id: { $in: objectIds } }] : []),
+          ],
+        })
         .lean();
       return Response.success(flashcards);
     } catch (error) {

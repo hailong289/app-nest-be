@@ -7,7 +7,7 @@ import friendshipModel, {
 } from 'libs/db/src/mongo/model/friendship.model';
 import { Response } from 'libs/helpers/response';
 import { Model } from 'mongoose';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 
 interface NotificationGrpcClient {
@@ -29,6 +29,11 @@ interface AuthGrpcClient {
     excludeUserId?: string;
   }): any;
 }
+
+type GrpcResponse<T = any> = {
+  statusCode?: number;
+  metadata?: T;
+};
 
 import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
@@ -78,7 +83,7 @@ export class SocialService {
       const result = await firstValueFrom(
         this.authGrpcClient.GetUsersByIds({ userIds }),
       );
-      const users = result?.metadata ?? [];
+      const users = (result as GrpcResponse<any[]>)?.metadata ?? [];
       return users.map((u: any) => ({
         _id: u._id,
         usr_id: u.id ?? u._id,
@@ -371,7 +376,8 @@ export class SocialService {
           },
         }),
       );
-      if (response.statusCode !== 200) {
+      const grpcResponse = response as GrpcResponse;
+      if (grpcResponse.statusCode !== 200) {
         console.error('Co loi xay ra khi gui notification:', response);
       } else {
         console.log('Gui notification thanh cong:', response);
@@ -537,7 +543,7 @@ export class SocialService {
       }),
     );
 
-    const users: any[] = result?.metadata ?? [];
+    const users: any[] = (result as GrpcResponse<any[]>)?.metadata ?? [];
 
     // 2. Check friendship status with each user
     const candidateIds = users.map((u: any) => u.id ?? u._id);

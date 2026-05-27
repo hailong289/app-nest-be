@@ -35,14 +35,14 @@ import { CacheModule } from '../cache/cache.module';
       packages: ['auth'],
     }),
     GrpcClientModule.registerAsync({
-      name: SERVICES.FILESYSTEM,
+      name: 'FILESYSTEM_GRPC',
       configKey: 'filesystem',
       packages: ['filesystem'],
     }),
     GrpcClientModule.registerAsync({
-      name: SERVICES.AI,
+      name: 'AI_GRPC',
       configKey: 'ai',
-      packages: ['ai', 'quizz', 'flashcard', 'todo'],
+      packages: ['ai'],
     }),
     GrpcClientModule.registerAsync({
       name: SERVICES.LEARNING,

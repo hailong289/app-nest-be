@@ -5,9 +5,7 @@ import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
 import { AIEmbedding } from 'libs/db/src/mongo/model/AIEmbedding.model';
-import { Attachment } from 'libs/db/src/mongo/model/Attachment.model';
-import { Document } from 'libs/db/src/mongo/model/Document.model';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { firstValueFrom } from 'rxjs';
 import axios from 'axios';
@@ -16,6 +14,8 @@ import Utils from '@app/helpers/utils';
 interface ChatGrpcClient {
   GetMessagesByRoomId(data: { roomId: string; limit: number; offset: number }): any;
 }
+
+type GrpcResponse<T = any> = { metadata?: T };
 
 /**
  * Strip Vietnamese diacritics + lowercase. Mirrors the `normalizeVi` hook in
@@ -49,10 +49,6 @@ export class EmbeddingService {
     private cfg: ConfigService,
     @InjectModel(AIEmbedding.name)
     private readonly embedModel: Model<AIEmbedding>,
-    @InjectModel(Attachment.name)
-    private readonly attachmentModel: Model<Attachment>,
-    @InjectModel(Document.name)
-    private readonly documentModel: Model<Document>,
     @Inject(SERVICES.CHAT)
     private readonly chatGrpc: ClientGrpc,
   ) {
@@ -312,20 +308,33 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       createdAt: Date;
       score: number;
     };
-    const roomObjectId = Utils.convertToObjectIdMongoose(roomId);
-
     try {
-      // 1. Lấy danh sách file và doc thuộc room này
-      const [fileIds, docIds] = await Promise.all([
-        this.attachmentModel
-          .find({ room_id: roomObjectId })
-          .distinct('_id')
-          .exec(),
-        this.documentModel
-          .find({ roomIds: roomObjectId })
-          .distinct('_id')
-          .exec(),
-      ]);
+      const chatResult = (await firstValueFrom(
+        this.getChatClient().GetMessagesByRoomId({
+          roomId,
+          limit: 500,
+          offset: 0,
+        }),
+      )) as GrpcResponse<any[]>;
+      const roomMessages = chatResult.metadata ?? [];
+
+      const resolvedRoomId =
+        Types.ObjectId.isValid(roomId)
+          ? roomId
+          : roomMessages.find((m: any) => Types.ObjectId.isValid(m.roomId))
+              ?.roomId;
+      if (!resolvedRoomId) return [];
+
+      const roomObjectId = Utils.convertToObjectIdMongoose(resolvedRoomId);
+      const fileIds = roomMessages
+        .flatMap((m: any) => m.attachments ?? [])
+        .map((a: any) => a?._id ?? a?.id)
+        .filter((id: any) => Types.ObjectId.isValid(String(id)))
+        .map((id: any) => Utils.convertToObjectIdMongoose(String(id)));
+      const docIds = roomMessages
+        .map((m: any) => m.documentId)
+        .filter((id: any) => Types.ObjectId.isValid(String(id)))
+        .map((id: any) => Utils.convertToObjectIdMongoose(String(id)));
 
       this.logger.log(
         `Search in Room ${roomId}: Found ${fileIds.length} files, ${docIds.length} docs`,
@@ -462,14 +471,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         // Since we can't query specific message IDs via gRPC, we fetch recent
         // messages and filter client-side for system types
         try {
-          const chatResult = await firstValueFrom(
-            this.getChatClient().GetMessagesByRoomId({
-              roomId: String(roomObjectId),
-              limit: 500,
-              offset: 0,
-            }),
-          );
-          const allMessages: any[] = chatResult?.metadata ?? [];
+          const allMessages: any[] = roomMessages;
           const idSet = new Set(messageIds.map(String));
           allMessages.forEach((m: any) => {
             if (idSet.has(String(m.id)) && m.type === 'system') {
@@ -495,11 +497,13 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       return ranked;
     } catch (error) {
       this.logger.error('Search failed, falling back to keyword search', error);
-      return this.fallbackKeywordSearchOnMessages(
-        query,
-        Utils.convertToObjectIdMongoose(roomId),
-        limit,
-      );
+      return Types.ObjectId.isValid(roomId)
+        ? this.fallbackKeywordSearchOnMessages(
+            query,
+            Utils.convertToObjectIdMongoose(roomId),
+            limit,
+          )
+        : [];
     }
   }
 
@@ -522,13 +526,13 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       const safe = Utils.escapeRegex(normalized);
 
       // Database isolation: fetch messages via gRPC Chat service
-      const chatResult = await firstValueFrom(
+      const chatResult = (await firstValueFrom(
         this.getChatClient().GetMessagesByRoomId({
           roomId: String(roomObjectId),
           limit: limit * 5, // Fetch more to have enough after client-side filter
           offset: 0,
         }),
-      );
+      )) as GrpcResponse<any[]>;
       const docs: any[] = (chatResult?.metadata ?? [])
         .filter((m: any) => {
           // Client-side filter: match regex + exclude system + not deleted

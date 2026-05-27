@@ -6,13 +6,15 @@ import { RedisService, Notification, NotificationType } from 'libs/db/src';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationService } from './notification.service';
-import { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { firstValueFrom } from 'rxjs';
 
 interface AuthGrpcClient {
   GetFcmTokensByUserId(data: { userId: string }): any;
 }
+
+type GrpcResponse<T = any> = { metadata?: T };
 
 @Injectable()
 export class FirebaseService {
@@ -91,8 +93,10 @@ export class FirebaseService {
       const result = await firstValueFrom(
         this.authGrpcClient.GetFcmTokensByUserId({ userId }),
       );
-      if (result?.metadata?.tokens?.length > 0) {
-        return result.metadata.tokens;
+      const response = result as GrpcResponse<{ tokens?: string[] }>;
+      const tokens = response?.metadata?.tokens ?? [];
+      if (tokens.length > 0) {
+        return tokens;
       }
     } catch (error) {
       console.error(`Error fetching FCM tokens from Auth for user ${userId}:`, error);

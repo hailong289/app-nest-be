@@ -6,12 +6,17 @@ import {
   PutObjectCommandInput,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
 import { InjectModel } from '@nestjs/mongoose';
-import { Attachment, AttachmentKind, Room, User } from 'libs/db/src';
+import { Attachment, AttachmentKind } from 'libs/db/src';
 import { Model, FilterQuery } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import {
@@ -31,24 +36,43 @@ import probe from 'probe-image-size';
 import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { ClientKafka } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent } from '@app/dto/enum.type';
+import { firstValueFrom } from 'rxjs';
+
+interface AuthGrpcClient {
+  GetUserById(data: { userId: string }): any;
+}
+
+interface ChatGrpcClient {
+  GetRoomById(data: { roomId: string }): any;
+  AddAttachmentToMessage(data: { messageId: string; attachmentId: string }): any;
+}
+
+type GrpcResponse<T = any> = {
+  statusCode?: number;
+  metadata?: T;
+};
 
 @Injectable()
-export class FilesystemService {
+export class FilesystemService implements OnModuleInit {
   private s3: S3Client;
   private readonly utils = Utils;
   private readonly MAX_RETRIES = 3;
   private readonly TIMEOUT_MS = 30000;
+  private authGrpcClient: AuthGrpcClient;
+  private chatGrpcClient: ChatGrpcClient;
 
   constructor(
     private configService: ConfigService,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
-    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
-    @InjectModel('Message') private readonly messageModel: Model<any>,
     @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
+    @Inject(SERVICES.AUTH)
+    private readonly authGrpc: ClientGrpc,
+    @Inject(SERVICES.CHAT)
+    private readonly chatGrpc: ClientGrpc,
   ) {
     this.s3 = new S3Client({
       region: this.configService.get<string>('s3.region') ?? 'us-east-1',
@@ -63,6 +87,75 @@ export class FilesystemService {
     });
   }
 
+  onModuleInit() {
+    this.authGrpcClient = this.authGrpc.getService<AuthGrpcClient>('AuthService');
+    this.chatGrpcClient = this.chatGrpc.getService<ChatGrpcClient>('ChatService');
+  }
+
+  private toFilesystemUser(u: Record<string, any> | null | undefined) {
+    if (!u) return null;
+    return {
+      ...u,
+      _id: u._id ?? u.id ?? '',
+      usr_id: u.usr_id ?? u.id ?? u._id ?? '',
+      usr_fullname: u.usr_fullname ?? u.fullname ?? '',
+      usr_avatar: u.usr_avatar ?? u.avatar ?? '',
+    };
+  }
+
+  private async lookupUserById(userId: string) {
+    try {
+      const result = (await firstValueFrom(
+        this.authGrpcClient.GetUserById({ userId }),
+      )) as GrpcResponse<Record<string, any>>;
+      return this.toFilesystemUser(result.metadata);
+    } catch {
+      return null;
+    }
+  }
+
+  private async lookupRoomById(roomId: string) {
+    try {
+      const result = (await firstValueFrom(
+        this.chatGrpcClient.GetRoomById({ roomId }),
+      )) as GrpcResponse<Record<string, any>>;
+      return result.statusCode === 200 ? result.metadata : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveRoom(roomId: string, userUsrId?: string) {
+    const room =
+      (await this.lookupRoomById(roomId)) ||
+      (userUsrId
+        ? await this.lookupRoomById(this.utils.pairRoomId(userUsrId, roomId))
+        : null);
+
+    if (room?._id) {
+      return {
+        ...room,
+        _id: this.utils.convertToObjectIdMongoose(String(room._id)),
+        room_id: room.roomId ?? room.id ?? roomId,
+      };
+    }
+
+    if (Utils.isValidObjectId(roomId)) {
+      return {
+        _id: this.utils.convertToObjectIdMongoose(roomId),
+        room_id: roomId,
+      };
+    }
+
+    return null;
+  }
+
+  private async addAttachmentToMessage(messageId: string, attachmentId: string) {
+    await firstValueFrom(
+      this.chatGrpcClient.AddAttachmentToMessage({ messageId, attachmentId }),
+    );
+  }
+
   // ============================================================================
   // MAIN UPLOAD METHOD
   // ============================================================================
@@ -72,12 +165,9 @@ export class FilesystemService {
     if (!file?.buffer) throw new Error('File or buffer is missing');
 
     // Validate user and room
-    const user = await this.userModel.findById(userId);
+    const user = await this.lookupUserById(userId);
     if (!user) throw new NotFoundException('User not found');
-    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
-    const room = await this.roomModel.findOne({
-      room_id: { $in: [roomId, roomPair] },
-    });
+    const room = await this.resolveRoom(roomId, user.usr_id);
     if (!room) throw new NotFoundException('Room not found');
 
     // Prepare file metadata
@@ -105,7 +195,7 @@ export class FilesystemService {
       name: file.originalname,
       size: file.size,
       mimeType: file.mimetype,
-      user_id: this.utils.convertToObjectIdMongoose(userId),
+      user_id: this.utils.convertToObjectIdMongoose(String(user._id)),
       room_id: room._id,
       status: 'processing' as const,
       width: metadata.width,
@@ -189,12 +279,9 @@ export class FilesystemService {
     const { files, userId, roomId, messageId } = dto;
 
     // Validate user and room once
-    const user = await this.userModel.findById(userId);
+    const user = await this.lookupUserById(userId);
     if (!user) throw new NotFoundException('User not found');
-    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
-    const room = await this.roomModel.findOne({
-      room_id: { $in: [roomId, roomPair] },
-    });
+    const room = await this.resolveRoom(roomId, user.usr_id);
     if (!room) throw new NotFoundException('Room not found');
 
     const results = await Promise.all(
@@ -241,13 +328,7 @@ export class FilesystemService {
 
     const filter: FilterQuery<Attachment> = {};
     if (roomId) {
-      // Try to find room by custom ID first
-      let room = await this.roomModel.findOne({ room_id: roomId });
-
-      // If not found, try by ObjectId if roomId is a valid ObjectId
-      if (!room && /^[0-9a-fA-F]{24}$/.test(roomId)) {
-        room = await this.roomModel.findById(roomId);
-      }
+      const room = await this.resolveRoom(roomId);
 
       if (room) {
         filter.room_id = room._id;
@@ -258,9 +339,9 @@ export class FilesystemService {
     }
 
     if (userId) {
-      const user = await this.userModel.findById(userId);
+      const user = await this.lookupUserById(userId);
       if (user) {
-        filter.user_id = user._id;
+        filter.user_id = this.utils.convertToObjectIdMongoose(String(user._id));
       }
     }
 
@@ -341,6 +422,12 @@ export class FilesystemService {
     const urls = content.match(urlRegex);
     if (!urls) return;
 
+    const [room, user] = await Promise.all([
+      this.resolveRoom(String(roomId)),
+      this.lookupUserById(String(userId)),
+    ]);
+    if (!room || !user) return;
+
     for (const url of urls) {
       try {
         const response = await axios.get(url, { timeout: 5000 });
@@ -353,8 +440,8 @@ export class FilesystemService {
         const image = $('meta[property="og:image"]').attr('content') || '';
 
         const attachment = await this.attachmentModel.create({
-          room_id: this.utils.convertToObjectIdMongoose(roomId),
-          user_id: this.utils.convertToObjectIdMongoose(userId),
+          room_id: room._id,
+          user_id: this.utils.convertToObjectIdMongoose(String(user._id)),
           kind: 'link',
           url: url,
           name: title,
@@ -365,9 +452,10 @@ export class FilesystemService {
           size: 0,
         });
 
-        await this.messageModel.findByIdAndUpdate(messageId, {
-          $push: { attachment_ids: attachment._id },
-        });
+        await this.addAttachmentToMessage(
+          String(messageId),
+          this.objectIdToString(attachment._id),
+        );
       } catch (e) {
         console.error(
           `Failed to process link ${url}: ${

@@ -33,10 +33,6 @@ import {
   friendshipModel,
   callHistoryModel,
   CallHistory,
-  Attachment,
-  User,
-  Document,
-  Quiz,
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -52,11 +48,17 @@ import {
 } from './Pipeline/getMsg';
 import { Response } from '@app/helpers/response';
 import { MemberStatus } from 'libs/db/src/mongo/model/call-history.model';
-import { ClientKafka, ClientGrpc } from '@nestjs/microservices';
+import { ClientKafka } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
-import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
+import { firstValueFrom } from 'rxjs';
+
+type GrpcResponse<T = any> = {
+  statusCode?: number;
+  metadata?: T;
+};
 
 @Injectable()
 export class HandleChatService implements OnModuleInit {
@@ -88,27 +90,17 @@ export class HandleChatService implements OnModuleInit {
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(callHistoryModel.name)
     private readonly callHistoryModel: Model<CallHistory>,
-    @InjectModel(Attachment.name)
-    private readonly attachmentModel: Model<Attachment>,
-    @InjectModel(Document.name)
-    private readonly documentModel: Model<Document>,
     @Inject(SERVICES.AI)
     private readonly aiClient: ClientKafka,
     @Inject(SERVICES.FILESYSTEM)
     private readonly fileClient: ClientKafka,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
-    @InjectModel(Quiz.name)
-    private readonly quizModel: Model<Quiz>,
-    @InjectModel(TodoProject.name)
-    private readonly todoProjectModel: Model<TodoProject>,
     @Inject(SERVICES.AUTH)
     private readonly authGrpc: ClientGrpc,
-    @Inject(SERVICES.FILESYSTEM)
+    @Inject('FILESYSTEM_GRPC')
     private readonly filesystemGrpc: ClientGrpc,
-    @Inject(SERVICES.AI)
+    @Inject('AI_GRPC')
     private readonly aiGrpc: ClientGrpc,
     @Inject(SERVICES.LEARNING)
     private readonly learningGrpc: ClientGrpc,
@@ -143,6 +135,44 @@ export class HandleChatService implements OnModuleInit {
       aiGrpc: this.aiGrpcClient,
       learningGrpc: this.learningGrpcClient,
     });
+  }
+
+  private toChatUser(u: Record<string, any> | null | undefined) {
+    if (!u) return null;
+    return {
+      ...u,
+      _id: u._id ?? u.id ?? '',
+      usr_id: u.usr_id ?? u.id ?? u._id ?? '',
+      usr_fullname: u.usr_fullname ?? u.fullname ?? '',
+      usr_avatar: u.usr_avatar ?? u.avatar ?? '',
+      usr_email: u.usr_email ?? u.email ?? '',
+      usr_phone: u.usr_phone ?? u.phone ?? '',
+    };
+  }
+
+  private async lookupUsersByIds(userIds: string[]) {
+    if (!userIds.length) return [];
+    const result = (await firstValueFrom(
+      this.authGrpcClient.GetUsersByIds({ userIds }),
+    )) as GrpcResponse<Record<string, any>[]>;
+    return (result.metadata ?? [])
+      .map((u) => this.toChatUser(u))
+      .filter(Boolean) as Record<string, any>[];
+  }
+
+  private async lookupUserById(userId: string) {
+    const users = await this.lookupUsersByIds([userId]);
+    return users[0] ?? null;
+  }
+
+  private async lookupTodoProjectObjectId(todoProjectId: string) {
+    const result = (await firstValueFrom(
+      this.learningGrpcClient.GetTodoProjectsByIds({
+        todoProjectIds: [todoProjectId],
+      }),
+    )) as GrpcResponse<Record<string, any>[]>;
+    const project = result.metadata?.[0];
+    return project?.id ?? project?._id ?? null;
   }
 
   /**
@@ -253,13 +283,13 @@ export class HandleChatService implements OnModuleInit {
     };
 
     if (todoProjectId) {
-      const todoProject = await this.todoProjectModel.findOne({
-        project_id: todoProjectId,
-      });
-      if (!todoProject) {
+      const todoProjectObjectId =
+        await this.lookupTodoProjectObjectId(todoProjectId);
+      if (!todoProjectObjectId) {
         throw new NotFoundException('Dự án không tồn tại');
       }
-      updatePayload.todo_project_id = todoProject._id;
+      updatePayload.todo_project_id =
+        this.utils.convertToObjectIdMongoose(todoProjectObjectId);
     }
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new
@@ -1004,7 +1034,7 @@ export class HandleChatService implements OnModuleInit {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
+      const actionUser = await this.lookupUserById(actionUserId);
       if (!actionUser) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
@@ -1022,11 +1052,9 @@ export class HandleChatService implements OnModuleInit {
         throw new BadRequestException('Không tạo được tin nhắn cuộc gọi');
       }
 
-      const members = await this.userModel.find({
-        usr_id: {
-          $in: membersIds.map((m) => m.toString()),
-        },
-      });
+      const members = await this.lookupUsersByIds(
+        membersIds.map((m) => m.toString()),
+      );
 
       const membersData = members.map((m) => ({
         user_id: m._id,
@@ -1107,7 +1135,7 @@ export class HandleChatService implements OnModuleInit {
   // trả lời cuộc gọi
   async acceptCall({ actionUserId, roomId, callId }: AcceptCallDto) {
     try {
-      const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
+      const actionUser = await this.lookupUserById(actionUserId);
 
       if (!actionUser) {
         throw new NotFoundException('Người dùng không tồn tại');
@@ -1218,7 +1246,7 @@ export class HandleChatService implements OnModuleInit {
   // kết thúc cuộc gọi
   async endCall({ actionUserId, roomId, status, callId }: EndCallDto) {
     try {
-      const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
+      const actionUser = await this.lookupUserById(actionUserId);
       if (!actionUser) {
         throw new NotFoundException('Người dùng không tồn tại');
       }
@@ -1557,7 +1585,17 @@ export class HandleChatService implements OnModuleInit {
   ) {
     // Resolve the room's MongoDB _id from the business key
     const room = await this.roomModel
-      .findOne({ room_id: roomId }, { _id: 1 })
+      .findOne(
+        {
+          $or: [
+            { room_id: roomId },
+            ...(Types.ObjectId.isValid(roomId)
+              ? [{ _id: new Types.ObjectId(roomId) }]
+              : []),
+          ],
+        },
+        { _id: 1 },
+      )
       .lean<{ _id: Types.ObjectId }>();
     if (!room) {
       throw new NotFoundException('không tìm thấy phòng');
@@ -1593,11 +1631,25 @@ export class HandleChatService implements OnModuleInit {
           read_by: { $literal: [] },
           read_by_count: { $literal: 0 },
           sender: { $literal: null },
-          attachments: { $literal: [] },
+          attachments: {
+            $map: {
+              input: { $ifNull: ['$attachment_ids', []] },
+              as: 'att',
+              in: {
+                _id: { $toString: '$$att' },
+              },
+            },
+          },
           reactions: { $literal: [] },
           reply: { $literal: null },
           call_history: { $literal: null },
-          quiz: { $literal: null },
+          quiz: {
+            $cond: [
+              { $ifNull: ['$quiz_id', false] },
+              { id: { $toString: '$quiz_id' } },
+              null,
+            ],
+          },
           flashcard: { $literal: null },
           todoProject: { $literal: null },
           room_event: { $literal: null },
@@ -1606,6 +1658,31 @@ export class HandleChatService implements OnModuleInit {
     ]);
 
     return messages;
+  }
+
+  async addAttachmentToMessage(messageId: string, attachmentId: string) {
+    if (!Types.ObjectId.isValid(messageId) || !Types.ObjectId.isValid(attachmentId)) {
+      throw new BadRequestException('messageId hoặc attachmentId không hợp lệ');
+    }
+
+    const updated = await this.messageModel.findByIdAndUpdate(
+      messageId,
+      {
+        $addToSet: {
+          attachment_ids: new Types.ObjectId(attachmentId),
+        },
+      },
+      { new: true },
+    );
+
+    if (!updated) {
+      throw new NotFoundException('Không tìm thấy tin nhắn');
+    }
+
+    return Response.success(
+      { messageId, attachmentId },
+      'Đã gắn attachment vào tin nhắn',
+    );
   }
 
   // lấy lịch sử cuộc gọi theo ID người dùng và ID phòng gọi
