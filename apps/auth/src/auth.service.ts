@@ -300,13 +300,14 @@ export class AuthService implements OnModuleInit {
   }
 
   async sendOtp(email: string, type: string) {
-    if (!Utils.isEmail(email)) {
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    if (!Utils.isEmail(normalizedEmail)) {
       return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
     if (type === 'register') {
       const existingUser = await this.userModel
-        .findOne({ usr_email: email })
+        .findOne({ usr_email: normalizedEmail })
         .exec();
       if (existingUser) {
         return Response.conflict('Email đã được sử dụng');
@@ -315,14 +316,14 @@ export class AuthService implements OnModuleInit {
 
     const otpCode = Utils.generateOtp(6);
     await this.otpModel.create({
-      indicator: email,
+      indicator: normalizedEmail,
       otp: otpCode,
       type,
     });
 
     try {
       await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
-        email,
+        email: normalizedEmail,
         otp: otpCode,
       });
     } catch (error) {
@@ -345,13 +346,17 @@ export class AuthService implements OnModuleInit {
       if (payload.scope !== 'register') {
         return Response.error('Token sai scope', 400, 'Bad Request');
       }
-      email = payload.email ?? '';
+      email = (payload.email ?? '').trim().toLowerCase();
     } catch {
       return Response.error(
         'Token đăng ký không hợp lệ hoặc đã hết hạn',
         400,
         'Bad Request',
       );
+    }
+
+    if (!Utils.isEmail(email)) {
+      return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
     const existingUser = await this.userModel
@@ -456,8 +461,9 @@ export class AuthService implements OnModuleInit {
     otp: string,
     type: string = 'reset-password',
   ) {
+    const normalizedIndicator = (indicator || '').trim().toLowerCase();
     const keyEntry = await this.otpModel
-      .findOne({ indicator: indicator, otp, type })
+      .findOne({ indicator: normalizedIndicator, otp, type })
       .exec();
 
     if (!keyEntry) {
@@ -473,7 +479,7 @@ export class AuthService implements OnModuleInit {
 
     if (type === 'register') {
       const tempRegisterToken = this.jwtService.sign(
-        { email: indicator, scope: 'register' },
+        { email: normalizedIndicator, scope: 'register' },
         {
           secret:
             process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
