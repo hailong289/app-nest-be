@@ -6,7 +6,7 @@ import friendshipModel, {
   Friendship,
 } from 'libs/db/src/mongo/model/friendship.model';
 import { Response } from 'libs/helpers/response';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 
@@ -103,17 +103,32 @@ export class SocialService {
     return users[0] || null;
   }
 
+  /**
+   * Notification service stores notifications by Mongo ObjectId user key.
+   * Social flow often uses `usr_id` (short/public id), so normalize to `_id`.
+   */
+  private getMongoUserId(user: { _id?: unknown } | null | undefined): string | null {
+    const raw = user?._id;
+    if (!raw) return null;
+    const normalized = typeof raw === 'string' ? raw : String(raw);
+    return Types.ObjectId.isValid(normalized) ? normalized : null;
+  }
+
   // create friendship
 
   // Friend requests
   async sendFriendRequest(data: SendFriendRequestDto) {
     const user = await this.lookupUserById(data.frpUserId1);
 
+    console.log('user', user);
     if (!user) {
       return Response.error('Người dùng không tồn tại', 400);
     }
 
     const receiver = await this.lookupUserById(data.frpUserId2);
+
+    console.log('receiver', receiver);
+
     if (!receiver) {
       return Response.error('Người nhận không tồn tại', 400);
     }
@@ -149,9 +164,16 @@ export class SocialService {
     );
     // gui notification cho nguoi nhan qua gRPC Notification service
     try {
+      const receiverMongoId = this.getMongoUserId(receiver);
+      if (!receiverMongoId) {
+        console.warn(
+          '[sendFriendRequest] Skip push notification: invalid receiver _id',
+          receiver?._id,
+        );
+      } else {
       await firstValueFrom(
         this.notificationGrpcClient.PushNotification({
-          userId: receiver.usr_id,
+          userId: receiverMongoId,
           title: `${user.usr_fullname} da gui loi moi ket ban`,
           content: 'Ban co mot loi moi ket ban moi',
           data: {
@@ -163,6 +185,7 @@ export class SocialService {
           },
         }),
       );
+      }
     } catch (error) {
       console.error('Error sending push notification:', error);
     }
@@ -261,9 +284,16 @@ export class SocialService {
     });
     // gui notification cho nguoi gui qua gRPC Notification service
     try {
+      const user2MongoId = this.getMongoUserId(user2);
+      if (!user2MongoId) {
+        console.warn(
+          '[acceptFriendRequest] Skip push notification: invalid sender _id',
+          user2?._id,
+        );
+      } else {
       await firstValueFrom(
         this.notificationGrpcClient.PushNotification({
-          userId: user2.usr_id,
+          userId: user2MongoId,
           title: `${user1.usr_fullname} da chap nhan loi moi ket ban`,
           content: 'Ban da duoc ket ban voi nguoi dung',
           data: {
@@ -275,6 +305,7 @@ export class SocialService {
           },
         }),
       );
+      }
     } catch (error) {
       console.error('Error sending push notification:', error);
     }
@@ -362,9 +393,16 @@ export class SocialService {
     });
     // gui notification cho nguoi gui qua gRPC Notification service
     try {
+      const user2MongoId = this.getMongoUserId(user2);
+      if (!user2MongoId) {
+        console.warn(
+          '[rejectFriendRequest] Skip push notification: invalid sender _id',
+          user2?._id,
+        );
+      } else {
       const response = await firstValueFrom(
         this.notificationGrpcClient.PushNotification({
-          userId: user2.usr_id,
+          userId: user2MongoId,
           title: `${user1.usr_fullname} da tu choi loi moi ket ban`,
           content: 'Ban da bi tu choi ket ban voi nguoi dung',
           data: {
@@ -381,6 +419,7 @@ export class SocialService {
         console.error('Co loi xay ra khi gui notification:', response);
       } else {
         console.log('Gui notification thanh cong:', response);
+      }
       }
     } catch (error) {
       console.error('Error sending push notification:', error);

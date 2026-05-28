@@ -96,6 +96,13 @@ export class NotificationService {
     message: string;
     metadata?: Record<string, any>;
   }) {
+    if (!Types.ObjectId.isValid(data.userId)) {
+      console.warn(
+        `[notification] Bỏ qua lưu notification: userId không phải ObjectId hợp lệ (${data.userId})`,
+      );
+      return Response.error('userId không hợp lệ', 400, 'BAD_REQUEST');
+    }
+
     try {
       await this.notificationModel.create({
         noti_userId: Utils.convertToObjectIdMongoose(data.userId),

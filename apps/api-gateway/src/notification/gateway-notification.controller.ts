@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import type { ClientGrpc } from '@nestjs/microservices';
+import { VerifyOtpDto } from '@app/dto';
 import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import { Request } from 'express';
@@ -35,6 +36,11 @@ interface NotificationServiceGrpc {
   MarkNotificationAsRead(data: { notificationId: string }): Observable<any>;
   MarkAllNotificationsAsRead(data: { userId: string }): Observable<any>;
   DeleteNotification(data: { notificationId: string }): Observable<any>;
+  VerifyOtp(data: {
+    indicator: string;
+    otp: string;
+    type: string;
+  }): Observable<any>;
 }
 
 const NOTIFICATION_GRPC_SERVICE = 'NOTIFICATION_GRPC_SERVICE';
@@ -60,7 +66,13 @@ export class GatewayNotificationController implements OnModuleInit {
 
   @Post('send-otp')
   async sendOtp(
-    @Body() body: { email: string; otp: string },
+    @Body()
+    body: {
+      email: string;
+      otp?: string;
+      type?: string;
+      is_create_opt?: boolean;
+    },
     @Req() req: AuthenticatedRequest,
   ) {
     return await this.gatewayService.dispatchServiceEvent(
@@ -68,8 +80,19 @@ export class GatewayNotificationController implements OnModuleInit {
       'send_otp',
       {
         ...body,
+        // Default true for FE register flow: create OTP then send email.
+        is_create_opt: body.is_create_opt ?? true,
+        type: body.type ?? 'register',
         userId: req.user?._id,
       },
+    );
+  }
+
+  @Post('verify-otp')
+  async verifyOtp(@Body() body: VerifyOtpDto) {
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.notificationGrpc.VerifyOtp.bind(this.notificationGrpc),
+      body,
     );
   }
 

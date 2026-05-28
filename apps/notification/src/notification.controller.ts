@@ -21,8 +21,29 @@ export class NotificationController {
   ) {}
 
   @MessagePattern('send_otp')
-  async sendOtp(@Payload() data: { email: string; otp: string }) {
-    await this.notificationService.sendOtp(data);
+  async sendOtp(
+    @Payload()
+    data: {
+      email: string;
+      otp?: string;
+      type?: string;
+      is_create_opt?: boolean;
+    },
+  ) {
+    if (data.is_create_opt) {
+      // Create OTP (owned by notification service) and send email in one step.
+      return await this.notificationService.createOtp({
+        indicator: data.email,
+        type: data.type || 'register',
+        channel: 'email',
+      });
+    }
+
+    if (!data.otp) {
+      return Response.error('Thiếu mã OTP', 400, 'BAD_REQUEST');
+    }
+
+    await this.notificationService.sendOtp({ email: data.email, otp: data.otp });
     return Response.success(null, 'OTP sent successfully');
   }
 

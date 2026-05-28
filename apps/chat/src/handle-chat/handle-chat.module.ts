@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import { HandleChatService } from './handle-chat.service';
 import { RoomsModule } from '../rooms/rooms.module';
 import { HandleChatController } from './handle-chat.controller';
@@ -6,11 +7,33 @@ import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import { CacheModule } from '../cache/cache.module';
+import {
+  roomModel,
+  messagesModel,
+  messageReadsModel,
+  roomsStateModel,
+  roomsUsersStateModel,
+  messageReactionsModel,
+  messageHidesModel,
+  friendshipModel,
+  callHistoryModel,
+} from 'libs/db/src';
 
 @Module({
   controllers: [HandleChatController],
   providers: [HandleChatService],
   imports: [
+    MongooseModule.forFeature([
+      roomModel,
+      messagesModel,
+      messageReadsModel,
+      roomsStateModel,
+      roomsUsersStateModel,
+      messageReactionsModel,
+      messageHidesModel,
+      friendshipModel,
+      callHistoryModel,
+    ]),
     RoomsModule,
     CacheModule,
     SharedKafkaClientModule.registerAsync({
