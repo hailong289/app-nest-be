@@ -6,7 +6,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
-import { MongodbModule } from 'libs/db/src/mongo/mongodb.module';
 import path from 'path';
 import { AIController } from './ai.controller';
 import { AIService } from './ai.service';
@@ -18,7 +17,7 @@ import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
 import Userschema from 'libs/db/src/mongo/model/user.model';
 import MessageSchema from 'libs/db/src/mongo/model/messages.model';
 import AttachmentSchema from 'libs/db/src/mongo/model/Attachment.model';
-import { mongoConfig } from 'libs/db/src';
+import { AiDatabaseModule, mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
@@ -35,7 +34,7 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
       load: [googleConfig, mongoConfig, kafkaConfig],
     }),
     KafkaAdminModule,
-    MongodbModule,
+    AiDatabaseModule,
     JwtModule.register({}),
     MongooseModule.forFeature([
       AIUsageLogSchema,

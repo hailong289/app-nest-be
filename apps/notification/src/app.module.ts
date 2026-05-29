@@ -10,9 +10,9 @@ import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
 import appConfig from './config/app/app.config';
 import {
+  NotificationDatabaseModule,
   redisConfig,
   RedisModule,
-  MongodbModule,
   mongoConfig,
 } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
@@ -65,7 +65,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
     }),
     KafkaAdminModule,
     RedisModule,
-    MongodbModule,
+    NotificationDatabaseModule,
   ],
   controllers: [NotificationController],
   providers: [

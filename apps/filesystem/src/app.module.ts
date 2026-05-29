@@ -4,7 +4,7 @@ import { FilesystemController } from './filesystem.controller';
 import { FilesystemService } from './filesystem.service';
 import s3Config from './config/app/s3.config';
 import path from 'path';
-import { mongoConfig, MongodbModule } from 'libs/db/src';
+import { FilesystemDatabaseModule, mongoConfig } from 'libs/db/src';
 import { DocumentsModule } from './documents/documents.module';
 import { kafkaConfig } from 'libs/kafka';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
@@ -21,7 +21,7 @@ import { SERVICES } from '@app/constants';
         'apps/filesystem/.env.development',
       ),
     }),
-    MongodbModule,
+    FilesystemDatabaseModule,
     DocumentsModule,
     KafkaAdminModule,
     SharedKafkaClientModule.registerAsync({

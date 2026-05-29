@@ -6,8 +6,8 @@ import path from 'node:path';
 import { SocialModule } from './social/social.module';
 import redisConfig from 'libs/db/src/config/redis.config';
 import {
+  ChatDatabaseModule,
   mongoConfig,
-  MongodbModule,
   RedisModule,
   SharedBullModule,
 } from 'libs/db/src';
@@ -25,7 +25,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
       load: [redisConfig, mongoConfig, kafkaConfig],
     }),
     KafkaAdminModule,
-    MongodbModule,
+    ChatDatabaseModule,
     RedisModule,
     SharedBullModule.registerAsync(),
     RoomsModule,

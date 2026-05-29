@@ -10,8 +10,8 @@ import userModel from 'libs/db/src/mongo/model/user.model';
 import otpModel from 'libs/db/src/mongo/model/otp.model';
 import keysModel from 'libs/db/src/mongo/model/keys.model';
 import {
+  AuthDatabaseModule,
   mongoConfig,
-  MongodbModule,
   redisConfig,
   RedisModule,
 } from 'libs/db/src';
@@ -24,7 +24,7 @@ import {
       load: [mongoConfig, redisConfig],
     }),
     RedisModule,
-    MongodbModule,
+    AuthDatabaseModule,
     JwtModule.register({}),
     MongooseModule.forFeature([userModel, otpModel, keysModel]),
   ],
