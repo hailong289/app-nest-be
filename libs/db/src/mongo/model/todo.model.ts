@@ -4,14 +4,15 @@ import Utils from 'libs/helpers/utils';
 
 export type TodoDocument = HydratedDocument<Todo>;
 
-export const DEFAULT_TODO_STATUSES = [
-  'todo',
-  'in_progress',
-  'done',
-  'cancelled',
-] as const;
-export type TodoStatus = (typeof DEFAULT_TODO_STATUSES)[number] | string;
-export type TodoPriority = 'low' | 'medium' | 'high';
+import type { TodoStatus, TodoPriority } from 'libs/types';
+
+/**
+ * TodoStatus, TodoPriority and DEFAULT_TODO_STATUSES are now defined in libs/types/src/todo.types.ts.
+ * Re-exported here for backward compatibility.
+ * @see libs/types/src/todo.types.ts
+ */
+export type { TodoStatus, TodoPriority } from 'libs/types';
+export { DEFAULT_TODO_STATUSES } from 'libs/types';
 
 @Schema({ timestamps: true, collection: 'Todos' })
 export class Todo {

@@ -2,24 +2,12 @@ import Utils from '@app/helpers/utils';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 
-export type EventRoomType =
-  | 'member.joined'
-  | 'member.pinded'
-  | 'member.edit'
-  | 'member.left'
-  | 'member.change.role'
-  | 'member.create'
-  | 'member.added'
-  | 'member.deleted'
-  | 'member.unPinded'
-  | 'member.change.name'
-  | 'member.change.avatar'
-  | 'member.change.nickName'
-  // Group call lifecycle (only logged for sfu calls — private/p2p calls skip)
-  | 'call.started'
-  | 'call.joined'
-  | 'call.left'
-  | 'call.ended';
+/**
+ * EventRoomType is now defined in libs/types/src/room-event.types.ts.
+ * Re-exported here for backward compatibility.
+ * @see libs/types/src/room-event.types.ts
+ */
+export type { EventRoomType } from 'libs/types';
 
 @Schema({ timestamps: true, collection: 'RoomEvents' })
 export class RoomEvent {

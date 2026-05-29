@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Types } from 'mongoose';
-import { EventRoomType } from 'libs/db/src/mongo/model/room-events.model';
+import { EventRoomType } from 'libs/types';
 export class CreateRoomDto {
   @IsOptional()
   @IsString()

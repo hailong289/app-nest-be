@@ -18,7 +18,7 @@ import type { AuthenticatedRequest } from 'libs/types/auth.type';
 import type {
   TodoStatus,
   TodoPriority,
-} from 'libs/db/src/mongo/model/todo.model';
+} from 'libs/types';
 
 interface TodoGrpcService {
   CreateTodo(data: {

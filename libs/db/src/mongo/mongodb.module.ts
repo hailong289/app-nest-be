@@ -27,6 +27,19 @@ import {
 import todoProjectModel from './model/todo-project.model';
 import todoModel from './model/todo.model';
 
+/**
+ * @deprecated MongodbModule is a legacy global module that registers ALL models in one place.
+ *
+ * - Do NOT import this module in any new app or module.
+ * - Existing apps that still depend on this module must migrate to their own
+ *   `*DatabaseModule` (e.g. AuthDatabaseModule, ChatDatabaseModule, etc.)
+ *   before this module can be deleted.
+ * - Tracked for removal in the service DB split sprint plan.
+ *   @see docs/service-database-split-plan.md
+ *
+ * Sprint 0 guardrail: the check:db-ownership CI script will FAIL if any app
+ * imports this module. Fix by importing the correct `*DatabaseModule` instead.
+ */
 @Global()
 @Module({
   imports: [

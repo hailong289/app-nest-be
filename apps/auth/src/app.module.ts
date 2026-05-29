@@ -2,13 +2,9 @@ import { Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { ConfigModule } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
 import * as path from 'path';
 import { JwtModule } from '@nestjs/jwt';
 
-import userModel from 'libs/db/src/mongo/model/user.model';
-import otpModel from 'libs/db/src/mongo/model/otp.model';
-import keysModel from 'libs/db/src/mongo/model/keys.model';
 import {
   AuthDatabaseModule,
   mongoConfig,
@@ -24,9 +20,11 @@ import {
       load: [mongoConfig, redisConfig],
     }),
     RedisModule,
+    // AuthDatabaseModule registers userModel, otpModel, keysModel via MongooseModule.forFeature().
+    // Do NOT add a duplicate MongooseModule.forFeature() here — models are already available
+    // to all injected services through AuthDatabaseModule's global scope.
     AuthDatabaseModule,
     JwtModule.register({}),
-    MongooseModule.forFeature([userModel, otpModel, keysModel]),
   ],
   controllers: [AuthController],
   providers: [AuthService],

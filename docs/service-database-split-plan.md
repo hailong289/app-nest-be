@@ -39,7 +39,7 @@ Day la diem can cat dau tien, vi neu de `MongodbModule` global nhu hien tai thi 
 | `filesystem` | `appchat_filesystem` | `Attachments`, `Documents` |
 | `ai` | `appchat_ai` | `AIEmbedding`, `AIUsageLogs`, them projection/snapshot neu can cho RAG |
 | `learning` | `appchat_learning` | `Quizzes`, `Flashcards`, `FlashcardDecks`, `FlashcardProgresses`, `Todos`, `TodoProjects` |
-| `notification` | `appchat_notification` | `Notifications`, them `NotificationDevices`/`PushTokens` projection |
+| `notification` | `appchat_notification` | `Notifications` |
 | `api-gateway` | none | Khong MongoDB |
 | `socket` | none | Khong MongoDB, chi Redis/Bull va gRPC clients |
 | `sfu` | none | Khong MongoDB |
@@ -59,7 +59,7 @@ Nhung coupling nay phai duoc thay bang API/event/projection truoc khi doi `DB_NA
 | `filesystem` | cap nhat `Message.attachment_ids` | chat phai so huu mutation nay; filesystem phat event hoac goi gRPC sang chat |
 | `ai` | `Message`, `Attachment`, `Document` | nguon du lieu gui payload/snapshot qua Kafka embedding events; AI khong query DB cua chat/filesystem |
 | `learning` | `User`, `Message` | `auth.GetUser`, `chat.GetOneMsg/GetMsgFromRoom`, hoac room/member projection |
-| `notification` | `Key` de lay FCM token | auth publish session/device token events; notification luu projection `NotificationDevices` |
+| `notification` | `Key` de lay FCM token | auth publish session/device token events; notification dung Redis projection, fallback qua API gateway -> auth. Khong them `NotificationDevices`/`PushTokens` vao DB rieng. |
 
 ## Migration Order
 

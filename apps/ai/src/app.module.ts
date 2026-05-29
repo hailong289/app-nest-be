@@ -5,18 +5,12 @@ https://docs.nestjs.com/modules
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { MongooseModule } from '@nestjs/mongoose';
 import path from 'path';
 import { AIController } from './ai.controller';
 import { AIService } from './ai.service';
 import { EmbeddingService } from './embedding.service';
-import AIUsageLogSchema from 'libs/db/src/mongo/model/AIUsageLogs.model';
 import googleConfig from './config/google.config';
 import { GoogleModerationProvider } from './google.provider';
-import AIEmbeddingSchema from 'libs/db/src/mongo/model/AIEmbedding.model';
-import Userschema from 'libs/db/src/mongo/model/user.model';
-import MessageSchema from 'libs/db/src/mongo/model/messages.model';
-import AttachmentSchema from 'libs/db/src/mongo/model/Attachment.model';
 import { AiDatabaseModule, mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
@@ -34,15 +28,12 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
       load: [googleConfig, mongoConfig, kafkaConfig],
     }),
     KafkaAdminModule,
+    // AiDatabaseModule registers all AI-owned models (aIEmbeddingModel, aIUsageLogModel)
+    // plus legacy cross-service reads (userModel, messagesModel, attachmentModel, documentModel).
+    // Do NOT add a duplicate MongooseModule.forFeature() here.
+    // Legacy models will be removed in Sprint 1 (replace with Kafka payload/snapshot).
     AiDatabaseModule,
     JwtModule.register({}),
-    MongooseModule.forFeature([
-      AIUsageLogSchema,
-      AIEmbeddingSchema,
-      Userschema,
-      MessageSchema,
-      AttachmentSchema,
-    ]),
     SharedKafkaClientModule.registerAsync({
       name: AI_KAFKA_CLIENT,
       clientId: 'ai-service-producer',
