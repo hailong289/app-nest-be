@@ -36,7 +36,7 @@ jobs:
             --memory=4Gi \
             --port=8080 \
             --timeout=3600s \
-            --max-concurrency=1000 \
+            --concurrency=1000 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \

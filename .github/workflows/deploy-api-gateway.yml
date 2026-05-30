@@ -37,7 +37,7 @@ jobs:
             --memory=4Gi \
             --port=8080 \
             --timeout=60s \
-            --max-concurrency=100 \
+            --concurrency=100 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars HOST=${{ secrets.GATEWAY_HOST }} \
             --set-env-vars GATEWAY_AUTH_HOST=${{ secrets.GATEWAY_AUTH_HOST }} \
