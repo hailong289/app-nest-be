@@ -1,5 +1,5 @@
 import { EntityCacheService } from './entity-cache.service';
-import { cacheKey, indexKey } from './cache.keys';
+import { cacheKey, indexKey, CACHE_INVALIDATE_CHANNEL } from './cache.keys';
 
 // Mock RedisService: lưu L2 trong Map, ghi lại publish calls.
 function makeRedisMock() {
@@ -123,5 +123,34 @@ describe('EntityCacheService.getOrLoad', () => {
     const last = redis.published.at(-1)!;
     expect(last.channel).toBe('cache:invalidate');
     expect(JSON.parse(last.msg).keys.sort()).toEqual([k1, k2].sort());
+  });
+});
+
+describe('EntityCacheService pub/sub', () => {
+  it('drops L1 keys when an invalidate message arrives on the channel', async () => {
+    const redis = makeRedisMock();
+    const handlers: Record<string, (ch: string, msg: string) => void> = {};
+    const sub = {
+      subscribe: jest.fn((_ch: string, cb: (e: Error | null) => void) => cb(null)),
+      on: jest.fn((evt: string, cb: any) => {
+        handlers[evt] = cb;
+      }),
+      quit: jest.fn(),
+    };
+    redis.client.duplicate = () => sub as any;
+
+    const svc = new EntityCacheService(redis as any);
+    const key = cacheKey('user', '_id', 'u1');
+    await svc.getOrLoad(key, async () => ({ id: 'u1' }), { ns: 'user', entityId: 'u1' });
+
+    svc.onModuleInit(); // mở subscriber, gắn handler 'message'
+    // mô phỏng broadcast từ instance khác
+    handlers['message'](CACHE_INVALIDATE_CHANNEL, JSON.stringify({ keys: [key] }));
+
+    // L1 đã bị drop -> đọc lại phải gọi loader lần nữa
+    const loader = jest.fn(async () => ({ id: 'u1' }));
+    redis.store.delete(key); // giả lập L2 cũng đã bị xoá
+    await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
+    expect(loader).toHaveBeenCalledTimes(1);
   });
 });

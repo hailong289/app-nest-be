@@ -1,4 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
+import type Redis from 'ioredis';
 import { RedisService } from '../redis/redis.service';
 import { LruMap } from './lru-map';
 import {
@@ -30,7 +36,8 @@ const L1_TTL_MS = 60_000;
  * hành vi truy vấn Mongo trực tiếp).
  */
 @Injectable()
-export class EntityCacheService {
+export class EntityCacheService implements OnModuleInit, OnModuleDestroy {
+  private subscriber: Redis | null = null;
   private readonly log = new Logger(EntityCacheService.name);
   private readonly l1 = new LruMap<unknown>({
     maxSize: L1_MAX_SIZE,
@@ -96,5 +103,35 @@ export class EntityCacheService {
   /** Xoá sạch L1 — gọi khi subscriber reconnect (có thể đã miss invalidation). */
   flushL1(): void {
     this.l1.clear();
+  }
+
+  onModuleInit(): void {
+    try {
+      this.subscriber = this.redis.client.duplicate();
+      this.subscriber.subscribe(CACHE_INVALIDATE_CHANNEL, (err) => {
+        if (err) this.log.error(`subscribe failed: ${err.message}`);
+      });
+      this.subscriber.on('message', (channel: string, raw: string) => {
+        if (channel !== CACHE_INVALIDATE_CHANNEL) return;
+        try {
+          const msg = JSON.parse(raw) as CacheInvalidateMessage;
+          if (Array.isArray(msg.keys)) this.dropFromL1(msg.keys);
+        } catch (e) {
+          this.log.error(`bad invalidate payload: ${String(e)}`);
+        }
+      });
+      // Reconnect có thể đã bỏ lỡ invalidation -> flush sạch L1 cho an toàn.
+      this.subscriber.on('ready', () => this.flushL1());
+    } catch (e) {
+      this.log.error(`cannot init cache subscriber: ${String(e)}`);
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    try {
+      await this.subscriber?.quit();
+    } catch {
+      // ignore
+    }
   }
 }
