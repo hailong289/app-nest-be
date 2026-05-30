@@ -22,7 +22,7 @@ import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
 import { Otp } from 'libs/db/src/mongo/model/otp.model';
-import { RedisService } from 'libs/db/src';
+import { RedisService, UserCacheRepository } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 
 /**
@@ -180,6 +180,7 @@ export class AuthService implements OnModuleInit {
     @InjectModel('Otp') private readonly otpModel: Model<Otp>,
     private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
+    private readonly userCache: UserCacheRepository,
   ) {}
 
   async onModuleInit() {
@@ -617,6 +618,10 @@ export class AuthService implements OnModuleInit {
     try {
       user.usr_avatar = data.avatarUrl;
       await user.save();
+      await Promise.all([
+        this.userCache.invalidate(String(user._id)),
+        this.userCache.invalidate(user.usr_id),
+      ]);
       return Response.success(
         { url: data.avatarUrl },
         'Cập nhật ảnh đại diện thành công',
@@ -644,6 +649,10 @@ export class AuthService implements OnModuleInit {
       user.usr_address = data.address;
     }
     await user.save();
+    await Promise.all([
+      this.userCache.invalidate(String(user._id)),
+      this.userCache.invalidate(user.usr_id),
+    ]);
     const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
     return Response.success(
       { user: Utils.unprefix(userData, 'usr_') },
