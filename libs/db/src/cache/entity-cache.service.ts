@@ -37,7 +37,7 @@ export class EntityCacheService {
     ttlMs: L1_TTL_MS,
   });
 
-  constructor(protected readonly redis: RedisService) {}
+  constructor(private readonly redis: RedisService) {}
 
   /** Thời gian hiện tại (ms) — tách ra để test override nếu cần. */
   protected now(): number {
@@ -65,9 +65,10 @@ export class EntityCacheService {
     if (loaded === null || loaded === undefined) return loaded ?? null;
 
     const ttl = opts.ttlSec ?? DEFAULT_L2_TTL_SEC;
+    const idx = indexKey(opts.ns, opts.entityId);
     await this.redis.setData(key, loaded, ttl);
-    await this.redis.sAdd(indexKey(opts.ns, opts.entityId), key);
-    await this.redis.expire(indexKey(opts.ns, opts.entityId), ttl);
+    await this.redis.sAdd(idx, key);
+    await this.redis.expire(idx, ttl);
     this.l1.set(key, loaded, this.now());
     return loaded;
   }
@@ -78,10 +79,8 @@ export class EntityCacheService {
   async invalidateEntity(ns: string, entityId: string): Promise<void> {
     const idx = indexKey(ns, entityId);
     const keys = await this.redis.sMembers(idx);
-    for (const k of keys) {
-      await this.redis.delKey(k);
-      this.l1.delete(k);
-    }
+    await Promise.all(keys.map((k) => this.redis.delKey(k)));
+    for (const k of keys) this.l1.delete(k);
     await this.redis.delKey(idx);
     if (keys.length > 0) {
       const msg: CacheInvalidateMessage = { keys };

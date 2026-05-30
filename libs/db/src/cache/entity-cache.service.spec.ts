@@ -15,8 +15,7 @@ function makeRedisMock() {
     getData: jest.fn(async (k: string) => (store.has(k) ? store.get(k) : null)),
     setData: jest.fn(async (k: string, v: any) => void store.set(k, v)),
     delKey: jest.fn(async (k: string) => {
-      const had = store.delete(k);
-      sets.delete(k);
+      const had = store.delete(k) || sets.delete(k);
       return had ? 1 : 0;
     }),
     sAdd: jest.fn(async (k: string, ...vals: string[]) => {
@@ -87,6 +86,25 @@ describe('EntityCacheService.getOrLoad', () => {
     await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'missing' });
 
     expect(loader).toHaveBeenCalledTimes(2); // không cache => load lại
+    expect(redis.setData).not.toHaveBeenCalled();
+  });
+
+  it('serves from L2 and back-fills L1 when L1 is cold', async () => {
+    const redis = makeRedisMock();
+    const key = cacheKey('user', '_id', 'u1');
+    redis.store.set(key, { id: 'u1', from: 'l2' }); // pre-seed L2 only
+    const svc = new EntityCacheService(redis as any);
+    const loader = jest.fn(async () => ({ id: 'u1', from: 'loader' }));
+
+    const first = await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
+    expect(first).toEqual({ id: 'u1', from: 'l2' });
+    expect(loader).not.toHaveBeenCalled(); // came from L2, not loader
+
+    // second read should be L1 now: getData not hit again
+    redis.getData.mockClear();
+    const second = await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
+    expect(second).toEqual({ id: 'u1', from: 'l2' });
+    expect(redis.getData).not.toHaveBeenCalled();
   });
 
   it('invalidateEntity deletes all indexed L2 keys and publishes them', async () => {
