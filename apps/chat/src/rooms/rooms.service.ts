@@ -36,6 +36,7 @@ import {
   RoomEvent,
   User,
   RoomsUsersState,
+  UserCacheRepository,
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
 import { socketEvent } from 'libs/dto/src/enum.type';
@@ -63,6 +64,7 @@ export class RoomsService {
     private readonly emitter: RemoteSocketEmitter,
     @InjectQueue(ROOM_MEMBERSHIP_SYNC_QUEUE)
     private readonly membershipSyncQueue: Queue<RoomMembershipSyncJobData>,
+    private readonly userCache: UserCacheRepository,
   ) {}
 
   async onModuleInit() {
@@ -986,20 +988,14 @@ export class RoomsService {
     return pipeline;
   }
 
-  public async getUserInfo(userId: string) {
-    const user = await this.userModel
-      .findOne({
-        _id: this.utils.convertToObjectIdMongoose(userId),
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_fullname: 1,
-        usr_id: 1,
-      })
-      .exec();
-
-    return user;
+  public async getUserInfo(
+    userId: string,
+  ): Promise<(User & { _id: Types.ObjectId }) | null> {
+    const user = await this.userCache.getById(userId);
+    // Giữ nguyên hợp đồng cũ: chỉ trả user đang 'active'.
+    if (!user || user.usr_status !== 'active') return null;
+    // lean() luôn trả về doc có _id tại runtime; cast để callers dùng được ._id.
+    return user as User & { _id: Types.ObjectId };
   }
   async create(payload: CreateRoomDto) {
     // create array save log
