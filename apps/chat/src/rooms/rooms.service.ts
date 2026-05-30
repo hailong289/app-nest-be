@@ -546,92 +546,16 @@ export class RoomsService {
         },
       },
 
-      /** 9) unread_count_calc: baseTs = max(last_read_at, clear_before_ts) */
-      {
-        $addFields: {
-          _baseTs: {
-            $switch: {
-              branches: [
-                {
-                  case: {
-                    $and: [
-                      { $ifNull: ['$my_state.last_read_at', false] },
-                      { $ifNull: ['$my_state.clear_before_ts', false] },
-                      {
-                        $gt: [
-                          '$my_state.last_read_at',
-                          '$my_state.clear_before_ts',
-                        ],
-                      },
-                    ],
-                  },
-                  then: '$my_state.last_read_at',
-                },
-                {
-                  case: {
-                    $and: [
-                      { $ifNull: ['$my_state.last_read_at', false] },
-                      { $ifNull: ['$my_state.clear_before_ts', false] },
-                      {
-                        $lte: [
-                          '$my_state.last_read_at',
-                          '$my_state.clear_before_ts',
-                        ],
-                      },
-                    ],
-                  },
-                  then: '$my_state.clear_before_ts',
-                },
-              ],
-              default: {
-                $ifNull: [
-                  '$my_state.last_read_at',
-                  '$my_state.clear_before_ts',
-                ],
-              },
-            },
-          },
-        },
-      },
-      {
-        $lookup: {
-          from: 'Messages',
-          let: { rid: '$_id', uid: uid, baseTs: '$_baseTs' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$msg_roomId', '$$rid'] },
-                    { $ne: ['$msg_sender', '$$uid'] },
-                    {
-                      $or: [
-                        { $eq: ['$deletedAt', null] },
-                        { $not: ['$deletedAt'] },
-                      ],
-                    },
-                    {
-                      $cond: [
-                        { $ifNull: ['$$baseTs', false] },
-                        { $gt: ['$createdAt', '$$baseTs'] },
-                        true,
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-            { $count: 'cnt' },
-          ],
-          as: 'unread',
-        },
-      },
-      {
-        $set: {
-          unread_count_calc: { $ifNull: [{ $first: '$unread.cnt' }, 0] },
-        },
-      },
-      { $unset: ['unread', '_baseTs', '_lastMsgTs', '_lastMsgSender'] },
+      /**
+       * 9) unread_count: dùng trực tiếp `my_state.unread_count` (đã được
+       * handle-chat duy trì qua recomputeUnreadForUserRoom trên mỗi
+       * message/read). Trước đây stage này $lookup Messages + $count cho
+       * TỪNG phòng để tính `unread_count_calc` — chạy trên toàn bộ phòng của
+       * user trước khi paginate, là một trong các stage tốn kém nhất. Bỏ đi:
+       * projection cuối lấy `my_state.unread_count` (fallback 0 nếu user chưa
+       * có RoomsUsersState cho phòng đó).
+       */
+      { $unset: ['_lastMsgTs', '_lastMsgSender'] },
 
       /** 10) Avatar & tên hiển thị (private fallback) */
       {
@@ -970,7 +894,7 @@ export class RoomsService {
 
           is_read: 1,
           unread_count: {
-            $ifNull: ['$my_state.unread_count', '$unread_count_calc'],
+            $ifNull: ['$my_state.unread_count', 0],
           },
           my_state: 1,
           last_read_id: {

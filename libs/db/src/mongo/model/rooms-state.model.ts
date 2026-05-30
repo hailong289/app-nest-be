@@ -26,5 +26,8 @@ export class RoomsState {
 }
 export const RoomsStateSchema = SchemaFactory.createForClass(RoomsState);
 RoomsStateSchema.index({ updatedAt: -1 }); // sort list
+// Join key cho $lookup từ Room._id → RoomsState.room_id (GetRooms/getRoomInfo).
+// Thiếu index này khiến mỗi lookup state quét toàn bộ collection.
+RoomsStateSchema.index({ room_id: 1 });
 
 export default { name: 'RoomsState', schema: RoomsStateSchema };
