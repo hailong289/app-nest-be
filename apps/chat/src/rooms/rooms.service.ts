@@ -1824,6 +1824,8 @@ export class RoomsService {
     if (!userinfo)
       throw new BadRequestException('không tìm thấy thông tin thành viên');
 
+    await this.roomCache.invalidate(room);
+
     await this.writeLogRoom({
       event_type: 'member.change.name',
       room_id: room._id,
@@ -1941,6 +1943,8 @@ export class RoomsService {
     if (!roomUpdate) {
       throw new BadRequestException('Không thể cập nhật nick name');
     }
+
+    await this.roomCache.invalidate(roomUpdate);
     // ghi log
     //
 
@@ -2021,6 +2025,8 @@ export class RoomsService {
     if (!roomUpdate) {
       throw new BadRequestException('Không thể cập nhật quyền');
     }
+
+    await this.roomCache.invalidate(roomUpdate);
     // ghi log
     await this.writeLogRoom({
       event_type: 'member.change.role',
