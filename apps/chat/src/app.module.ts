@@ -9,6 +9,7 @@ import {
   mongoConfig,
   MongodbModule,
   RedisModule,
+  CacheModule,
   SharedBullModule,
 } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
@@ -27,6 +28,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
     KafkaAdminModule,
     MongodbModule,
     RedisModule,
+    CacheModule,
     SharedBullModule.registerAsync(),
     RoomsModule,
     HandleChatModule,

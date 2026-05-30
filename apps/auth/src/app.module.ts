@@ -14,6 +14,7 @@ import {
   MongodbModule,
   redisConfig,
   RedisModule,
+  CacheModule,
 } from 'libs/db/src';
 
 @Module({
@@ -24,6 +25,7 @@ import {
       load: [mongoConfig, redisConfig],
     }),
     RedisModule,
+    CacheModule,
     MongodbModule,
     JwtModule.register({}),
     MongooseModule.forFeature([userModel, otpModel, keysModel]),
