@@ -45,7 +45,7 @@ jobs:
           image: ${{ env.IMAGE }}
           region: ${{ env.GCP_REGION }}
           # Các cấu hình server: CPU, RAM, Instance, HTTP2...
-          flags: '--allow-unauthenticated --min-instances=0 --max-instances=3 --cpu=1 --memory=1Gi --port=8080 --timeout=60s --use-http2'
+          flags: '--allow-unauthenticated --min-instances=1 --max-instances=5 --cpu=1 --memory=4Gi --port=8080 --timeout=60s --max-concurrency=100 --use-http2'
           # Danh sách biến môi trường (Viết kiểu này an toàn cho Private Key)
           env_vars: |-
             NODE_ENV=${{ secrets.NODE_ENV }}
