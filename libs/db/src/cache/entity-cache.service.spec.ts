@@ -107,6 +107,22 @@ describe('EntityCacheService.getOrLoad', () => {
     expect(redis.getData).not.toHaveBeenCalled();
   });
 
+  it('indexes the cache key under each canonical id from indexIds', async () => {
+    const redis = makeRedisMock();
+    const svc = new EntityCacheService(redis as any);
+    const key = cacheKey('room', 'room_id', 'peer_123'); // looked up by alias
+    await svc.getOrLoad(key, async () => ({ _id: 'rid1', room_id: 'a.b' }), {
+      ns: 'room',
+      entityId: 'peer_123',
+      indexIds: (room: any) => [String(room._id), room.room_id],
+    });
+    expect(redis.sAdd).toHaveBeenCalledWith(indexKey('room', 'rid1'), key);
+    expect(redis.sAdd).toHaveBeenCalledWith(indexKey('room', 'a.b'), key);
+    // invalidating by the canonical _id must now find and delete the alias key
+    await svc.invalidateEntity('room', 'rid1');
+    expect(redis.delKey).toHaveBeenCalledWith(key);
+  });
+
   it('invalidateEntity deletes all indexed L2 keys and publishes them', async () => {
     const redis = makeRedisMock();
     const svc = new EntityCacheService(redis as any);

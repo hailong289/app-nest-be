@@ -23,7 +23,11 @@ export class RoomCacheRepository {
       cacheKey(NS, 'room_id', roomId),
       async () =>
         (await this.roomModel.findOne({ room_id: roomId }).lean().exec()) as Room | null,
-      { ns: NS, entityId: roomId },
+      {
+        ns: NS,
+        entityId: roomId,
+        indexIds: (room: Room) => [String((room as unknown as { _id: unknown })._id), room.room_id],
+      },
     );
   }
 
@@ -35,7 +39,11 @@ export class RoomCacheRepository {
           .findOne({ room_id: { $in: [roomId, pairId] } })
           .lean()
           .exec()) as Room | null,
-      { ns: NS, entityId: roomId },
+      {
+        ns: NS,
+        entityId: roomId,
+        indexIds: (room: Room) => [String((room as unknown as { _id: unknown })._id), room.room_id],
+      },
     );
   }
 
@@ -44,7 +52,11 @@ export class RoomCacheRepository {
       cacheKey(NS, '_id', id),
       async () =>
         (await this.roomModel.findOne({ _id: id }).lean().exec()) as Room | null,
-      { ns: NS, entityId: id },
+      {
+        ns: NS,
+        entityId: id,
+        indexIds: (room: Room) => [String((room as unknown as { _id: unknown })._id), room.room_id],
+      },
     );
   }
 

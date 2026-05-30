@@ -13,13 +13,21 @@ import {
   indexKey,
 } from './cache.keys';
 
-export interface GetOrLoadOptions {
+export interface GetOrLoadOptions<T = unknown> {
   /** Namespace của entity (vd 'user', 'room') — dùng cho reverse-index. */
   ns: string;
   /** Id canonical của entity (vd Mongo _id dạng chuỗi) — gom mọi alias key. */
   entityId: string;
   /** TTL L2 (giây). Mặc định REDIS_TTL.CACHE_ENTITY = 1800. */
   ttlSec?: number;
+  /**
+   * Nếu cung cấp: sau khi loader trả doc, đăng ký cache key vào reverse-index
+   * theo CÁC id canonical lấy từ chính doc (vd [room._id, room.room_id]) thay
+   * vì theo `entityId`. Đảm bảo invalidateEntity(ns, <canonical id>) luôn xoá
+   * được entry kể cả khi key được tra bằng alias khác (vd peer id của phòng
+   * private). Trả mảng id (chuỗi).
+   */
+  indexIds?: (value: T) => string[];
 }
 
 const DEFAULT_L2_TTL_SEC = 1800;
@@ -54,7 +62,7 @@ export class EntityCacheService implements OnModuleInit, OnModuleDestroy {
   async getOrLoad<T>(
     key: string,
     loader: () => Promise<T | null>,
-    opts: GetOrLoadOptions,
+    opts: GetOrLoadOptions<T>,
   ): Promise<T | null> {
     // L1
     const l1Hit = this.l1.get(key, this.now());
@@ -72,10 +80,15 @@ export class EntityCacheService implements OnModuleInit, OnModuleDestroy {
     if (loaded === null || loaded === undefined) return loaded ?? null;
 
     const ttl = opts.ttlSec ?? DEFAULT_L2_TTL_SEC;
-    const idx = indexKey(opts.ns, opts.entityId);
+    const ids = opts.indexIds ? opts.indexIds(loaded) : [opts.entityId];
     await this.redis.setData(key, loaded, ttl);
-    await this.redis.sAdd(idx, key);
-    await this.redis.expire(idx, ttl);
+    await Promise.all(
+      ids.map(async (id) => {
+        const idx = indexKey(opts.ns, id);
+        await this.redis.sAdd(idx, key);
+        await this.redis.expire(idx, ttl);
+      }),
+    );
     this.l1.set(key, loaded, this.now());
     return loaded;
   }

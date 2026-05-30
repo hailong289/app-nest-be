@@ -4,7 +4,9 @@ import { cacheKey } from 'libs/db/src';
 describe('RoomCacheRepository', () => {
   function makeCacheMock() {
     return {
-      getOrLoad: jest.fn(async (_k: string, loader: () => Promise<any>) => loader()),
+      getOrLoad: jest.fn(async (_k: string, loader: () => Promise<unknown>) =>
+        loader(),
+      ),
       invalidateEntity: jest.fn(async () => undefined),
     };
   }
@@ -24,8 +26,15 @@ describe('RoomCacheRepository', () => {
     expect(cache.getOrLoad).toHaveBeenCalledWith(
       cacheKey('room', 'room_id', 'r_abc'),
       expect.any(Function),
-      { ns: 'room', entityId: 'r_abc' },
+      expect.objectContaining({ ns: 'room', entityId: 'r_abc' }),
     );
+    const passedOpts = (cache.getOrLoad.mock.calls as unknown[][])[0][2] as {
+      indexIds: (v: { _id: string; room_id: string }) => string[];
+    };
+    expect(passedOpts.indexIds({ _id: 'rid1', room_id: 'r_abc' })).toEqual([
+      'rid1',
+      'r_abc',
+    ]);
   });
 
   it('getByPairOrRoomId queries both room_id and pair id', async () => {
