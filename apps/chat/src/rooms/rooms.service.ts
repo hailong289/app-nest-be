@@ -39,6 +39,7 @@ import {
   UserCacheRepository,
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
+import { RoomCacheRepository } from './room-cache.repository';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import { buildMessageDetailPipeline } from '../handle-chat/Pipeline/getMsg';
 import { InjectQueue } from '@nestjs/bull';
@@ -65,6 +66,7 @@ export class RoomsService {
     @InjectQueue(ROOM_MEMBERSHIP_SYNC_QUEUE)
     private readonly membershipSyncQueue: Queue<RoomMembershipSyncJobData>,
     private readonly userCache: UserCacheRepository,
+    private readonly roomCache: RoomCacheRepository,
   ) {}
 
   async onModuleInit() {
@@ -1174,6 +1176,9 @@ export class RoomsService {
       }
     }
 
+    // Invalidate two-tier room cache so reads (handle-chat) don't serve stale data.
+    await this.roomCache.invalidate(newRoom);
+
     // 4) Một event "tạo nhóm" duy nhất thay vì N event "Y đã được thêm".
     //    Trước đây fan-out N writeLogRoom (mỗi cái ~5 mongo ops) là nguyên
     //    nhân gốc gây timeout 20s. Về UX: room mới chỉ nên có 1 system
@@ -1330,6 +1335,10 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
 
@@ -1355,6 +1364,10 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const candidates = members
@@ -1370,6 +1383,10 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const promoteTarget = candidates[0];
@@ -1385,6 +1402,7 @@ export class RoomsService {
 
       await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
       await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+      await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
       // ghi log trong tinh nhắn
       await this.writeLogRoom({
         event_type: 'member.left',
@@ -1506,6 +1524,7 @@ export class RoomsService {
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
+    await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
     return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
@@ -1606,6 +1625,8 @@ export class RoomsService {
         );
       }),
     ]);
+
+    await this.roomCache.invalidate(roomInfo);
 
     // Đẩy USER_ROOMS sAdd về Bull queue, worker xử lý chunk 50/lần. Tránh
     // nuốt connection pool khi add 1000 member 1 phát.
@@ -1747,6 +1768,7 @@ export class RoomsService {
       { new: true },
     );
     if (!roominfo) throw new NotFoundException('không tìm thấy phòng');
+    await this.roomCache.invalidate(roominfo);
     const userinfor = roominfo.room_members.find(
       (i) => i.user_id.toString() === userId,
     );
