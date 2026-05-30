@@ -11,7 +11,13 @@ function makeRedisMock() {
     sets,
     published,
     // ioredis raw client chỉ cần cho subscriber (Task 6) — stub duplicate.
-    client: { duplicate: () => ({ subscribe: jest.fn(), on: jest.fn(), quit: jest.fn() }) },
+    client: {
+      duplicate: () => ({
+        subscribe: jest.fn(),
+        on: jest.fn(),
+        quit: jest.fn(),
+      }),
+    },
     getData: jest.fn(async (k: string) => (store.has(k) ? store.get(k) : null)),
     setData: jest.fn(async (k: string, v: any) => void store.set(k, v)),
     delKey: jest.fn(async (k: string) => {
@@ -56,7 +62,10 @@ describe('EntityCacheService.getOrLoad', () => {
 
     await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
     redis.getData.mockClear();
-    const out = await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
+    const out = await svc.getOrLoad(key, loader, {
+      ns: 'user',
+      entityId: 'u1',
+    });
 
     expect(out).toEqual({ id: 'u1' });
     expect(loader).toHaveBeenCalledTimes(1);
@@ -96,13 +105,19 @@ describe('EntityCacheService.getOrLoad', () => {
     const svc = new EntityCacheService(redis as any);
     const loader = jest.fn(async () => ({ id: 'u1', from: 'loader' }));
 
-    const first = await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
+    const first = await svc.getOrLoad(key, loader, {
+      ns: 'user',
+      entityId: 'u1',
+    });
     expect(first).toEqual({ id: 'u1', from: 'l2' });
     expect(loader).not.toHaveBeenCalled(); // came from L2, not loader
 
     // second read should be L1 now: getData not hit again
     redis.getData.mockClear();
-    const second = await svc.getOrLoad(key, loader, { ns: 'user', entityId: 'u1' });
+    const second = await svc.getOrLoad(key, loader, {
+      ns: 'user',
+      entityId: 'u1',
+    });
     expect(second).toEqual({ id: 'u1', from: 'l2' });
     expect(redis.getData).not.toHaveBeenCalled();
   });
@@ -128,8 +143,14 @@ describe('EntityCacheService.getOrLoad', () => {
     const svc = new EntityCacheService(redis as any);
     const k1 = cacheKey('user', '_id', 'u1');
     const k2 = cacheKey('user', 'usr_id', 'usr_x');
-    await svc.getOrLoad(k1, async () => ({ id: 'u1' }), { ns: 'user', entityId: 'u1' });
-    await svc.getOrLoad(k2, async () => ({ id: 'u1' }), { ns: 'user', entityId: 'u1' });
+    await svc.getOrLoad(k1, async () => ({ id: 'u1' }), {
+      ns: 'user',
+      entityId: 'u1',
+    });
+    await svc.getOrLoad(k2, async () => ({ id: 'u1' }), {
+      ns: 'user',
+      entityId: 'u1',
+    });
 
     await svc.invalidateEntity('user', 'u1');
 
@@ -147,21 +168,29 @@ describe('EntityCacheService pub/sub', () => {
     const redis = makeRedisMock();
     const handlers: Record<string, (ch: string, msg: string) => void> = {};
     const sub = {
-      subscribe: jest.fn((_ch: string, cb: (e: Error | null) => void) => cb(null)),
+      subscribe: jest.fn((_ch: string, cb: (e: Error | null) => void) =>
+        cb(null),
+      ),
       on: jest.fn((evt: string, cb: any) => {
         handlers[evt] = cb;
       }),
       quit: jest.fn(),
     };
-    redis.client.duplicate = () => sub as any;
+    redis.client.duplicate = () => sub;
 
     const svc = new EntityCacheService(redis as any);
     const key = cacheKey('user', '_id', 'u1');
-    await svc.getOrLoad(key, async () => ({ id: 'u1' }), { ns: 'user', entityId: 'u1' });
+    await svc.getOrLoad(key, async () => ({ id: 'u1' }), {
+      ns: 'user',
+      entityId: 'u1',
+    });
 
     svc.onModuleInit(); // mở subscriber, gắn handler 'message'
     // mô phỏng broadcast từ instance khác
-    handlers['message'](CACHE_INVALIDATE_CHANNEL, JSON.stringify({ keys: [key] }));
+    handlers['message'](
+      CACHE_INVALIDATE_CHANNEL,
+      JSON.stringify({ keys: [key] }),
+    );
 
     // L1 đã bị drop -> đọc lại phải gọi loader lần nữa
     const loader = jest.fn(async () => ({ id: 'u1' }));

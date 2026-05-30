@@ -4,7 +4,9 @@ import { cacheKey } from './cache.keys';
 describe('UserCacheRepository', () => {
   function makeCacheMock() {
     return {
-      getOrLoad: jest.fn(async (_key: string, loader: () => Promise<any>) => loader()),
+      getOrLoad: jest.fn(async (_key: string, loader: () => Promise<any>) =>
+        loader(),
+      ),
       invalidateEntity: jest.fn(async () => undefined),
     };
   }
@@ -14,7 +16,13 @@ describe('UserCacheRepository', () => {
     const userModel = {
       findOne: jest.fn(() => ({
         select: () => ({
-          lean: () => ({ exec: async () => ({ _id: 'u1', usr_id: 'usr_x', usr_fullname: 'A' }) }),
+          lean: () => ({
+            exec: async () => ({
+              _id: 'u1',
+              usr_id: 'usr_x',
+              usr_fullname: 'A',
+            }),
+          }),
         }),
       })),
     };

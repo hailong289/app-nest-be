@@ -22,27 +22,36 @@ export class RoomCacheRepository {
     return this.cache.getOrLoad<Room>(
       cacheKey(NS, 'room_id', roomId),
       async () =>
-        (await this.roomModel.findOne({ room_id: roomId }).lean().exec()) as Room | null,
+        await this.roomModel.findOne({ room_id: roomId }).lean().exec(),
       {
         ns: NS,
         entityId: roomId,
-        indexIds: (room: Room) => [String((room as unknown as { _id: unknown })._id), room.room_id],
+        indexIds: (room: Room) => [
+          String((room as unknown as { _id: unknown })._id),
+          room.room_id,
+        ],
       },
     );
   }
 
-  async getByPairOrRoomId(roomId: string, pairId: string): Promise<Room | null> {
+  async getByPairOrRoomId(
+    roomId: string,
+    pairId: string,
+  ): Promise<Room | null> {
     return this.cache.getOrLoad<Room>(
       cacheKey(NS, 'room_id', roomId),
       async () =>
-        (await this.roomModel
+        await this.roomModel
           .findOne({ room_id: { $in: [roomId, pairId] } })
           .lean()
-          .exec()) as Room | null,
+          .exec(),
       {
         ns: NS,
         entityId: roomId,
-        indexIds: (room: Room) => [String((room as unknown as { _id: unknown })._id), room.room_id],
+        indexIds: (room: Room) => [
+          String((room as unknown as { _id: unknown })._id),
+          room.room_id,
+        ],
       },
     );
   }
@@ -50,18 +59,22 @@ export class RoomCacheRepository {
   async getById(id: string): Promise<Room | null> {
     return this.cache.getOrLoad<Room>(
       cacheKey(NS, '_id', id),
-      async () =>
-        (await this.roomModel.findOne({ _id: id }).lean().exec()) as Room | null,
+      async () => await this.roomModel.findOne({ _id: id }).lean().exec(),
       {
         ns: NS,
         entityId: id,
-        indexIds: (room: Room) => [String((room as unknown as { _id: unknown })._id), room.room_id],
+        indexIds: (room: Room) => [
+          String((room as unknown as { _id: unknown })._id),
+          room.room_id,
+        ],
       },
     );
   }
 
   /** Gọi sau mỗi lần ghi room. Xoá mọi nhánh alias dựa trên doc. */
-  async invalidate(room: Pick<Room, 'room_id'> & { _id: unknown }): Promise<void> {
+  async invalidate(
+    room: Pick<Room, 'room_id'> & { _id: unknown },
+  ): Promise<void> {
     await Promise.all([
       this.cache.invalidateEntity(NS, String((room as { _id: unknown })._id)),
       this.cache.invalidateEntity(NS, room.room_id),
