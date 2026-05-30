@@ -382,10 +382,36 @@ export class HandleChatService {
           },
         },
       ),
-      ...userMongoIds.map(
-        async (i) =>
-          await this.recomputeUnreadForUserRoom(i, finInfo._id.toString()),
-      ),
+      // Bump unread for every other member with ONE round-trip instead of
+      // running a heavy per-member aggregate (recomputeUnreadForUserRoom)
+      // for each — that fan-out was the main Mongo-CPU hotspot on send.
+      // upsert so a member without a state row yet still gets counted.
+      // Exact recompute (which excludes hidden messages) runs lazily on
+      // hide/delete, not on every message.
+      ...(userMongoIds.length > 0
+        ? [
+            this.RoomsUsersState.bulkWrite(
+              userMongoIds.map((i) => ({
+                updateOne: {
+                  filter: {
+                    room_id: finInfo._id,
+                    user_id: this.utils.convertToObjectIdMongoose(i),
+                  },
+                  update: {
+                    $inc: { unread_count: 1 },
+                    // bulkWrite skips Mongoose's setDefaultsOnInsert, so set
+                    // the defaults other code relies on explicitly — notably
+                    // `muted`: the push-notification target query filters
+                    // `{ muted: false }` and would exclude a row that lacks
+                    // the field entirely.
+                    $setOnInsert: { muted: false, pinned: false },
+                  },
+                  upsert: true,
+                },
+              })),
+            ),
+          ]
+        : []),
     ]);
 
     return Response.success(
@@ -541,18 +567,15 @@ export class HandleChatService {
         {
           last_read_msg_id: messgeInfo._id,
           last_read_at: readAt,
+          // Reader has caught up to "now" → unread resets to 0. Previously
+          // this fanned out an exact recompute for EVERY room member (N heavy
+          // aggregates per read), but one user reading never changes another
+          // user's unread — pure waste. New messages re-increment via
+          // createMessage's $inc.
+          unread_count: 0,
         },
       ),
     ]);
-
-    await Promise.all(
-      roomInfro.room_members.map((i) =>
-        this.recomputeUnreadForUserRoom(
-          i.user_id.toString(),
-          roomInfro._id.toString(),
-        ),
-      ),
-    );
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(messgeInfo._id.toString()),
     );
@@ -826,6 +849,11 @@ export class HandleChatService {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
+    // Hiding a message can change THIS user's unread (a hidden unread message
+    // no longer counts). Recompute exactly for the hiding user only — hide is
+    // a rare action, and it reconciles the $inc-based counter which does not
+    // subtract hidden messages.
+    await this.recomputeUnreadForUserRoom(userId, finInfo._id.toString());
     // update many
     const findMsg = await this.messageModel
       .find({
