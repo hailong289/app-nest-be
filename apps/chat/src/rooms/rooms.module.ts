@@ -20,6 +20,7 @@ import {
 } from 'libs/db/src';
 import { ROOM_MEMBERSHIP_SYNC_QUEUE } from './room-membership-sync.constants';
 import { RoomMembershipSyncProcessor } from './room-membership-sync.processor';
+import { RoomCacheRepository } from './room-cache.repository';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { RoomMembershipSyncProcessor } from './room-membership-sync.processor';
     SharedBullModule.registerQueue(ROOM_MEMBERSHIP_SYNC_QUEUE),
   ],
   controllers: [RoomsController],
-  providers: [RoomsService, RoomMembershipSyncProcessor, UserCacheRepository],
-  exports: [RoomsService, UserCacheRepository],
+  providers: [RoomsService, RoomMembershipSyncProcessor, UserCacheRepository, RoomCacheRepository],
+  exports: [RoomsService, UserCacheRepository, RoomCacheRepository],
 })
 export class RoomsModule {}
