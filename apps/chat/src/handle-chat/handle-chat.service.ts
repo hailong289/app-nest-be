@@ -39,6 +39,7 @@ import {
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
+import { RoomCacheRepository } from '../rooms/room-cache.repository';
 import {
   buildMessageCorePipeline,
   buildMessageDetailPipeline,
@@ -51,6 +52,14 @@ import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
 import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
+
+/**
+ * Shape of a Room served from RoomCacheRepository: a plain (lean) object that
+ * always carries `_id` at runtime even though the Room class doesn't declare
+ * it. The read-only call sites only touch `_id`, `room_members`, `room_type`
+ * and `room_id`, so this lean view is sufficient.
+ */
+type CachedRoom = Room & { _id: Types.ObjectId };
 
 @Injectable()
 export class HandleChatService {
@@ -65,6 +74,7 @@ export class HandleChatService {
     @InjectModel(RoomsState.name)
     private readonly RoomsStateModel: Model<RoomsState>,
     private readonly roomService: RoomsService,
+    private readonly roomCache: RoomCacheRepository,
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
     @InjectModel(MessageReaction.name)
@@ -146,11 +156,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -498,11 +507,10 @@ export class HandleChatService {
       this.messageModel.findById(
         this.utils.convertToObjectIdMongoose(lastMessageId),
       ),
-      this.roomModel.findOne({
-        room_id: {
-          $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-        },
-      }),
+      this.roomCache.getByPairOrRoomId(
+        roomId,
+        this.utils.pairRoomId(userInfo.usr_id, roomId),
+      ) as Promise<CachedRoom | null>,
     ]);
 
     if (!roomInfro) {
@@ -587,11 +595,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const roomInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const roomInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!roomInfo) {
       throw new NotAcceptableException('Phòng không tồn taij');
     }
@@ -641,11 +648,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -734,11 +740,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -764,6 +769,9 @@ export class HandleChatService {
         new: true,
       }),
     ]);
+    // The pin write mutated the room row (room_ghim). Drop the cached copy so
+    // the next read reflects the updated pinned-messages list.
+    await this.roomCache.invalidate(finInfo);
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
@@ -799,11 +807,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -857,11 +864,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
