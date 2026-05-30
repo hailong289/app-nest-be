@@ -1,60 +1,75 @@
-export const getFriendsBaseAggregate = (userId: string, search: string) => {
+import type { PipelineStage } from 'mongoose';
+
+const friendshipDocFields = {
+  frp_id: '$frp_id',
+  frp_userId1: '$frp_userId1',
+  frp_userId2: '$frp_userId2',
+  frp_actionUserId: '$frp_actionUserId',
+  frp_status: '$frp_status',
+  createdAt: '$createdAt',
+  updatedAt: '$updatedAt',
+};
+
+/**
+ * Friends list rooted at Friendships (not Users).
+ * Matches only ACCEPTED edges for `userId`, then joins the friend profile.
+ */
+export const getFriendsBaseAggregate = (
+  userId: string,
+  search: string,
+): PipelineStage[] => {
   const searchMatch = search
     ? {
         $or: [
-          { usr_fullname: { $regex: search, $options: 'i' } },
-          { usr_email: { $regex: search, $options: 'i' } },
-          { usr_phone: { $regex: search, $options: 'i' } },
+          { 'user.usr_fullname': { $regex: search, $options: 'i' } },
+          { 'user.usr_email': { $regex: search, $options: 'i' } },
+          { 'user.usr_phone': { $regex: search, $options: 'i' } },
         ],
       }
-    : {};
-  return [
+    : null;
+
+  const stages: PipelineStage[] = [
     {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: '$usr_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$frp_status', 'ACCEPTED'] },
-                  {
-                    $or: [
-                      {
-                        $and: [
-                          { $eq: ['$frp_userId1', userId] },
-                          { $eq: ['$frp_userId2', '$$currentUserId'] },
-                        ],
-                      },
-                      {
-                        $and: [
-                          { $eq: ['$frp_userId2', userId] },
-                          { $eq: ['$frp_userId1', '$$currentUserId'] },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ],
-        as: 'friendship',
+      $match: {
+        frp_status: 'ACCEPTED',
+        $or: [{ frp_userId1: userId }, { frp_userId2: userId }],
       },
     },
     {
       $addFields: {
-        friendship: { $arrayElemAt: ['$friendship', 0] },
+        friendUserId: {
+          $cond: [
+            { $eq: ['$frp_userId1', userId] },
+            '$frp_userId2',
+            '$frp_userId1',
+          ],
+        },
       },
     },
     {
-      $match: {
-        friendship: { $ne: null },
-        ...searchMatch,
+      $lookup: {
+        from: 'Users',
+        localField: 'friendUserId',
+        foreignField: 'usr_id',
+        as: 'user',
       },
     },
+    { $unwind: '$user' },
   ];
+
+  if (searchMatch) {
+    stages.push({ $match: searchMatch });
+  }
+
+  stages.push({
+    $replaceRoot: {
+      newRoot: {
+        $mergeObjects: ['$user', { friendship: friendshipDocFields }],
+      },
+    },
+  });
+
+  return stages;
 };
 
 export const getFriendsAggregate = (
@@ -62,8 +77,9 @@ export const getFriendsAggregate = (
   page: number,
   limit: number,
   search: string,
-) => [
+): PipelineStage[] => [
   ...getFriendsBaseAggregate(userId, search),
+  { $sort: { 'friendship.updatedAt': -1 } },
   { $skip: (page - 1) * limit },
   { $limit: limit },
 ];
@@ -71,46 +87,34 @@ export const getFriendsAggregate = (
 export const getFriendsRequestAggregate = (
   userId: string,
   type: string = 'received',
-) => {
+): PipelineStage[] => {
+  const isReceived = type === 'received';
   return [
     {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: '$usr_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$frp_status', 'PENDING'] },
-                  {
-                    $eq: [
-                      type === 'received' ? '$frp_userId2' : '$frp_userId1',
-                      userId,
-                    ],
-                  },
-                  {
-                    $eq: [
-                      type === 'received' ? '$frp_userId1' : '$frp_userId2',
-                      '$$currentUserId',
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ],
-        as: 'friendship',
+      $match: {
+        frp_status: 'PENDING',
+        ...(isReceived ? { frp_userId2: userId } : { frp_userId1: userId }),
       },
     },
     {
       $addFields: {
-        friendship: { $arrayElemAt: ['$friendship', 0] },
+        friendUserId: isReceived ? '$frp_userId1' : '$frp_userId2',
       },
     },
     {
-      $match: {
-        friendship: { $ne: null },
+      $lookup: {
+        from: 'Users',
+        localField: 'friendUserId',
+        foreignField: 'usr_id',
+        as: 'user',
+      },
+    },
+    { $unwind: '$user' },
+    {
+      $replaceRoot: {
+        newRoot: {
+          $mergeObjects: ['$user', { friendship: friendshipDocFields }],
+        },
       },
     },
   ];
@@ -166,42 +170,39 @@ export const searchUsersAggregate = (
   ];
 };
 
-export const getBlockedFriendsAggregate = (userId: string) => {
-  return [
-    {
-      $lookup: {
-        from: 'Friendships',
-        let: { currentUserId: userId },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$frp_status', 'BLOCKED'] },
-                  {
-                    $or: [
-                      { $eq: ['$frp_userId1', '$$currentUserId'] },
-                      { $eq: ['$frp_userId2', '$$currentUserId'] },
-                    ],
-                  },
-                  { $eq: ['$frp_actionUserId', '$$currentUserId'] }, // actionUserId là người dùng đã chặn
-                ],
-              },
-            },
-          },
+export const getBlockedFriendsAggregate = (userId: string): PipelineStage[] => [
+  {
+    $match: {
+      frp_status: 'BLOCKED',
+      frp_actionUserId: userId,
+      $or: [{ frp_userId1: userId }, { frp_userId2: userId }],
+    },
+  },
+  {
+    $addFields: {
+      friendUserId: {
+        $cond: [
+          { $eq: ['$frp_userId1', userId] },
+          '$frp_userId2',
+          '$frp_userId1',
         ],
-        as: 'friendship',
       },
     },
-    {
-      $addFields: {
-        friendship: { $arrayElemAt: ['$friendship', 0] },
+  },
+  {
+    $lookup: {
+      from: 'Users',
+      localField: 'friendUserId',
+      foreignField: 'usr_id',
+      as: 'user',
+    },
+  },
+  { $unwind: '$user' },
+  {
+    $replaceRoot: {
+      newRoot: {
+        $mergeObjects: ['$user', { friendship: friendshipDocFields }],
       },
     },
-    {
-      $match: {
-        friendship: { $ne: null },
-      },
-    },
-  ];
-};
+  },
+];
