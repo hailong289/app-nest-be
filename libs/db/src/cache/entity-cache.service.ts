@@ -12,6 +12,7 @@ import {
   CacheInvalidateMessage,
   indexKey,
 } from './cache.keys';
+import { REDIS_TTL } from '@app/constants/RedisKey';
 
 export interface GetOrLoadOptions<T = unknown> {
   /** Namespace của entity (vd 'user', 'room') — dùng cho reverse-index. */
@@ -30,7 +31,6 @@ export interface GetOrLoadOptions<T = unknown> {
   indexIds?: (value: T) => string[];
 }
 
-const DEFAULT_L2_TTL_SEC = 1800;
 const L1_MAX_SIZE = 10_000;
 const L1_TTL_MS = 60_000;
 
@@ -79,7 +79,7 @@ export class EntityCacheService implements OnModuleInit, OnModuleDestroy {
     const loaded = await loader();
     if (loaded === null || loaded === undefined) return loaded ?? null;
 
-    const ttl = opts.ttlSec ?? DEFAULT_L2_TTL_SEC;
+    const ttl = opts.ttlSec ?? REDIS_TTL.CACHE_ENTITY;
     const ids = opts.indexIds ? opts.indexIds(loaded) : [opts.entityId];
     await this.redis.setData(key, loaded, ttl);
     await Promise.all(
