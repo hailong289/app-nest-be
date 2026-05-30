@@ -397,7 +397,15 @@ export class HandleChatService {
                     room_id: finInfo._id,
                     user_id: this.utils.convertToObjectIdMongoose(i),
                   },
-                  update: { $inc: { unread_count: 1 } },
+                  update: {
+                    $inc: { unread_count: 1 },
+                    // bulkWrite skips Mongoose's setDefaultsOnInsert, so set
+                    // the defaults other code relies on explicitly — notably
+                    // `muted`: the push-notification target query filters
+                    // `{ muted: false }` and would exclude a row that lacks
+                    // the field entirely.
+                    $setOnInsert: { muted: false, pinned: false },
+                  },
                   upsert: true,
                 },
               })),
