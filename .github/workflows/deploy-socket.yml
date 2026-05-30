@@ -7,7 +7,7 @@ jobs:
   deploy:
     name: Deploy Socket to Cloud Run
     runs-on: ubuntu-latest
-    environment: 
+    environment:
       name: SOCKET_SERVICE
     steps:
       - uses: actions/checkout@v3
@@ -31,11 +31,12 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --min-instances=0 \
-            --max-instances=3 \
+            --max-instances=10 \
             --cpu=1 \
-            --memory=1Gi \
+            --memory=4Gi \
             --port=8080 \
             --timeout=3600s \
+            --max-concurrency=1000 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
@@ -62,4 +63,4 @@ jobs:
             --set-env-vars SFU_INTERNAL_SECRET=${{ secrets.SFU_INTERNAL_SECRET }} \
             --set-env-vars GATEWAY_AI_HOST=${{ secrets.GATEWAY_AI_HOST }} \
             --set-env-vars GATEWAY_AI_PORT=${{ secrets.GATEWAY_AI_PORT }} \
-            --set-env-vars GATEWAY_AI_PROTO_PATH=${{ secrets.GATEWAY_AI_PROTO_PATH }} 
+            --set-env-vars GATEWAY_AI_PROTO_PATH=${{ secrets.GATEWAY_AI_PROTO_PATH }}
