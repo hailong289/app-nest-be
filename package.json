@@ -178,7 +178,8 @@
     "moduleNameMapper": {
       "^@app/constants(|/.*)$": "<rootDir>/libs/constants/src/$1",
       "^@app/dto(|/.*)$": "<rootDir>/libs/dto/src/$1",
-      "^@app/helpers(|/.*)$": "<rootDir>/libs/helpers/$1"
+      "^@app/helpers(|/.*)$": "<rootDir>/libs/helpers/$1",
+      "^libs/(.*)$": "<rootDir>/libs/$1"
     }
   }
 }
