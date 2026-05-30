@@ -13,7 +13,9 @@ describe('UserCacheRepository', () => {
     const cache = makeCacheMock();
     const userModel = {
       findOne: jest.fn(() => ({
-        lean: () => ({ exec: async () => ({ _id: 'u1', usr_id: 'usr_x', usr_fullname: 'A' }) }),
+        select: () => ({
+          lean: () => ({ exec: async () => ({ _id: 'u1', usr_id: 'usr_x', usr_fullname: 'A' }) }),
+        }),
       })),
     };
     const repo = new UserCacheRepository(cache as any, userModel as any);
@@ -32,7 +34,9 @@ describe('UserCacheRepository', () => {
     const cache = makeCacheMock();
     const userModel = {
       findOne: jest.fn(() => ({
-        lean: () => ({ exec: async () => ({ _id: 'u1', usr_id: 'usr_x' }) }),
+        select: () => ({
+          lean: () => ({ exec: async () => ({ _id: 'u1', usr_id: 'usr_x' }) }),
+        }),
       })),
     };
     const repo = new UserCacheRepository(cache as any, userModel as any);

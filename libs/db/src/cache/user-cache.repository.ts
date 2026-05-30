@@ -25,7 +25,11 @@ export class UserCacheRepository {
     return this.cache.getOrLoad<User>(
       cacheKey(NS, '_id', id),
       async () =>
-        (await this.userModel.findOne({ _id: id }).lean().exec()) as User | null,
+        (await this.userModel
+          .findOne({ _id: id })
+          .select('-usr_salt')
+          .lean()
+          .exec()) as User | null,
       { ns: NS, entityId: id },
     );
   }
@@ -36,6 +40,7 @@ export class UserCacheRepository {
       async () =>
         (await this.userModel
           .findOne({ usr_id: usrId })
+          .select('-usr_salt')
           .lean()
           .exec()) as User | null,
       { ns: NS, entityId: usrId },
