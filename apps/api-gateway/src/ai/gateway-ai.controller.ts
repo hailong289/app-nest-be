@@ -62,7 +62,9 @@ interface AiGrpcService {
     model?: string | null;
     userId?: string;
   }): Observable<unknown>;
-  summaryDocumentStream(data: SummaryDocumentDto): Observable<{ chunk: string }>;
+  summaryDocumentStream(
+    data: SummaryDocumentDto,
+  ): Observable<{ chunk: string }>;
   quizzStream(data: QuizzDto): Observable<{ chunk: string }>;
   generateFlashcardStream(data: {
     topic: string;
@@ -117,8 +119,8 @@ export class GatewayAiController {
   ) {
     return this.gatewayService.dispatchGrpcRequest(
       (data: ModerationDto & { userId: string }) =>
-        this.aiService.moderation({ ...data, userId: req.user.usr_id }),
-      { ...body, userId: req.user.usr_id },
+        this.aiService.moderation({ ...data, userId: req.user._id }),
+      { ...body, userId: req.user._id },
       120000, // 2 minutes timeout
     );
   }
@@ -133,7 +135,7 @@ export class GatewayAiController {
         this.aiService.suggestReplies(data),
       {
         contextMessages: body.contextMessages,
-        userId: req.user.usr_id,
+        userId: req.user._id,
       },
       100000, // 1 minute timeout
     );
@@ -158,7 +160,7 @@ export class GatewayAiController {
       }) => this.aiService.search(data),
       {
         query: body.query,
-        userId: req.user.usr_id,
+        userId: req.user._id,
         limit: body.limit ?? 5,
         roomId: body.roomId,
       },
@@ -167,10 +169,14 @@ export class GatewayAiController {
   }
 
   @Get('search-messages')
-  async searchMessages(@Query() query: SearchMessagesDto) {
+  async searchMessages(
+    @Query() query: SearchMessagesDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.gatewayService.dispatchGrpcRequest(
-      (data: SearchMessagesDto) => this.aiService.searchMessages(data),
-      query,
+      (data: SearchMessagesDto & { userId: string }) =>
+        this.aiService.searchMessages(data),
+      { ...query, userId: req.user._id },
     );
   }
 
@@ -178,13 +184,24 @@ export class GatewayAiController {
   @UseInterceptors(FileInterceptor('file'))
   async summaryDocument(
     @UploadedFile() file: MulterFile,
-    @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
+    @Body()
+    body: {
+      type: 'document' | 'file_url';
+      file_url?: string;
+      model?: string | null;
+    },
     @Req() req: AuthenticatedRequest,
   ) {
     return this.gatewayService.dispatchGrpcRequest(
       (data: SummaryDocumentDto & { userId: string }) =>
-        this.aiService.summaryDocument({ ...data, userId: req.user.usr_id }),
-      { file, type: body.type, file_url: body.file_url, model: body.model, userId: req.user.usr_id },
+        this.aiService.summaryDocument({ ...data, userId: req.user._id }),
+      {
+        file,
+        type: body.type,
+        file_url: body.file_url,
+        model: body.model,
+        userId: req.user._id,
+      },
       120000, // 2 minutes timeout
     );
   }
@@ -196,8 +213,8 @@ export class GatewayAiController {
   ) {
     return this.gatewayService.dispatchGrpcRequest(
       (data: TranslationDto & { userId: string }) =>
-        this.aiService.translation({ ...data, userId: req.user.usr_id }),
-      { ...body, userId: req.user.usr_id },
+        this.aiService.translation({ ...data, userId: req.user._id }),
+      { ...body, userId: req.user._id },
       100000, // 1 minute timeout
     );
   }
@@ -223,7 +240,7 @@ export class GatewayAiController {
   ) {
     return this.gatewayService.dispatchGrpcRequest(
       (data: QuizzDto & { userId: string }) =>
-        this.aiService.quizz({ ...data, userId: req.user.usr_id }),
+        this.aiService.quizz({ ...data, userId: req.user._id }),
       {
         file: file,
         text: body?.text || '',
@@ -232,7 +249,7 @@ export class GatewayAiController {
         question_max: body.question_max,
         question_max_points: body.question_max_points,
         model: body.model,
-        userId: req.user.usr_id,
+        userId: req.user._id,
       },
       100000, // 1 minute timeout
     );
@@ -289,7 +306,13 @@ export class GatewayAiController {
           model: data.model,
           userId: data.userId,
         }),
-      { ...body, file, file_url: body.file_url, model: body.model, userId: req.user.usr_id },
+      {
+        ...body,
+        file,
+        file_url: body.file_url,
+        model: body.model,
+        userId: req.user._id,
+      },
       180000, // 3 minutes timeout (AI cần thời gian tạo nhiều thẻ)
     );
   }
@@ -298,7 +321,12 @@ export class GatewayAiController {
   @UseInterceptors(FileInterceptor('file'))
   summaryDocumentStream(
     @UploadedFile() file: MulterFile,
-    @Body() body: { type: 'document' | 'file_url'; file_url?: string; model?: string | null },
+    @Body()
+    body: {
+      type: 'document' | 'file_url';
+      file_url?: string;
+      model?: string | null;
+    },
     @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ): void {
@@ -309,7 +337,7 @@ export class GatewayAiController {
       type: body.type,
       file_url: body.file_url,
       model: body.model,
-      userId: req.user.usr_id,
+      userId: req.user._id,
     } as SummaryDocumentDto & { userId: string });
 
     const sub = stream.subscribe({
@@ -317,7 +345,9 @@ export class GatewayAiController {
         res.write(`data: ${item?.chunk || ''}\n\n`);
       },
       error: (err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       },
       complete: () => {
@@ -360,7 +390,7 @@ export class GatewayAiController {
       question_max: Number(body.question_max),
       question_max_points: Number(body.question_max_points),
       model: body.model,
-      userId: req.user.usr_id,
+      userId: req.user._id,
     } as QuizzDto & { userId: string });
 
     const sub = stream.subscribe({
@@ -368,7 +398,9 @@ export class GatewayAiController {
         res.write(`data: ${item?.chunk || ''}\n\n`);
       },
       error: (err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       },
       complete: () => {
@@ -409,7 +441,7 @@ export class GatewayAiController {
       file: file as MulterFile,
       file_url: body.file_url,
       model: body.model,
-      userId: req.user.usr_id,
+      userId: req.user._id,
     });
 
     const sub = stream.subscribe({
@@ -417,7 +449,9 @@ export class GatewayAiController {
         res.write(`data: ${item?.chunk || ''}\n\n`);
       },
       error: (err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       },
       complete: () => {
@@ -448,7 +482,7 @@ export class GatewayAiController {
         }) => this.aiService.search(data),
         {
           query: body.query,
-          userId: req.user.usr_id,
+          userId: req.user._id,
           limit: body.limit ?? 5,
           roomId: body.roomId,
         },
@@ -459,7 +493,9 @@ export class GatewayAiController {
         res.end();
       })
       .catch((err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       });
   }
@@ -477,7 +513,7 @@ export class GatewayAiController {
           this.aiService.suggestReplies(data),
         {
           contextMessages: body.contextMessages,
-          userId: req.user.usr_id,
+          userId: req.user._id,
         },
         100000,
       )
@@ -486,7 +522,9 @@ export class GatewayAiController {
         res.end();
       })
       .catch((err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       });
   }
@@ -502,7 +540,7 @@ export class GatewayAiController {
       .dispatchGrpcRequest(
         (data: TranslationDto & { userId: string }) =>
           this.aiService.translation(data),
-        { ...body, userId: req.user.usr_id },
+        { ...body, userId: req.user._id },
         100000,
       )
       .then((result) => {
@@ -510,7 +548,9 @@ export class GatewayAiController {
         res.end();
       })
       .catch((err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       });
   }
@@ -526,7 +566,7 @@ export class GatewayAiController {
       .dispatchGrpcRequest(
         (data: ModerationDto & { userId: string }) =>
           this.aiService.moderation(data),
-        { ...body, userId: req.user.usr_id },
+        { ...body, userId: req.user._id },
         120000,
       )
       .then((result) => {
@@ -534,7 +574,9 @@ export class GatewayAiController {
         res.end();
       })
       .catch((err: unknown) => {
-        res.write(`event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ message: String(err) })}\n\n`,
+        );
         res.end();
       });
   }
@@ -551,7 +593,7 @@ export class GatewayAiController {
         this.gatewayService.dispatchGrpcRequest(
           (data: SearchMessagesDto & { userId: string }) =>
             this.aiService.searchMessages(data),
-          { ...query, userId: req.user.usr_id },
+          { ...query, userId: req.user._id },
           60000,
         ),
       'ai/stream/search-messages',
@@ -589,7 +631,7 @@ export class GatewayAiController {
         attachmentId: body.attachmentId,
         messageId: body.messageId,
         language: body.language || 'vi',
-        userId: req.user.usr_id,
+        userId: req.user._id,
       },
       120000, // 2 minutes — Gemini may be slow on long audio
     );
@@ -629,7 +671,7 @@ export class GatewayAiController {
       }) => this.aiService.getUsageReport(data),
       {
         service: queryParams.service,
-        userId: req.user.usr_id,
+        userId: req.user._id,
         from: queryParams.from,
         to: queryParams.to,
         groupBy: queryParams.groupBy ?? 'service',

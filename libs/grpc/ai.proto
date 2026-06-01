@@ -238,6 +238,9 @@ message TranscribeAttachmentRequest {
   string messageId = 2;
   string language = 3; // 'vi' | 'en'
   string userId = 4;
+  string fileUrl = 5;
+  string mimeType = 6;
+  string cachedTranscript = 7;
 }
 
 message TranscribeAttachmentResponse {

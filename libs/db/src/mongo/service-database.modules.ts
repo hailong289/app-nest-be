@@ -90,16 +90,7 @@ export class FilesystemDatabaseModule {}
 @Module({
   imports: [
     MongoConnectionModule,
-    MongooseModule.forFeature([
-      aIEmbeddingModel,
-      aIUsageLogModel,
-      // Legacy cross-service reads (Sprint 1): replace with Kafka payloads or
-      // API gateway -> owner lookups for on-demand compatibility paths.
-      userModel,
-      messagesModel,
-      attachmentModel,
-      documentModel,
-    ]),
+    MongooseModule.forFeature([aIEmbeddingModel, aIUsageLogModel]),
   ],
   exports: [MongooseModule],
 })

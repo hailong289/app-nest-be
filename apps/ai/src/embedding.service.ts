@@ -5,25 +5,13 @@ import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
 import { AIEmbedding } from 'libs/db/src/mongo/model/AIEmbedding.model';
-import { Attachment } from 'libs/db/src/mongo/model/Attachment.model';
-import { Document } from 'libs/db/src/mongo/model/Document.model';
-import { Message } from 'libs/db/src/mongo/model/messages.model';
 import axios from 'axios';
 import Utils from '@app/helpers/utils';
-
-/**
- * Strip Vietnamese diacritics + lowercase. Mirrors the `normalizeVi` hook in
- * messages.model.ts so a query like "tin nhan" matches stored
- * `msg_content_norm` for "tin nhắn".
- */
-function normalizeVi(s = ''): string {
-  return s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase();
-}
+import type {
+  AiEmbeddingSnapshot,
+  AiEmbeddingSourceService,
+  AiEmbeddingSourceType,
+} from '@app/dto/ai.dto';
 
 @Injectable()
 export class EmbeddingService {
@@ -34,12 +22,6 @@ export class EmbeddingService {
     private cfg: ConfigService,
     @InjectModel(AIEmbedding.name)
     private readonly embedModel: Model<AIEmbedding>,
-    @InjectModel(Attachment.name)
-    private readonly attachmentModel: Model<Attachment>,
-    @InjectModel(Document.name)
-    private readonly documentModel: Model<Document>,
-    @InjectModel(Message.name)
-    private readonly messageModel: Model<Message>,
   ) {
     if (typeof global.crypto === 'undefined') {
       (global as any).crypto = crypto;
@@ -55,6 +37,72 @@ export class EmbeddingService {
       .createHash('sha256')
       .update(text.trim().toLowerCase())
       .digest('hex');
+  }
+
+  private toObjectId(id?: string): Types.ObjectId | undefined {
+    if (!id || !Types.ObjectId.isValid(id)) return undefined;
+    return new Types.ObjectId(id);
+  }
+
+  private legacyContextType(
+    sourceType: AiEmbeddingSourceType,
+  ): 'room' | 'doc' | 'file' {
+    if (sourceType === 'message') return 'room';
+    if (sourceType === 'document') return 'doc';
+    return 'file';
+  }
+
+  private sourceTypeFromContext(contextType?: string): AiEmbeddingSourceType {
+    if (contextType === 'doc') return 'document';
+    if (contextType === 'file') return 'attachment';
+    return 'message';
+  }
+
+  private sourceServiceFromSource(
+    sourceType: AiEmbeddingSourceType,
+    service?: string,
+  ): AiEmbeddingSourceService {
+    if (sourceType === 'message') return 'chat';
+    if (sourceType === 'attachment') return 'filesystem';
+    if (service === 'document') return 'filesystem';
+    return 'filesystem';
+  }
+
+  private embeddingRoomMatch(roomId: string) {
+    const roomObjectId = this.toObjectId(roomId);
+    const legacyMatches: Record<string, unknown>[] = [];
+    if (roomObjectId) {
+      legacyMatches.push({ contextType: 'room', contextId: roomObjectId });
+    }
+
+    return {
+      $and: [
+        {
+          $or: [{ roomId }, { roomIds: roomId }, ...legacyMatches],
+        },
+        {
+          $or: [
+            { isSystemMessage: { $ne: true } },
+            { isSystemMessage: { $exists: false } },
+          ],
+        },
+        {
+          $or: [
+            { sourceType: { $in: ['message', 'attachment', 'document'] } },
+            { contextType: { $in: ['room', 'file', 'doc'] } },
+          ],
+        },
+      ],
+    };
+  }
+
+  private documentEmbeddingMatch() {
+    return {
+      $or: [
+        { sourceType: { $in: ['document', 'attachment'] } },
+        { contextType: { $in: ['doc', 'file'] } },
+      ],
+    };
   }
 
   /**
@@ -215,13 +263,37 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
     text: string,
     roomId: string,
     messageId: string,
+    metadata: {
+      userId?: string;
+      userBusinessId?: string;
+      usrId?: string;
+      msgType?: string;
+      isSystemMessage?: boolean;
+      createdAt?: string | Date;
+      snapshot?: AiEmbeddingSnapshot;
+    } = {},
   ) {
     return this.createEmbedding({
       text,
       contextId: roomId,
       contextType: 'room',
       service: 'chat',
+      sourceService: 'chat',
+      sourceType: 'message',
+      sourceId: messageId,
+      roomId,
       messageId,
+      userId: metadata.userId,
+      userBusinessId: metadata.userBusinessId,
+      usrId: metadata.usrId,
+      isSystemMessage:
+        metadata.isSystemMessage ?? metadata.msgType === 'system',
+      snapshot: {
+        content: text,
+        msgType: metadata.msgType,
+        createdAt: metadata.createdAt,
+        ...(metadata.snapshot ?? {}),
+      },
       cleanContent: true,
       replaceOld: false,
     });
@@ -289,59 +361,43 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
    * @param roomId ID của phòng chat
    * @param limit Số lượng kết quả
    */
-  async searchSimilarMessages(query: string, roomId: string, limit = 5, _userId?: string) {
+  async searchSimilarMessages(
+    query: string,
+    roomId: string,
+    limit = 5,
+    _userId?: string,
+  ) {
     type SearchResult = {
       text: string;
-      contextId: string;
-      messageId: string;
+      contextId?: string | Types.ObjectId;
+      sourceId?: string;
+      sourceType?: string;
+      messageId?: string | Types.ObjectId;
       createdAt: Date;
       score: number;
     };
-    const roomObjectId = Utils.convertToObjectIdMongoose(roomId);
+    const roomMatch = this.embeddingRoomMatch(roomId);
 
     try {
-      // 1. Lấy danh sách file và doc thuộc room này
-      const [fileIds, docIds] = await Promise.all([
-        this.attachmentModel
-          .find({ room_id: roomObjectId })
-          .distinct('_id')
-          .exec(),
-        this.documentModel
-          .find({ roomIds: roomObjectId })
-          .distinct('_id')
-          .exec(),
-      ]);
-
-      this.logger.log(
-        `Search in Room ${roomId}: Found ${fileIds.length} files, ${docIds.length} docs`,
-      );
-
-      // 2. Chuẩn bị Vector Search Pipeline
       const queryVector = await this.generateVector(query);
       const vectorPipeline: any[] = [
         {
           $vectorSearch: {
             index: 'vector_index',
             path: 'vector',
-            queryVector: queryVector,
+            queryVector,
             numCandidates: limit * 20,
             limit: limit * 2,
           },
         },
-        {
-          $match: {
-            $or: [
-              { contextType: 'room', contextId: roomObjectId },
-              { contextType: 'file', contextId: { $in: fileIds } },
-              { contextType: 'doc', contextId: { $in: docIds } },
-            ],
-          },
-        },
+        { $match: roomMatch },
         {
           $project: {
             _id: 0,
             text: 1,
             contextId: 1,
+            sourceId: 1,
+            sourceType: 1,
             messageId: 1,
             createdAt: 1,
             score: { $meta: 'vectorSearchScore' },
@@ -349,18 +405,11 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         },
       ];
 
-      // 3. Chuẩn bị Keyword Search (Regex) Query
-      // Tìm kiếm chính xác từ khóa để đảm bảo không bỏ sót
       const keywordQuery = {
-        $or: [
-          { contextType: 'room', contextId: roomObjectId },
-          { contextType: 'file', contextId: { $in: fileIds } },
-          { contextType: 'doc', contextId: { $in: docIds } },
-        ],
+        ...roomMatch,
         text: { $regex: Utils.escapeRegex(query), $options: 'i' },
       };
 
-      // 4. Chạy song song (Hybrid Search)
       const [vectorResults, keywordResults] = await Promise.all([
         this.embedModel
           .aggregate<SearchResult>(vectorPipeline)
@@ -370,16 +419,11 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
               `Vector search failed (likely local): ${errMsg}. Switching to manual Cosine Similarity.`,
             );
 
-            // Manual Vector Search (Local Fallback)
             const candidates = await this.embedModel
-              .find({
-                $or: [
-                  { contextType: 'room', contextId: roomObjectId },
-                  { contextType: 'file', contextId: { $in: fileIds } },
-                  { contextType: 'doc', contextId: { $in: docIds } },
-                ],
-              })
-              .select('text contextId messageId createdAt vector')
+              .find(roomMatch)
+              .select(
+                'text contextId sourceId sourceType messageId createdAt vector',
+              )
               .lean()
               .exec();
 
@@ -395,135 +439,86 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         this.embedModel
           .find(keywordQuery)
           .limit(limit)
-          .select('-_id text contextId messageId createdAt')
+          .select('-_id text contextId sourceId sourceType messageId createdAt')
           .lean()
           .exec()
-          .then((docs) => {
-            this.logger.log(
-              `Keyword search found ${docs.length} results for "${query}"`,
-            );
-            return docs.map(
+          .then((docs) =>
+            docs.map(
               (d) =>
                 ({
                   ...d,
-                  score: 1.5, // Hack: Ưu tiên kết quả khớp từ khóa chính xác cao hơn vector
+                  score: 1.5,
                 }) as unknown as SearchResult,
-            );
-          }),
+            ),
+          ),
       ]);
-      // 5. Merge & Deduplicate
-      const combined = [...keywordResults, ...vectorResults];
+
       const uniqueMap = new Map<string, SearchResult>();
-
-      combined.forEach((item) => {
-        // Key để deduplicate: messageId (nếu có) hoặc contextId (cho doc)
-        const key = item.messageId
-          ? item.messageId.toString()
-          : item.contextId.toString();
-
-        if (!uniqueMap.has(key)) {
+      for (const item of [...keywordResults, ...vectorResults]) {
+        const key =
+          item.sourceId ||
+          item.messageId?.toString?.() ||
+          item.contextId?.toString?.() ||
+          item.text;
+        const existing = uniqueMap.get(key);
+        if (!existing || item.score > existing.score) {
           uniqueMap.set(key, item);
-        } else {
-          // Nếu trùng, giữ lại cái có score cao hơn
-          const existing = uniqueMap.get(key)!;
-          if (item.score > existing.score) {
-            uniqueMap.set(key, item);
-          }
         }
-      });
-
-      // 6. Sort & Drop system-message hits, then limit.
-      // AIEmbeddings may have been generated for system messages (member
-      // added, call started, ...) but users searching chat content don't
-      // want those. Look up messageId → msg_type and filter post-hoc so we
-      // don't have to alter the vector pipeline `$match` stage.
-      const sortedAll = Array.from(uniqueMap.values()).sort(
-        (a, b) => b.score - a.score,
-      );
-      const messageIds = sortedAll.map((r) => r.messageId).filter((id) => !!id);
-      const systemMessageIds = new Set<string>();
-      if (messageIds.length > 0) {
-        const systemDocs = await this.messageModel
-          .find({ _id: { $in: messageIds }, msg_type: 'system' }, { _id: 1 })
-          .lean()
-          .exec();
-        systemDocs.forEach((d) =>
-          systemMessageIds.add(String((d as { _id: unknown })._id)),
-        );
       }
 
-      const ranked = sortedAll
-        .filter((r) => !systemMessageIds.has(String(r.messageId)))
-        .slice(0, limit);
+      const ranked = Array.from(uniqueMap.values())
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map((item) => ({
+          ...item,
+          contextId: item.contextId?.toString?.() ?? item.sourceId ?? '',
+          messageId: item.messageId?.toString?.() ?? '',
+        }));
 
-      // 7. Fallback: if no embeddings/vectors matched (room never indexed,
-      // AI offline, etc.) fall back to a plain regex over Messages.msg_content_norm
-      // — same UX as a regular keyword search.
-      if (ranked.length === 0) {
-        return this.fallbackKeywordSearchOnMessages(query, roomObjectId, limit);
-      }
-
-      return ranked;
+      return ranked.length > 0
+        ? ranked
+        : this.fallbackKeywordSearchOnEmbeddings(query, roomMatch, limit);
     } catch (error) {
-      this.logger.error('Search failed, falling back to keyword search', error);
-      return this.fallbackKeywordSearchOnMessages(
-        query,
-        Utils.convertToObjectIdMongoose(roomId),
-        limit,
+      this.logger.error(
+        'Search failed, falling back to embedding keyword search',
+        error,
       );
+      return this.fallbackKeywordSearchOnEmbeddings(query, roomMatch, limit);
     }
   }
 
-  /**
-   * Plain keyword search over the Messages collection — used as a fallback
-   * when the AI/vector pipeline returns no hits (room not yet embedded, AI
-   * service unavailable, ...). Searches against `msg_content_norm` (Vietnamese
-   * diacritics-stripped index) so "tin nhan" matches "tin nhắn".
-   */
-  private async fallbackKeywordSearchOnMessages(
+  private async fallbackKeywordSearchOnEmbeddings(
     query: string,
-    roomObjectId: Types.ObjectId,
+    match: Record<string, unknown>,
     limit: number,
   ) {
     const trimmed = query.trim();
     if (!trimmed) return [];
 
     try {
-      const normalized = normalizeVi(trimmed);
-      const safe = Utils.escapeRegex(normalized);
-
-      const docs = await this.messageModel
+      const docs = await this.embedModel
         .find({
-          msg_roomId: roomObjectId,
-          msg_content_norm: { $regex: safe, $options: 'i' },
-          deletedAt: null,
-          // Exclude system messages (member added/left, call started/ended,
-          // ...) — they're notifications, not actual chat content the user
-          // would search for.
-          msg_type: { $ne: 'system' },
+          ...match,
+          text: { $regex: Utils.escapeRegex(trimmed), $options: 'i' },
         })
         .sort({ createdAt: -1 })
         .limit(limit)
-        .select('_id msg_roomId msg_content createdAt')
+        .select('-_id text contextId sourceId sourceType messageId createdAt')
         .lean()
         .exec();
 
-      this.logger.log(
-        `[Fallback] Keyword search on Messages found ${docs.length} hits for "${query}" in room ${roomObjectId.toString()}`,
-      );
-
       return docs.map((d) => ({
-        text: d.msg_content,
-        contextId: d.msg_roomId,
-        messageId: d._id,
+        text: d.text,
+        contextId: d.contextId?.toString?.() ?? d.sourceId ?? '',
+        messageId: d.messageId?.toString?.() ?? '',
+        sourceId: d.sourceId,
+        sourceType: d.sourceType,
         createdAt: d.createdAt,
-        // Lower than vector hits (>=0.5) and lower than embedding-keyword hits
-        // (1.5) — keeps fallback results visually distinct.
         score: 0.3,
       }));
     } catch (err) {
       this.logger.error(
-        `[Fallback] Keyword search failed: ${
+        `[Fallback] Embedding keyword search failed: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
@@ -542,26 +537,57 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
    */
   async createEmbedding(params: {
     text: string;
-    contextId: string; // roomId hoặc docId
-    contextType: string; // 'room', 'doc', 'file'
-    service: string; // 'chat', 'document'
+    contextId?: string; // roomId hoặc docId
+    contextType?: 'room' | 'doc' | 'file';
+    service?: string;
+    sourceService?: AiEmbeddingSourceService;
+    sourceType?: AiEmbeddingSourceType;
+    sourceId?: string;
+    roomId?: string;
+    roomIds?: string[];
     userId?: string;
+    userBusinessId?: string;
+    usrId?: string;
     messageId?: string;
-    cleanContent?: boolean; // Có chạy AI lọc rác không? (Chat cần, Doc không cần)
-    replaceOld?: boolean; // True: Xóa cũ tạo mới (Doc). False: Chỉ tạo mới nếu chưa có (Chat)
+    isSystemMessage?: boolean;
+    visibility?: string;
+    snapshot?: AiEmbeddingSnapshot;
+    cleanContent?: boolean;
+    replaceOld?: boolean;
   }) {
     const {
       text,
-      contextId,
-      contextType,
-      service,
       userId,
       messageId,
       cleanContent = false,
       replaceOld = false,
     } = params;
+    const sourceType =
+      params.sourceType ?? this.sourceTypeFromContext(params.contextType);
+    const sourceService =
+      params.sourceService ??
+      this.sourceServiceFromSource(sourceType, params.service);
+    const sourceId =
+      params.sourceId ??
+      (sourceType === 'message' ? messageId : undefined) ??
+      params.contextId;
+    const contextType =
+      params.contextType ?? this.legacyContextType(sourceType);
+    const contextId =
+      params.contextId ??
+      (sourceType === 'message' ? params.roomId : undefined) ??
+      sourceId;
+    const service = params.service ?? sourceService;
+    const roomIds = Array.from(
+      new Set(
+        [
+          ...(params.roomId ? [params.roomId] : []),
+          ...(params.roomIds ?? []),
+        ].filter(Boolean),
+      ),
+    );
 
-    if (!text) return;
+    if (!text || !contextId || !sourceId) return;
 
     // 1. Validate & Clean content
     if (cleanContent) {
@@ -579,23 +605,30 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
     }
 
     try {
+      const legacyContextId = this.toObjectId(contextId);
+      const legacyMessageId = this.toObjectId(messageId);
+      const sourceQuery: FilterQuery<AIEmbedding> = {
+        sourceType,
+        sourceId,
+      };
+      const legacyQuery: FilterQuery<AIEmbedding> | null = legacyContextId
+        ? {
+            contextType,
+            contextId: legacyContextId,
+            ...(legacyMessageId ? { messageId: legacyMessageId } : {}),
+          }
+        : null;
+
       // 2. Xử lý dữ liệu cũ (Update mode)
       if (replaceOld) {
         await this.embedModel.deleteMany({
-          contextId: Utils.convertToObjectIdMongoose(contextId),
-          contextType: contextType,
+          $or: legacyQuery ? [sourceQuery, legacyQuery] : [sourceQuery],
         });
       } else {
         // Append mode: Check exist
-        const query: FilterQuery<AIEmbedding> = {
-          contextId: Utils.convertToObjectIdMongoose(contextId),
-          contextType: contextType,
-        };
-        if (messageId) {
-          query.messageId = Utils.convertToObjectIdMongoose(messageId);
-        }
-
-        const exists = await this.embedModel.exists(query);
+        const exists = await this.embedModel.exists({
+          $or: legacyQuery ? [sourceQuery, legacyQuery] : [sourceQuery],
+        });
         if (exists) return;
       }
 
@@ -605,9 +638,13 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
 
       // Check duplicate hash (nếu không phải update mode)
       if (!replaceOld) {
-        const existingHash = await this.embedModel.exists({ hash });
+        const existingHash = await this.embedModel.exists({
+          hash,
+          sourceType,
+          sourceId,
+        });
         if (existingHash) {
-          this.logger.debug(`Skipped duplicate hash content`);
+          this.logger.debug(`Skipped duplicate hash content for ${sourceId}`);
           return;
         }
       }
@@ -619,17 +656,27 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           provider: 'google',
           model: 'text-embedding-004',
           contextType,
-          contextId: Utils.convertToObjectIdMongoose(contextId),
-          messageId: messageId
-            ? Utils.convertToObjectIdMongoose(messageId)
-            : undefined,
+          contextId: legacyContextId,
+          messageId: legacyMessageId,
+          sourceService,
+          sourceType,
+          sourceId,
+          roomId: params.roomId,
+          roomIds,
           userId,
+          userBusinessId: params.userBusinessId,
+          usrId: params.usrId,
+          isSystemMessage: params.isSystemMessage ?? false,
+          visibility: params.visibility,
+          snapshot: params.snapshot ?? {},
           text,
           hash,
           vector,
         });
 
-        this.logger.log(`✅ Embedded [${service}/${contextType}] ${contextId}`);
+        this.logger.log(
+          `✅ Embedded [${sourceService}/${sourceType}] ${sourceId}`,
+        );
       } catch (error: any) {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         if (error?.code === 11000) {
@@ -660,18 +707,23 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       text: string;
       contextId: string;
       contextType: string;
+      sourceId?: string;
+      sourceType?: string;
       score: number;
     }>
   > {
     type RawSearchResult = {
       text: string;
-      contextId: string | Types.ObjectId;
+      contextId?: string | Types.ObjectId;
       contextType: string | undefined;
+      sourceId?: string;
+      sourceType?: string;
       score: number;
     };
 
     let results: RawSearchResult[] = [];
     let queryVector: number[] | null = null;
+    const documentMatch = this.documentEmbeddingMatch();
 
     try {
       queryVector = await this.generateVector(query);
@@ -687,11 +739,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           },
         },
         {
-          $match: {
-            contextType: { $in: ['doc', 'file'] },
-            // TODO: Thêm logic check quyền (ví dụ: userId == ownerId hoặc doc public)
-            // Hiện tại tạm thời search all docs
-          },
+          $match: documentMatch,
         },
         {
           $project: {
@@ -699,6 +747,8 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
             text: 1,
             contextId: 1,
             contextType: 1,
+            sourceId: 1,
+            sourceType: 1,
             score: { $meta: 'vectorSearchScore' },
           },
         },
@@ -717,10 +767,8 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
 
         // Manual Vector Search
         const candidates = await this.embedModel
-          .find({
-            contextType: { $in: ['doc', 'file'] },
-          })
-          .select('text contextId contextType vector')
+          .find(documentMatch)
+          .select('text contextId contextType sourceId sourceType vector')
           .lean()
           .exec();
 
@@ -734,8 +782,10 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           .slice(0, limit)
           .map((item) => ({
             ...item,
-            contextId: item.contextId?.toString?.() ?? '',
-            contextType: item.contextType ?? 'doc',
+            contextId: item.contextId?.toString?.() ?? item.sourceId ?? '',
+            contextType:
+              item.contextType ??
+              (item.sourceType === 'attachment' ? 'file' : 'doc'),
           }));
       } else {
         this.logger.error('Vector search failed', error);
@@ -746,11 +796,11 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       this.logger.log(`Fallback to keyword search for doc/file: "${query}"`);
       const docs = await this.embedModel
         .find({
-          contextType: { $in: ['doc', 'file'] },
+          ...documentMatch,
           text: { $regex: query, $options: 'i' },
         })
         .limit(limit)
-        .select('-_id text contextId contextType')
+        .select('-_id text contextId contextType sourceId sourceType')
         .lean()
         .exec();
 
@@ -761,8 +811,9 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       results = docs.map((d) => ({
         ...d,
         score: 0.5,
-        contextId: d.contextId?.toString?.() ?? '',
-        contextType: d.contextType ?? 'doc',
+        contextId: d.contextId?.toString?.() ?? d.sourceId ?? '',
+        contextType:
+          d.contextType ?? (d.sourceType === 'attachment' ? 'file' : 'doc'),
       }));
     }
 
@@ -773,18 +824,35 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
           ? r.contextId
           : (r.contextId?.toString?.() ?? ''),
       contextType: r.contextType ?? 'doc',
+      sourceId: r.sourceId,
+      sourceType: r.sourceType,
       score: r.score,
     }));
   }
 
-  async processFileEmbedding(
-    fileUrl: string,
-    fileType: string,
-    docId: string,
-    userId: string,
-    mimeType: string,
-    messageId: string,
-  ) {
+  async processFileEmbedding(params: {
+    fileUrl: string;
+    fileType: string;
+    attachmentId: string;
+    userId: string;
+    mimeType?: string;
+    messageId?: string;
+    roomId?: string;
+    userBusinessId?: string;
+    usrId?: string;
+    name?: string;
+    size?: number;
+    snapshot?: AiEmbeddingSnapshot;
+  }) {
+    const {
+      fileUrl,
+      fileType,
+      attachmentId,
+      userId,
+      mimeType = 'application/octet-stream',
+      messageId,
+      roomId,
+    } = params;
     try {
       this.logger.log(`Processing file embedding: ${fileUrl} (${fileType})`);
 
@@ -810,21 +878,38 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       }
 
       if (textToEmbed) {
-        this.logger.log(`Extracted text for ${docId}: ${textToEmbed}`);
+        this.logger.log(`Extracted text for ${attachmentId}: ${textToEmbed}`);
         await this.createEmbedding({
           text: textToEmbed,
-          contextId: docId,
+          contextId: attachmentId,
           contextType: 'file',
-          service: 'document',
+          service: 'filesystem',
+          sourceService: 'filesystem',
+          sourceType: 'attachment',
+          sourceId: attachmentId,
+          roomId,
           userId,
+          userBusinessId: params.userBusinessId,
+          usrId: params.usrId,
           replaceOld: true,
           messageId,
+          snapshot: {
+            url: fileUrl,
+            kind: fileType,
+            mimeType,
+            name: params.name,
+            size: params.size,
+            ...(params.snapshot ?? {}),
+          },
         });
       } else {
-        this.logger.warn(`No text extracted from file ${docId}`);
+        this.logger.warn(`No text extracted from file ${attachmentId}`);
       }
     } catch (error) {
-      this.logger.error(`Failed to process file embedding for ${docId}`, error);
+      this.logger.error(
+        `Failed to process file embedding for ${attachmentId}`,
+        error,
+      );
     }
   }
 

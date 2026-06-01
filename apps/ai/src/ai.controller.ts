@@ -4,6 +4,11 @@ import { GrpcMethod, MessagePattern } from '@nestjs/microservices';
 import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
 import { SearchMessagesDto } from '@app/dto/ai.dto';
+import type {
+  AiChatMessageEmbeddingPayload,
+  AiDocumentEmbeddingPayload,
+  AiFileEmbeddingPayload,
+} from '@app/dto/ai.dto';
 import type { MulterFile } from '@app/dto';
 import { AiLogUseService } from './ai-log-use.service';
 import type { AiLogUsagePayload } from './ai-log-use.service';
@@ -23,51 +28,61 @@ export class AIController {
   }
 
   @MessagePattern(KafkaEvent.AI_CHAT_MSG_EMBEDDING)
-  async createChatMessageEmbedding(data: {
-    text: string;
-    roomId: string;
-    messageId: string;
-  }) {
+  async createChatMessageEmbedding(data: AiChatMessageEmbeddingPayload) {
+    if (!data?.text || !data.roomId || !data.messageId) {
+      return;
+    }
     return await this.embeddingService.createChatMessageEmbedding(
       data.text,
       data.roomId,
       data.messageId,
+      {
+        userId: data.userId,
+        userBusinessId: data.userBusinessId,
+        usrId: data.usrId,
+        msgType: data.msgType,
+        isSystemMessage: data.isSystemMessage,
+        createdAt: data.createdAt,
+        snapshot: data.snapshot,
+      },
     );
   }
 
   @MessagePattern(KafkaEvent.AI_DOC_EMBEDDING)
-  async createDocumentEmbedding(data: {
-    text: string;
-    docId: string;
-    userId: string;
-  }) {
+  async createDocumentEmbedding(data: AiDocumentEmbeddingPayload) {
+    const text = data?.plainText || data?.text;
+    if (!text || !data.docId) {
+      return;
+    }
     return await this.embeddingService.createEmbedding({
-      text: data.text,
+      text,
       contextId: data.docId,
       contextType: 'doc',
-      service: 'document',
+      service: 'filesystem',
+      sourceService: 'filesystem',
+      sourceType: 'document',
+      sourceId: data.docId,
       userId: data.userId,
+      userBusinessId: data.userBusinessId,
+      usrId: data.usrId,
+      roomIds: data.roomIds,
+      visibility: data.visibility,
+      snapshot: {
+        title: data.title,
+        content: text,
+        updatedAt: data.updatedAt,
+        ...(data.snapshot ?? {}),
+      },
       replaceOld: true,
     });
   }
 
   @MessagePattern(KafkaEvent.AI_PROCESS_FILE_EMBEDDING)
-  async processFileEmbedding(data: {
-    fileUrl: string;
-    fileType: string;
-    docId: string;
-    userId: string;
-    mimeType: string;
-    messageId: string;
-  }) {
-    return await this.embeddingService.createEmbedding({
-      text: data.fileUrl,
-      contextId: data.docId,
-      contextType: 'file',
-      service: 'document',
-      userId: data.userId,
-      replaceOld: true,
-    });
+  async processFileEmbedding(data: AiFileEmbeddingPayload) {
+    if (!data?.fileUrl || !data.attachmentId) {
+      return;
+    }
+    return await this.embeddingService.processFileEmbedding(data);
   }
 
   @GrpcMethod('AIService', 'SearchMessages')
@@ -136,7 +151,13 @@ export class AIController {
     model?: string | null;
     userId: string;
   }) {
-    return await this.service.summaryDocument(data.type, data.file, data.file_url, data.model, data.userId);
+    return await this.service.summaryDocument(
+      data.type,
+      data.file,
+      data.file_url,
+      data.model,
+      data.userId,
+    );
   }
 
   @GrpcMethod('AIService', 'Translation')
@@ -148,7 +169,13 @@ export class AIController {
     model?: string | null;
     userId: string;
   }) {
-    return await this.service.translation(data.text, data.from, data.to, data.model, data.userId);
+    return await this.service.translation(
+      data.text,
+      data.from,
+      data.to,
+      data.model,
+      data.userId,
+    );
   }
 
   @GrpcMethod('AIService', 'Quizz')
@@ -185,12 +212,18 @@ export class AIController {
     messageId: string;
     language: 'vi' | 'en';
     userId: string;
+    fileUrl?: string;
+    mimeType?: string;
+    cachedTranscript?: string;
   }) {
     return this.service.transcribeAttachment(
       data.attachmentId,
       data.messageId,
       data.language || 'vi',
       data.userId,
+      data.fileUrl,
+      data.mimeType,
+      data.cachedTranscript,
     );
   }
 
@@ -256,8 +289,14 @@ export class AIController {
     model?: string | null;
     userId: string;
   }) {
-    const observable = await this.service.summaryDocumentStream(data.type, data.file, data.file_url, data.model, data.userId);
-    return observable.pipe(map(chunk => ({ chunk })));
+    const observable = await this.service.summaryDocumentStream(
+      data.type,
+      data.file,
+      data.file_url,
+      data.model,
+      data.userId,
+    );
+    return observable.pipe(map((chunk) => ({ chunk })));
   }
 
   @GrpcMethod('AIService', 'QuizzStream')
@@ -272,9 +311,16 @@ export class AIController {
     userId: string;
   }) {
     const observable = this.service.generateQuizzStream(
-      data.file, data.text || '', data.type, data.question_type, data.question_max, data.question_max_points, data.model, data.userId
+      data.file,
+      data.text || '',
+      data.type,
+      data.question_type,
+      data.question_max,
+      data.question_max_points,
+      data.model,
+      data.userId,
     );
-    return observable.pipe(map(chunk => ({ chunk })));
+    return observable.pipe(map((chunk) => ({ chunk })));
   }
 
   @GrpcMethod('AIService', 'GenerateFlashcardStream')
@@ -300,7 +346,7 @@ export class AIController {
       data.model,
       data.userId,
     );
-    return observable.pipe(map(chunk => ({ chunk })));
+    return observable.pipe(map((chunk) => ({ chunk })));
   }
 
   @GrpcMethod('AIService', 'GetUsageReport')

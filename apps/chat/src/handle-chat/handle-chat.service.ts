@@ -9,6 +9,7 @@ import {
   RequestCallDto,
   AcceptCallDto,
   EndCallDto,
+  type AiChatMessageEmbeddingPayload,
 } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import {
@@ -203,9 +204,7 @@ export class HandleChatService {
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
       quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
-      desk_id: desk_id
-        ? this.utils.convertToObjectIdMongoose(desk_id)
-        : null,
+      desk_id: desk_id ? this.utils.convertToObjectIdMongoose(desk_id) : null,
       todo_project_id: null as Types.ObjectId | null,
     };
 
@@ -324,16 +323,28 @@ export class HandleChatService {
         },
         { upsert: true },
       ),
-      ...(type === 'text'
+      ...(type === 'text' && content
         ? [
             this.utils.dispatchEventKafka(
               this.aiClient,
               KafkaEvent.AI_CHAT_MSG_EMBEDDING,
               {
                 text: content,
-                roomId: finInfo._id,
-                messageId: createNewMsg._id,
-              },
+                roomId: finInfo._id.toString(),
+                messageId: createNewMsg._id.toString(),
+                userId,
+                userBusinessId: userInfo.usr_id,
+                usrId: userInfo.usr_id,
+                msgType: type,
+                isSystemMessage: false,
+                createdAt: createNewMsg.createdAt,
+                snapshot: {
+                  content,
+                  msgType: type,
+                  senderName: userInfo.usr_fullname,
+                  senderAvatar: userInfo.usr_avatar,
+                },
+              } satisfies AiChatMessageEmbeddingPayload,
             ),
           ]
         : []),

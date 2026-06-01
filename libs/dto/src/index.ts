@@ -4,4 +4,5 @@ export * from './room.dto';
 export * from './filesystem.dto';
 export * from './social.dto';
 export * from './docs.dto';
+export * from './ai.dto';
 export * from './enum.type';

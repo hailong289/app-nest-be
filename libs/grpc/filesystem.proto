@@ -10,6 +10,8 @@ service FileSystemService {
     rpc UploadSingleFileForUser(InputUploadSingleFileForUser)returns (UploadSingleFileForUserResponse);
     rpc UploadMultipleFilesForUser(InputUploadMultipleFilesForUser) returns (UploadMultipleFilesForUserResponse);
     rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse);
+    rpc ResolveAttachmentForAi(ResolveAttachmentForAiRequest) returns (ResolveAttachmentForAiResponse);
+    rpc SaveAttachmentTranscript(SaveAttachmentTranscriptRequest) returns (SaveAttachmentTranscriptResponse);
 }
 
 message FileRequest {
@@ -148,3 +150,51 @@ message GetAttachmentsResponse {
     repeated UploadSingleFileForUserCore metadata = 4;
 }
 
+message ResolveAttachmentForAiRequest {
+    string attachmentId = 1;
+    string messageId = 2;
+    string userId = 3;
+}
+
+message ResolveAttachmentForAiMetadata {
+    string attachmentId = 1;
+    string messageId = 2;
+    string roomId = 3;
+    string userId = 4;
+    string fileUrl = 5;
+    string mimeType = 6;
+    string kind = 7;
+    string transcript = 8;
+    string transcribedAt = 9;
+    string name = 10;
+    int64 size = 11;
+}
+
+message ResolveAttachmentForAiResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    ResolveAttachmentForAiMetadata metadata = 4;
+}
+
+message SaveAttachmentTranscriptRequest {
+    string attachmentId = 1;
+    string messageId = 2;
+    string userId = 3;
+    string transcript = 4;
+    string detectedLanguage = 5;
+}
+
+message SaveAttachmentTranscriptMetadata {
+    string attachmentId = 1;
+    string messageId = 2;
+    string transcript = 3;
+    string transcribedAt = 4;
+}
+
+message SaveAttachmentTranscriptResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    SaveAttachmentTranscriptMetadata metadata = 4;
+}

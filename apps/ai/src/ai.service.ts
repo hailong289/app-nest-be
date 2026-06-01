@@ -1,13 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
 import { GoogleModerationProvider } from './google.provider';
-import { Model } from 'mongoose';
 import { EmbeddingService } from './embedding.service';
-import { Message, Attachment } from 'libs/db/src';
 import { MulterFile } from '@app/dto';
 import { Response } from '@app/helpers/response';
 import axios from 'axios';
 import { basename } from 'node:path';
+import { GatewayClientService } from './gateway-client.service';
 
 @Injectable()
 export class AIService {
@@ -16,9 +14,7 @@ export class AIService {
   constructor(
     private readonly googleProvider: GoogleModerationProvider,
     private readonly embeddingService: EmbeddingService,
-    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
-    @InjectModel(Attachment.name)
-    private readonly attachmentModel: Model<Attachment>,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
 
   async checkMessage(text: string, userId: string, contextId?: string) {
@@ -26,7 +22,10 @@ export class AIService {
     return result;
   }
 
-  async suggestReplies(messages: string[], userId: string): Promise<{
+  async suggestReplies(
+    messages: string[],
+    userId: string,
+  ): Promise<{
     suggestions: string[];
     emojis: string[];
     gif_keywords: string[];
@@ -35,22 +34,19 @@ export class AIService {
     return result;
   }
 
-  async searchMessages(text: string, roomId: string, limit: number, userId?: string) {
+  async searchMessages(
+    text: string,
+    roomId: string,
+    limit: number,
+    userId?: string,
+  ) {
     const result = await this.embeddingService.searchSimilarMessages(
       text,
       roomId,
       limit,
       userId,
     );
-    // Nếu embedding không tìm thấy kết quả thì tìm kiếm trong database
-    if (result.length > 0) {
-      return result;
-    }
-    const messages = await this.messageModel.find({
-      msg_roomId: roomId,
-      msg_content: { $regex: new RegExp(text, 'i') },
-    });
-    return messages;
+    return result;
   }
 
   async summaryDocument(
@@ -66,12 +62,28 @@ export class AIService {
       inputFile = await this.downloadFileFromUrl(file_url);
     }
 
-    const result = await this.googleProvider.summaryDocument(inputFile, model, userId);
+    const result = await this.googleProvider.summaryDocument(
+      inputFile,
+      model,
+      userId,
+    );
     return result;
   }
 
-  async translation(text: string, from: string, to: string, model?: string | null, userId?: string) {
-    const result = await this.googleProvider.translation(text, from, to, model, userId);
+  async translation(
+    text: string,
+    from: string,
+    to: string,
+    model?: string | null,
+    userId?: string,
+  ) {
+    const result = await this.googleProvider.translation(
+      text,
+      from,
+      to,
+      model,
+      userId,
+    );
     return result;
   }
 
@@ -196,31 +208,17 @@ export class AIService {
 
   /**
    * Speech-to-Text on an existing voice-message attachment.
-   *
-   * Flow:
-   *   1. Look up the Attachment by `attachmentId`. Validate it belongs to
-   *      `messageId` and is an audio kind.
-   *   2. If `attachment.transcript` is already set, return it as-is
-   *      (cached) — STT is expensive and idempotent per attachment.
-   *   3. Stream the audio bytes from S3 via the public/signed URL
-   *      stored on the attachment (reuses `axios.get` like
-   *      `downloadFileFromUrl` does for flashcard file_url).
-   *   4. Hand the buffer to GoogleModerationProvider.speechToText, which
-   *      calls Gemini with `inlineData` and returns
-   *      `{ transcript, detectedLanguage }`.
-   *   5. Persist `transcript` + `transcribedAt` on the Attachment.
-   *   6. Return the Response.success metadata expected by the proto.
-   *
-   * NB: The realtime broadcast to other room members is NOT done here —
-   * the persisted transcript becomes visible on next message refresh /
-   * reload. Live broadcast can be added later via a Kafka event consumed
-   * by the socket service.
+   * AI does not query/update Attachments directly. Callers should pass
+   * file metadata, or AI resolves/persists through API gateway internal routes.
    */
   async transcribeAttachment(
     attachmentId: string,
     messageId: string,
     language: 'vi' | 'en',
     userId: string,
+    fileUrl?: string,
+    mimeType?: string,
+    cachedTranscript?: string,
   ) {
     if (!attachmentId || !messageId) {
       return Response.error(
@@ -230,39 +228,10 @@ export class AIService {
       );
     }
 
-    const attachment = await this.attachmentModel.findById(attachmentId);
-    if (!attachment) {
-      return Response.error(
-        'Không tìm thấy attachment',
-        404,
-        'ATTACHMENT_NOT_FOUND',
-      );
-    }
-
-    if (attachment.kind !== 'audio') {
-      return Response.error(
-        'Attachment không phải audio',
-        400,
-        'NOT_AUDIO_ATTACHMENT',
-      );
-    }
-
-    if (
-      attachment.contextId &&
-      attachment.contextId.toString() !== messageId
-    ) {
-      return Response.error(
-        'attachment không thuộc message này',
-        400,
-        'MISMATCHED_MESSAGE',
-      );
-    }
-
-    // Already transcribed → idempotent return.
-    if (typeof attachment.transcript === 'string') {
+    if (typeof cachedTranscript === 'string') {
       return Response.success(
         {
-          transcript: attachment.transcript,
+          transcript: cachedTranscript,
           detectedLanguage: language,
           attachmentId,
           messageId,
@@ -274,7 +243,66 @@ export class AIService {
       );
     }
 
-    if (!attachment.url) {
+    let resolvedFileUrl = fileUrl;
+    let resolvedMimeType = mimeType || 'audio/webm';
+
+    if (!resolvedFileUrl) {
+      const resolved = await this.gatewayClient.resolveAttachmentForAi({
+        attachmentId,
+        messageId,
+        userId,
+      });
+
+      if (resolved?.statusCode && resolved.statusCode !== 200) {
+        return resolved;
+      }
+
+      const metadata = resolved?.metadata as
+        | {
+            fileUrl?: string;
+            mimeType?: string;
+            kind?: string;
+            transcript?: string;
+            transcribedAt?: string;
+          }
+        | undefined;
+
+      if (!metadata) {
+        return Response.error(
+          'Không thể resolve attachment',
+          502,
+          'ATTACHMENT_RESOLVE_FAILED',
+        );
+      }
+
+      if (metadata.kind && metadata.kind !== 'audio') {
+        return Response.error(
+          'Attachment không phải audio',
+          400,
+          'NOT_AUDIO_ATTACHMENT',
+        );
+      }
+
+      if (typeof metadata.transcript === 'string' && metadata.transcribedAt) {
+        return Response.success(
+          {
+            transcript: metadata.transcript,
+            detectedLanguage: language,
+            attachmentId,
+            messageId,
+            cached: true,
+          },
+          'Đã có bản transcript',
+          200,
+          'OK',
+        );
+      }
+
+      resolvedFileUrl = metadata.fileUrl;
+      resolvedMimeType = metadata.mimeType || resolvedMimeType;
+    }
+
+    if (!resolvedFileUrl) {
       return Response.error(
         'Attachment thiếu URL audio',
         400,
@@ -283,9 +311,8 @@ export class AIService {
     }
 
     let buffer: Buffer;
-    let mimeType = attachment.mimeType || 'audio/webm';
     try {
-      const res = await axios.get<ArrayBuffer>(attachment.url, {
+      const res = await axios.get<ArrayBuffer>(resolvedFileUrl, {
         responseType: 'arraybuffer',
         // Audio < 20MB; cap timeout to avoid stuck requests.
         timeout: 60_000,
@@ -294,7 +321,7 @@ export class AIService {
       buffer = Buffer.from(res.data);
       const headerType = res.headers?.['content-type'];
       if (typeof headerType === 'string' && headerType.startsWith('audio/')) {
-        mimeType = headerType;
+        resolvedMimeType = headerType;
       }
     } catch (err) {
       this.logger.error('Lỗi tải audio từ S3:', (err as Error).message);
@@ -307,7 +334,7 @@ export class AIService {
 
     const result = await this.googleProvider.speechToText(
       buffer,
-      mimeType,
+      resolvedMimeType,
       language,
       userId,
     );
@@ -326,26 +353,18 @@ export class AIService {
     const transcript = resp.metadata.transcript ?? '';
     const detectedLanguage = resp.metadata.detectedLanguage ?? language;
 
-    // Persist (even empty transcript so we don't repeatedly hit Gemini for
-    // silent audio).
     try {
-      await this.attachmentModel.updateOne(
-        { _id: attachment._id },
-        {
-          $set: {
-            transcript,
-            transcribedAt: new Date(),
-          },
-        },
-      );
+      await this.gatewayClient.persistAttachmentTranscript(attachmentId, {
+        messageId,
+        userId,
+        transcript,
+        detectedLanguage,
+      });
     } catch (err) {
       this.logger.error(
-        'Không thể lưu transcript vào DB:',
+        'Không thể lưu transcript qua gateway:',
         (err as Error).message,
       );
-      // Continue — we still want to return the transcript to the caller
-      // so the UI can show it; the next call will simply re-run the STT
-      // since the cache field stays null.
     }
 
     return Response.success(

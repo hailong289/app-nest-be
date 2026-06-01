@@ -12,6 +12,64 @@ import {
 import { FileUploadData } from './filesystem.dto';
 import { Type } from 'class-transformer';
 
+export type AiEmbeddingSourceService = 'chat' | 'filesystem' | 'document';
+export type AiEmbeddingSourceType = 'message' | 'attachment' | 'document';
+
+export interface AiEmbeddingSnapshot {
+  content?: string;
+  name?: string;
+  mimeType?: string;
+  kind?: string;
+  url?: string;
+  title?: string;
+  size?: number;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  [key: string]: unknown;
+}
+
+export interface AiChatMessageEmbeddingPayload {
+  userId: string;
+  userBusinessId?: string;
+  usrId?: string;
+  roomId: string;
+  messageId: string;
+  text: string;
+  msgType?: string;
+  isSystemMessage?: boolean;
+  createdAt?: string | Date;
+  snapshot?: AiEmbeddingSnapshot;
+}
+
+export interface AiDocumentEmbeddingPayload {
+  docId: string;
+  userId: string;
+  userBusinessId?: string;
+  usrId?: string;
+  roomIds?: string[];
+  title?: string;
+  plainText?: string;
+  text?: string;
+  visibility?: string;
+  updatedAt?: string | Date;
+  snapshot?: AiEmbeddingSnapshot;
+}
+
+export interface AiFileEmbeddingPayload {
+  attachmentId: string;
+  messageId?: string;
+  roomId?: string;
+  userId: string;
+  userBusinessId?: string;
+  usrId?: string;
+  fileUrl: string;
+  fileType: string;
+  mimeType?: string;
+  name?: string;
+  size?: number;
+  snapshot?: AiEmbeddingSnapshot;
+}
+
 export class ModerationDto {
   @IsNotEmpty({ message: 'Nội dung không để trống' })
   text: string;
@@ -140,6 +198,19 @@ export class TranscribeAttachmentDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  /** Internal AI/gateway path: resolved by filesystem owner. */
+  @IsOptional()
+  @IsString()
+  fileUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  mimeType?: string;
+
+  @IsOptional()
+  @IsString()
+  cachedTranscript?: string;
 }
 
 export class GenerateFlashcardDto {

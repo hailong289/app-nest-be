@@ -161,4 +161,50 @@ export class FilesystemController {
       );
     }
   }
+
+  @GrpcMethod('FileSystemService', 'ResolveAttachmentForAi')
+  async resolveAttachmentForAi(
+    @Payload()
+    data: {
+      attachmentId: string;
+      messageId?: string;
+      userId?: string;
+    },
+  ) {
+    try {
+      return await this.filesystemService.resolveAttachmentForAi(data);
+    } catch (error) {
+      console.error('❌ Resolve attachment for AI error:', error);
+      return Response.error(
+        'Lấy metadata attachment thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
+  }
+
+  @GrpcMethod('FileSystemService', 'SaveAttachmentTranscript')
+  async saveAttachmentTranscript(
+    @Payload()
+    data: {
+      attachmentId: string;
+      messageId?: string;
+      userId?: string;
+      transcript: string;
+      detectedLanguage?: string;
+    },
+  ) {
+    try {
+      return await this.filesystemService.saveAttachmentTranscript(data);
+    } catch (error) {
+      console.error('❌ Save attachment transcript error:', error);
+      return Response.error(
+        'Lưu transcript attachment thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
+  }
 }

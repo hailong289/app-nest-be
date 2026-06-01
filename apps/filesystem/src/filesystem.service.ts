@@ -12,13 +12,14 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
 import { InjectModel } from '@nestjs/mongoose';
 import { Attachment, AttachmentKind, Room, User } from 'libs/db/src';
-import { Model, FilterQuery } from 'mongoose';
+import { Model, FilterQuery, Types } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import {
   MulterFile,
   uploadSingleFileByUserDTo,
   UploadMultipleFilesByUserDto,
   GetAttachmentsDto,
+  type AiFileEmbeddingPayload,
 } from '@app/dto';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -154,11 +155,24 @@ export class FilesystemService {
           {
             fileUrl,
             fileType: kind,
-            docId: attachment._id,
+            attachmentId: this.objectIdToString(attachment._id),
             userId,
+            roomId: this.objectIdToString(room._id),
             mimeType: file.mimetype,
             messageId,
-          },
+            name: file.originalname,
+            size: file.size,
+            snapshot: {
+              url: fileUrl,
+              kind,
+              mimeType: file.mimetype,
+              name: file.originalname,
+              size: file.size,
+              width: metadata.width,
+              height: metadata.height,
+              duration: metadata.duration,
+            },
+          } satisfies AiFileEmbeddingPayload,
         );
       }
 
@@ -295,6 +309,127 @@ export class FilesystemService {
     }));
 
     return Response.success(mapped, 'Get attachments successful');
+  }
+
+  async resolveAttachmentForAi(data: {
+    attachmentId: string;
+    messageId?: string;
+    userId?: string;
+  }) {
+    if (!Types.ObjectId.isValid(data.attachmentId)) {
+      return Response.badRequest('attachmentId không hợp lệ');
+    }
+
+    const attachment = await this.attachmentModel
+      .findById(data.attachmentId)
+      .lean();
+
+    if (!attachment) {
+      return Response.notFound('Không tìm thấy attachment');
+    }
+
+    if (attachment.kind !== 'audio') {
+      return Response.badRequest('Attachment không phải audio');
+    }
+
+    const attachmentMessageId = attachment.contextId
+      ? this.objectIdToString(attachment.contextId)
+      : undefined;
+    if (
+      data.messageId &&
+      attachmentMessageId &&
+      attachmentMessageId !== data.messageId
+    ) {
+      return Response.forbidden('Attachment không thuộc message này');
+    }
+
+    const attachmentUserId = this.objectIdToString(attachment.user_id);
+    if (data.userId && attachmentUserId !== data.userId) {
+      return Response.forbidden('Attachment không thuộc người dùng này');
+    }
+
+    return Response.success(
+      {
+        attachmentId: this.objectIdToString(attachment._id),
+        messageId: attachmentMessageId || '',
+        roomId: this.objectIdToString(attachment.room_id),
+        userId: attachmentUserId,
+        fileUrl: attachment.url,
+        mimeType: attachment.mimeType,
+        kind: attachment.kind,
+        transcript: attachment.transcript || '',
+        transcribedAt: attachment.transcribedAt
+          ? attachment.transcribedAt.toISOString()
+          : '',
+        name: attachment.name || '',
+        size: attachment.size || 0,
+      },
+      'Resolve attachment for AI successful',
+    );
+  }
+
+  async saveAttachmentTranscript(data: {
+    attachmentId: string;
+    messageId?: string;
+    userId?: string;
+    transcript: string;
+  }) {
+    if (!Types.ObjectId.isValid(data.attachmentId)) {
+      return Response.badRequest('attachmentId không hợp lệ');
+    }
+    if (typeof data.transcript !== 'string') {
+      return Response.badRequest('transcript không hợp lệ');
+    }
+
+    const filter: FilterQuery<Attachment> = {
+      _id: this.utils.convertToObjectIdMongoose(data.attachmentId),
+    };
+
+    if (data.userId) {
+      if (!Types.ObjectId.isValid(data.userId)) {
+        return Response.badRequest('userId không hợp lệ');
+      }
+      filter.user_id = this.utils.convertToObjectIdMongoose(data.userId);
+    }
+
+    if (data.messageId) {
+      if (!Types.ObjectId.isValid(data.messageId)) {
+        return Response.badRequest('messageId không hợp lệ');
+      }
+      filter.contextId = this.utils.convertToObjectIdMongoose(data.messageId);
+    }
+
+    const transcribedAt = new Date();
+    const updated = await this.attachmentModel
+      .findOneAndUpdate(
+        filter,
+        {
+          $set: {
+            transcript: data.transcript,
+            transcribedAt,
+          },
+        },
+        { new: true },
+      )
+      .lean();
+
+    if (!updated) {
+      return Response.notFound('Không tìm thấy attachment cần cập nhật');
+    }
+
+    return Response.success(
+      {
+        attachmentId: this.objectIdToString(updated._id),
+        messageId: updated.contextId
+          ? this.objectIdToString(updated.contextId)
+          : '',
+        transcript: updated.transcript || '',
+        transcribedAt: updated.transcribedAt
+          ? updated.transcribedAt.toISOString()
+          : transcribedAt.toISOString(),
+      },
+      'Lưu transcript thành công',
+    );
   }
 
   async processLinks(

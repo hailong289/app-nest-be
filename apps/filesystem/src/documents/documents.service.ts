@@ -1,4 +1,4 @@
-import { CreateDocDto } from '@app/dto';
+import { CreateDocDto, type AiDocumentEmbeddingPayload } from '@app/dto';
 import { Response } from '@app/helpers/response';
 import Utils from '@app/helpers/utils';
 import {
@@ -572,11 +572,24 @@ export class DocumentsService {
 
     // Trigger AI Embedding if plainText is updated
     if (updateData.plainText) {
+      const roomIds = (doc.roomIds || []).map((roomId) =>
+        this.utils.convertToObjectIdMongoose(roomId.toString()).toString(),
+      );
       this.aiClient.emit(KafkaEvent.AI_DOC_EMBEDDING, {
-        text: updateData.plainText,
-        docId: docId,
-        userId: userId,
-      });
+        docId,
+        userId,
+        roomIds,
+        title: doc.title,
+        plainText: updateData.plainText,
+        visibility: doc.visibility,
+        updatedAt: new Date(),
+        snapshot: {
+          title: doc.title,
+          visibility: doc.visibility,
+          roomIds,
+          updatedAt: new Date(),
+        },
+      } satisfies AiDocumentEmbeddingPayload);
     }
 
     const formattedDoc = await this.getFormattedDocumentById(docId);

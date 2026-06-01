@@ -10,12 +10,14 @@ import { AIController } from './ai.controller';
 import { AIService } from './ai.service';
 import { EmbeddingService } from './embedding.service';
 import googleConfig from './config/google.config';
+import gatewayConfig from './config/gateway.config';
 import { GoogleModerationProvider } from './google.provider';
 import { AiDatabaseModule, mongoConfig } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
 import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
+import { GatewayClientService } from './gateway-client.service';
 
 @Module({
   imports: [
@@ -25,13 +27,11 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
         process.cwd(),
         `apps/ai/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [googleConfig, mongoConfig, kafkaConfig],
+      load: [googleConfig, gatewayConfig, mongoConfig, kafkaConfig],
     }),
     KafkaAdminModule,
-    // AiDatabaseModule registers all AI-owned models (aIEmbeddingModel, aIUsageLogModel)
-    // plus legacy cross-service reads (userModel, messagesModel, attachmentModel, documentModel).
-    // Do NOT add a duplicate MongooseModule.forFeature() here.
-    // Legacy models will be removed in Sprint 1 (replace with Kafka payload/snapshot).
+    // AiDatabaseModule registers only AI-owned models. Keep cross-service
+    // data access behind Kafka snapshots or API gateway internal routes.
     AiDatabaseModule,
     JwtModule.register({}),
     SharedKafkaClientModule.registerAsync({
@@ -46,6 +46,7 @@ import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
     EmbeddingService,
     GoogleModerationProvider,
     AiLogUseService,
+    GatewayClientService,
   ],
 })
 export class AppModule {}
