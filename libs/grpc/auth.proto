@@ -21,8 +21,11 @@ service AuthService {
   rpc LogoutDevice(LogoutDeviceRequest) returns (LogoutResponse);
   rpc LogoutAllDevices(LogoutAllDevicesRequest) returns (LogoutResponse);
   rpc GetFcmTokens(GetFcmTokensRequest) returns (GetFcmTokensResponse);
+  rpc GetFcmTokensByUsers(GetFcmTokensRequest) returns (GetFcmTokensResponse);
   rpc ResolveBusinessIds(ResolveBusinessIdsRequest) returns (ResolveBusinessIdsResponse);
+  rpc ResolveUsersByBusinessIds(ResolveBusinessIdsRequest) returns (ResolveBusinessIdsResponse);
   rpc GetUsersBatch(GetUsersBatchRequest) returns (GetUsersBatchResponse);
+  rpc GetUserSummary(GetUserRequest) returns (GetUserSummaryResponse);
 }
 
 // Geo location (best-effort, populated by api-gateway via geoip-lite).
@@ -233,12 +236,15 @@ message LogoutAllDevicesRequest {
 }
 
 message GetFcmTokensRequest {
+  // Mongo ObjectId strings from Users._id. Do not pass usr_id here.
   repeated string userIds = 1;
 }
 
 message UserFcmTokens {
+  // Mongo ObjectId string from Users._id.
   string userId = 1;
   repeated string fcmTokens = 2;
+  repeated string tokens = 3;
 }
 
 message GetFcmTokensMetadata {
@@ -253,6 +259,7 @@ message GetFcmTokensResponse {
 }
 
 message ResolveBusinessIdsRequest {
+  // Business ids from Users.usr_id.
   repeated string usrIds = 1;
 }
 
@@ -269,6 +276,9 @@ message BusinessUserMapping {
   string status = 10;
   string slug = 11;
   string phone = 12;
+  string gender = 13;
+  string dateOfBirth = 14;
+  string address = 15;
 }
 
 message ResolveBusinessIdsMetadata {
@@ -283,10 +293,13 @@ message ResolveBusinessIdsResponse {
 }
 
 message GetUsersBatchRequest {
+  // Mongo ObjectId strings from Users._id. Do not pass usr_id here.
   repeated string userIds = 1;
   string search = 2;
 }
 
+// User summary contract:
+// _id/userId are Mongo ObjectId strings. usr_id/id are business ids.
 message UserSummary {
   string _id      = 1;
   string userId   = 2;
@@ -299,6 +312,9 @@ message UserSummary {
   string status   = 9;
   string slug     = 10;
   string phone    = 11;
+  string gender = 12;
+  string dateOfBirth = 13;
+  string address = 14;
 }
 
 message GetUsersBatchMetadata {
@@ -310,6 +326,13 @@ message GetUsersBatchResponse {
   int32                 statusCode       = 2;
   string                reasonStatusCode = 3;
   GetUsersBatchMetadata metadata         = 4;
+}
+
+message GetUserSummaryResponse {
+  string      message          = 1;
+  int32       statusCode       = 2;
+  string      reasonStatusCode = 3;
+  UserSummary metadata         = 4;
 }
 
 message GetUserMetadata {

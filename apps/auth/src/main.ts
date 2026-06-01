@@ -14,7 +14,9 @@ async function bootstrap() {
       package: 'auth',
       protoPath: join(
         process.cwd(),
-        process.env.PROTO_URL || 'libs/grpc/auth.proto',
+        process.env.PROTO_URL ||
+          process.env.PROTO_PATH ||
+          'libs/grpc/auth.proto',
       ),
       url: `${process.env.HOST}:${process.env.PORT}`,
       channelOptions: {

@@ -12,6 +12,7 @@ import {
 import {
   Body,
   Controller,
+  Headers,
   Inject,
   Post,
   Get,
@@ -19,7 +20,9 @@ import {
   Query,
   Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { ClientGrpc } from '@nestjs/microservices';
 import type { Observable } from 'rxjs';
@@ -104,6 +107,9 @@ interface AuthGrpcService {
   // Internal methods for chat service
   getUsersBatch(data: { userIds: string[] }): Observable<unknown>;
   resolveBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
+  resolveUsersByBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
+  getFcmTokensByUsers(data: { userIds: string[] }): Observable<unknown>;
+  getUserSummary(data: { userId: string }): Observable<unknown>;
 }
 
 @Controller('auth')
@@ -113,6 +119,7 @@ export class GatewayAuthController {
   public constructor(
     @Inject(SERVICES.AUTH) private readonly authClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
+    private readonly configService: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -447,7 +454,7 @@ export class GatewayAuthController {
 
   // =====================================================
   // Internal endpoints — for use by other services only.
-  // Protected by x-internal-service header.
+  // Protected by x-internal-service plus optional shared internal secret.
   // =====================================================
 
   /**
@@ -458,17 +465,16 @@ export class GatewayAuthController {
   @Post('internal/users/batch')
   async internalGetUsersBatch(
     @Body() body: { userIds: string[] },
-    @Req() req: AuthenticatedRequest,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    const service = (req as any).headers?.['x-internal-service'];
-    if (
-      service !== 'chat' &&
-      service !== 'notification' &&
-      service !== 'filesystem' &&
-      service !== 'learning'
-    ) {
-      return { statusCode: 401, message: 'Unauthorized internal request' };
-    }
+    this.assertInternalRequest(internalService, internalSecret, [
+      'chat',
+      'notification',
+      'filesystem',
+      'learning',
+      'ai',
+    ]);
     const result = (await this.gatewayService.dispatchGrpcRequest(
       (data) => this.authService.getUsersBatch(data),
       { userIds: body.userIds ?? [] },
@@ -488,19 +494,18 @@ export class GatewayAuthController {
   @Post('internal/users/resolve-business-ids')
   async internalResolveBusinessIds(
     @Body() body: { usrIds: string[] },
-    @Req() req: AuthenticatedRequest,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    const service = (req as any).headers?.['x-internal-service'];
-    if (
-      service !== 'chat' &&
-      service !== 'notification' &&
-      service !== 'filesystem' &&
-      service !== 'learning'
-    ) {
-      return { statusCode: 401, message: 'Unauthorized internal request' };
-    }
+    this.assertInternalRequest(internalService, internalSecret, [
+      'chat',
+      'notification',
+      'filesystem',
+      'learning',
+      'ai',
+    ]);
     const result = (await this.gatewayService.dispatchGrpcRequest(
-      (data) => this.authService.resolveBusinessIds(data),
+      (data) => this.authService.resolveUsersByBusinessIds(data),
       { usrIds: body.usrIds ?? [] },
     )) as { statusCode?: number; metadata?: { items?: unknown[] } };
     if (result?.statusCode === 200 && result.metadata?.items) {
@@ -524,12 +529,10 @@ export class GatewayAuthController {
       excludeUsrId?: string;
       excludeUserIds?: string[];
     },
-    @Req() req: AuthenticatedRequest,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    const service = (req as any).headers?.['x-internal-service'];
-    if (service !== 'chat') {
-      return { statusCode: 401, message: 'Unauthorized internal request' };
-    }
+    this.assertInternalRequest(internalService, internalSecret, ['chat']);
     const searchDto = {
       keyword: body.keyword ?? '',
       page: body.page ?? 1,
@@ -541,5 +544,21 @@ export class GatewayAuthController {
       (data) => this.authService.searchUser(data as SearchUserDto),
       searchDto,
     );
+  }
+
+  private assertInternalRequest(
+    internalService?: string,
+    internalSecret?: string,
+    allowedServices: string[] = [],
+  ) {
+    if (!internalService || !allowedServices.includes(internalService)) {
+      throw new UnauthorizedException('Invalid internal service');
+    }
+
+    const expectedSecret =
+      this.configService.get<string>('GATEWAY_INTERNAL_SECRET') || '';
+    if (expectedSecret && internalSecret !== expectedSecret) {
+      throw new UnauthorizedException('Invalid internal secret');
+    }
   }
 }

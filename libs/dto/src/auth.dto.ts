@@ -244,6 +244,41 @@ export class SearchUserDto {
   excludeUserIds?: string[];
 }
 
+export class GetUsersBatchDto {
+  @IsOptional()
+  userIds: string[];
+
+  @IsOptional()
+  search?: string;
+}
+
+export class ResolveUsersByBusinessIdsDto {
+  @IsOptional()
+  usrIds: string[];
+}
+
+export class GetFcmTokensByUsersDto {
+  @IsOptional()
+  userIds: string[];
+}
+
+export interface UserSummaryDto {
+  _id: string;
+  userId: string;
+  usr_id: string;
+  id: string;
+  name?: string;
+  fullname: string;
+  email?: string;
+  phone?: string;
+  avatar?: string;
+  gender?: string;
+  dateOfBirth?: string;
+  address?: string;
+  status?: string;
+  slug?: string;
+}
+
 // Type cho User data sau khi loại bỏ sensitive fields
 export interface UserTokenPayload {
   _id: string;

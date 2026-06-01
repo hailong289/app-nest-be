@@ -14,8 +14,8 @@ import { SERVICES } from '@app/constants/services';
 import { GatewayService } from '../gateway/gateway.service';
 
 interface AuthGrpcService {
-  getFcmTokens(data: { userIds: string[] }): Observable<unknown>;
-  resolveBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
+  getFcmTokensByUsers(data: { userIds: string[] }): Observable<unknown>;
+  resolveUsersByBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
   getUsersBatch(data: {
     userIds: string[];
     search?: string;
@@ -55,7 +55,7 @@ export class GatewayInternalAuthController implements OnModuleInit {
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(
-      this.authService.getFcmTokens.bind(this.authService),
+      this.authService.getFcmTokensByUsers.bind(this.authService),
       { userIds: body.userIds || [] },
       30000,
     );
@@ -81,10 +81,11 @@ export class GatewayInternalAuthController implements OnModuleInit {
       'filesystem',
       'learning',
       'chat',
+      'ai',
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(
-      this.authService.resolveBusinessIds.bind(this.authService),
+      this.authService.resolveUsersByBusinessIds.bind(this.authService),
       { usrIds: body.usrIds || [] },
       30000,
     );
@@ -101,6 +102,7 @@ export class GatewayInternalAuthController implements OnModuleInit {
       'notification',
       'learning',
       'chat',
+      'ai',
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(

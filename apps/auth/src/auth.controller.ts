@@ -199,7 +199,12 @@ export class AuthController {
 
   @GrpcMethod('AuthService', 'GetFcmTokens')
   async getFcmTokens(data: GetFcmTokensGrpcPayload) {
-    return await this.authService.getActiveFcmTokensForUsers(data.userIds);
+    return await this.authService.getFcmTokensByUsers(data.userIds);
+  }
+
+  @GrpcMethod('AuthService', 'GetFcmTokensByUsers')
+  async getFcmTokensByUsers(data: GetFcmTokensGrpcPayload) {
+    return await this.authService.getFcmTokensByUsers(data.userIds);
   }
 
   @GrpcMethod('AuthService', 'ResolveBusinessIds')
@@ -207,8 +212,18 @@ export class AuthController {
     return await this.authService.resolveBusinessIds(data.usrIds);
   }
 
+  @GrpcMethod('AuthService', 'ResolveUsersByBusinessIds')
+  async resolveUsersByBusinessIds(data: ResolveBusinessIdsGrpcPayload) {
+    return await this.authService.resolveBusinessIds(data.usrIds);
+  }
+
   @GrpcMethod('AuthService', 'GetUsersBatch')
   async getUsersBatch(data: GetUsersBatchGrpcPayload) {
     return await this.authService.getUsersBatch(data.userIds, data.search);
+  }
+
+  @GrpcMethod('AuthService', 'GetUserSummary')
+  async getUserSummary(data: { userId: string }) {
+    return await this.authService.getUserSummary(data.userId);
   }
 }

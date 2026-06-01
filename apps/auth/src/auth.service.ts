@@ -18,12 +18,12 @@ import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import Utils from 'libs/helpers/utils';
-import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
 import { Otp } from 'libs/db/src/mongo/model/otp.model';
 import { RedisService, UserCacheRepository } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
+import { AuthGatewayClient } from './gateway/gateway-client';
 
 /**
  * Subset of the device-origin fields shared by LoginDto / RegisterDto /
@@ -75,9 +75,6 @@ interface KeysDeviceContextUpdate {
 
 @Injectable()
 export class AuthService implements OnModuleInit {
-  private get gatewayUrl() {
-    return process.env.GATEWAY_URL || 'http://localhost:5000';
-  }
   private readonly key = REDISKEY;
   private readonly logger = new Logger(AuthService.name);
 
@@ -181,6 +178,7 @@ export class AuthService implements OnModuleInit {
     private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
     private readonly userCache: UserCacheRepository,
+    private readonly gatewayClient: AuthGatewayClient,
   ) {}
 
   async onModuleInit() {
@@ -193,10 +191,14 @@ export class AuthService implements OnModuleInit {
       const keysWithTokens = await this.keyModel
         .find({
           tkn_fcmToken: { $exists: true, $ne: null, $type: 'string' },
+          tkn_revokedAt: null,
         })
+        .select('tkn_userId tkn_fcmToken')
+        .lean()
         .exec();
 
-      let count = 0;
+      const users = new Set<string>();
+      const tokens = new Set<string>();
       for (const keyDoc of keysWithTokens) {
         if (
           keyDoc.tkn_userId &&
@@ -207,16 +209,19 @@ export class AuthService implements OnModuleInit {
             this.key.USER_FCM_TOKENS(keyDoc.tkn_userId.toString()),
             keyDoc.tkn_fcmToken,
           );
-          count++;
+          users.add(keyDoc.tkn_userId.toString());
+          tokens.add(keyDoc.tkn_fcmToken);
         }
       }
-      this.logger.log(`Synced FCM tokens for ${count} device sessions.`);
+      this.logger.log(
+        `Synced ${tokens.size} FCM tokens for ${users.size} users.`,
+      );
     } catch (error) {
       this.logger.error('Failed to sync FCM tokens:', error);
     }
   }
 
-  async getActiveFcmTokensForUsers(userIds: string[]) {
+  async getFcmTokensByUsers(userIds: string[]) {
     const uniqueUserIds = Array.from(
       new Set(
         (userIds || [])
@@ -238,37 +243,72 @@ export class AuthService implements OnModuleInit {
       );
     }
 
-    const keys = await this.keyModel
-      .find({
-        tkn_userId: {
-          $in: uniqueUserIds.map((userId) => new Types.ObjectId(userId)),
-        },
-        tkn_fcmToken: { $exists: true, $ne: null, $type: 'string' },
-        tkn_revokedAt: null,
-      })
-      .select('tkn_userId tkn_fcmToken')
-      .lean()
-      .exec();
-
     const tokenMap = new Map<string, Set<string>>();
-    for (const key of keys) {
-      if (!key.tkn_fcmToken) continue;
-      const userId = key.tkn_userId.toString();
-      if (!tokenMap.has(userId)) {
-        tokenMap.set(userId, new Set());
+    const missUserIds: string[] = [];
+
+    await Promise.all(
+      uniqueUserIds.map(async (userId) => {
+        const cachedTokens = await this.redis
+          .sMembers(this.key.USER_FCM_TOKENS(userId))
+          .catch(() => []);
+        const tokens = Array.from(new Set(cachedTokens.filter(Boolean)));
+        if (tokens.length === 0) {
+          missUserIds.push(userId);
+          return;
+        }
+        tokenMap.set(userId, new Set(tokens));
+      }),
+    );
+
+    if (missUserIds.length > 0) {
+      const keys = await this.keyModel
+        .find({
+          tkn_userId: {
+            $in: missUserIds.map((userId) => new Types.ObjectId(userId)),
+          },
+          tkn_fcmToken: { $exists: true, $ne: null, $type: 'string' },
+          tkn_revokedAt: null,
+        })
+        .select('tkn_userId tkn_fcmToken')
+        .lean()
+        .exec();
+
+      for (const key of keys) {
+        if (!key.tkn_fcmToken) continue;
+        const userId = key.tkn_userId.toString();
+        if (!tokenMap.has(userId)) {
+          tokenMap.set(userId, new Set());
+        }
+        tokenMap.get(userId)?.add(key.tkn_fcmToken);
       }
-      tokenMap.get(userId)?.add(key.tkn_fcmToken);
+
+      await Promise.all(
+        missUserIds.map(async (userId) => {
+          const tokens = Array.from(tokenMap.get(userId) ?? []);
+          if (tokens.length > 0) {
+            await this.redis.sAdd(this.key.USER_FCM_TOKENS(userId), ...tokens);
+          }
+        }),
+      );
     }
 
     return Response.success(
       {
-        items: uniqueUserIds.map((userId) => ({
-          userId,
-          fcmTokens: Array.from(tokenMap.get(userId) ?? []),
-        })),
+        items: uniqueUserIds.map((userId) => {
+          const tokens = Array.from(tokenMap.get(userId) ?? []);
+          return {
+            userId,
+            tokens,
+            fcmTokens: tokens,
+          };
+        }),
       },
       'Lấy FCM tokens thành công',
     );
+  }
+
+  async getActiveFcmTokensForUsers(userIds: string[]) {
+    return this.getFcmTokensByUsers(userIds);
   }
 
   private toUserSummary(user: Record<string, any>) {
@@ -284,7 +324,36 @@ export class AuthService implements OnModuleInit {
       avatar: user.usr_avatar,
       status: user.usr_status,
       slug: user.usr_slug,
+      gender: user.usr_gender,
+      dateOfBirth: user.usr_dateOfBirth
+        ? new Date(user.usr_dateOfBirth).toISOString()
+        : '',
+      address: user.usr_address,
     };
+  }
+
+  async getUserSummary(userId: string) {
+    if (!Types.ObjectId.isValid(userId)) {
+      return Response.error(
+        'userId phải là Mongo ObjectId',
+        400,
+        'INVALID_USER_ID',
+      );
+    }
+
+    const user = await this.userModel
+      .findById(new Types.ObjectId(userId))
+      .select(
+        '_id usr_id usr_slug usr_fullname usr_email usr_phone usr_avatar usr_status usr_gender usr_dateOfBirth usr_address',
+      )
+      .lean()
+      .exec();
+
+    if (!user) {
+      return Response.error('Tài khoản không tồn tại', 404);
+    }
+
+    return Response.success(this.toUserSummary(user), 'Thông tin người dùng');
   }
 
   async resolveBusinessIds(usrIds: string[]) {
@@ -300,7 +369,7 @@ export class AuthService implements OnModuleInit {
     const users = await this.userModel
       .find({ usr_id: { $in: uniqueUsrIds } })
       .select(
-        '_id usr_id usr_fullname usr_email usr_phone usr_avatar usr_status usr_slug',
+        '_id usr_id usr_slug usr_fullname usr_email usr_phone usr_avatar usr_status usr_gender usr_dateOfBirth usr_address',
       )
       .lean()
       .exec();
@@ -355,14 +424,17 @@ export class AuthService implements OnModuleInit {
     const users = await this.userModel
       .find(query)
       .select(
-        '_id usr_id usr_fullname usr_email usr_phone usr_avatar usr_status usr_slug',
+        '_id usr_id usr_slug usr_fullname usr_email usr_phone usr_avatar usr_status usr_gender usr_dateOfBirth usr_address',
       )
       .lean()
       .exec();
+    const userMap = new Map(users.map((user) => [user._id.toString(), user]));
 
     return Response.success(
       {
-        items: users.map((user) => this.toUserSummary(user)),
+        items: uniqueUserIds
+          .map((userId) => userMap.get(userId))
+          .flatMap((user) => (user ? [this.toUserSummary(user)] : [])),
       },
       'Lấy thông tin user thành công',
     );
@@ -377,7 +449,7 @@ export class AuthService implements OnModuleInit {
       excludeUserIds,
     } = searchDto;
     const safePage = Number(page) > 0 ? Number(page) : 1;
-    const safeLimit = Number(limit) > 0 ? Number(limit) : 100;
+    const safeLimit = Math.min(Number(limit) > 0 ? Number(limit) : 100, 100);
     const skip = (safePage - 1) * safeLimit;
     const regex = new RegExp(keyword, 'i');
     const query: Record<string, any> = {
@@ -535,7 +607,7 @@ export class AuthService implements OnModuleInit {
     });
 
     try {
-      await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
+      await this.gatewayClient.post('/notifications/send-otp', {
         email: normalizedEmail,
         otp: otpCode,
       });
@@ -793,7 +865,7 @@ export class AuthService implements OnModuleInit {
           userId: user.usr_id,
         });
         // Gửi OTP về email thông qua Notification Service
-        await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
+        await this.gatewayClient.post('/notifications/send-otp', {
           email: recipientEmail,
           otp: otpCode,
         });
@@ -808,7 +880,7 @@ export class AuthService implements OnModuleInit {
         expiresIn: '30m', // access token sống 30 phút
       });
       // Gửi token về email thông qua Notification Service
-      await axios.post(`${this.gatewayUrl}/api/notifications/forgot-password`, {
+      await this.gatewayClient.post('/notifications/forgot-password', {
         email: recipientEmail,
         token: accessToken,
       });

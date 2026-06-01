@@ -13,12 +13,19 @@ import {
   CacheModule,
   UserCacheRepository,
 } from 'libs/db/src';
+import { AuthGatewayClient } from './gateway/gateway-client';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(process.cwd(), 'apps/auth/.env.development'),
+      envFilePath: [
+        path.resolve(
+          process.cwd(),
+          `apps/auth/.env.${process.env.NODE_ENV || 'development'}`,
+        ),
+        path.resolve(process.cwd(), 'apps/auth/.env'),
+      ],
       load: [mongoConfig, redisConfig],
     }),
     RedisModule,
@@ -30,6 +37,6 @@ import {
     JwtModule.register({}),
   ],
   controllers: [AuthController],
-  providers: [AuthService, UserCacheRepository],
+  providers: [AuthService, UserCacheRepository, AuthGatewayClient],
 })
 export class AppModule {}
