@@ -298,6 +298,57 @@ export class AuthService implements OnModuleInit {
     );
   }
 
+  async getUsersBatch(userIds: string[]) {
+    const uniqueUserIds = Array.from(
+      new Set(
+        (userIds || [])
+          .filter((userId): userId is string => typeof userId === 'string')
+          .map((userId) => userId.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const invalid = uniqueUserIds.filter(
+      (userId) => !Types.ObjectId.isValid(userId),
+    );
+    if (invalid.length > 0) {
+      return Response.error(
+        'userIds phải là Mongo ObjectId',
+        400,
+        'INVALID_USER_IDS',
+        { invalid },
+      );
+    }
+
+    const users = await this.userModel
+      .find({
+        _id: { $in: uniqueUserIds.map((userId) => new Types.ObjectId(userId)) },
+      })
+      .select(
+        '_id usr_id usr_fullname usr_email usr_avatar usr_status usr_slug',
+      )
+      .lean()
+      .exec();
+
+    return Response.success(
+      {
+        items: users.map((user) => ({
+          _id: user._id.toString(),
+          userId: user._id.toString(),
+          usr_id: user.usr_id,
+          id: user.usr_id,
+          name: user.usr_fullname,
+          fullname: user.usr_fullname,
+          email: user.usr_email,
+          avatar: user.usr_avatar,
+          status: user.usr_status,
+          slug: user.usr_slug,
+        })),
+      },
+      'Lấy thông tin user thành công',
+    );
+  }
+
   async login(loginDto: LoginDto) {
     const user = await this.userModel
       .findOne({

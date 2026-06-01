@@ -1192,6 +1192,169 @@ export class RoomsService {
 
     return true;
   }
+
+  private formatInternalRoom(
+    room: Room & { _id: Types.ObjectId },
+    userId?: string,
+  ) {
+    const members = (room.room_members || []).map((member) => {
+      const rawMember = member as typeof member & { avatar?: string };
+      return {
+        userId: rawMember.user_id.toString(),
+        role: rawMember.role,
+        joinedAt: rawMember.joinedAt ? rawMember.joinedAt.toISOString() : '',
+        name: rawMember.name || '',
+        avatar: rawMember.avatar || '',
+        usrId: rawMember.id || '',
+      };
+    });
+    const currentMember = userId
+      ? members.find((member) => member.userId === userId)
+      : undefined;
+    const currentUserRole = currentMember?.role || '';
+
+    return {
+      mongoRoomId: room._id.toString(),
+      roomId: room.room_id,
+      roomName: room.room_name,
+      roomType: room.room_type,
+      memberIds: members.map((member) => member.userId),
+      members,
+      currentUserRole,
+      canView: Boolean(currentMember || !userId),
+      canEdit: currentUserRole !== 'guest',
+    };
+  }
+
+  async resolveRoomForUser(payload: { roomId: string; userId?: string }) {
+    const { roomId, userId } = payload;
+    if (!roomId) {
+      return Response.error('Thiếu roomId', 400, 'BAD_REQUEST');
+    }
+
+    const roomQueries: Record<string, unknown>[] = [];
+    if (Types.ObjectId.isValid(roomId)) {
+      roomQueries.push({ _id: this.utils.convertToObjectIdMongoose(roomId) });
+    }
+    roomQueries.push({ room_id: roomId });
+
+    if (userId) {
+      const userInfo = await this.getUserInfo(userId);
+      if (!userInfo) {
+        return Response.error(
+          'Không tìm thấy người dùng',
+          404,
+          'USER_NOT_FOUND',
+        );
+      }
+      roomQueries.push({
+        room_id: this.utils.pairRoomId(roomId, userInfo.usr_id),
+      });
+    }
+
+    const room = await this.roomModel
+      .findOne({ $or: roomQueries })
+      .lean<(Room & { _id: Types.ObjectId }) | null>()
+      .exec();
+
+    if (!room) {
+      return Response.error('Không tìm thấy phòng', 404, 'ROOM_NOT_FOUND');
+    }
+
+    if (
+      userId &&
+      !room.room_members.some((member) => member.user_id.toString() === userId)
+    ) {
+      return Response.error(
+        'Người dùng không thuộc phòng',
+        403,
+        'ROOM_FORBIDDEN',
+      );
+    }
+
+    return Response.success(
+      this.formatInternalRoom(room, userId),
+      'Resolve room thành công',
+    );
+  }
+
+  async getRoomMembersForInternal(payload: {
+    roomId: string;
+    userId?: string;
+  }) {
+    return this.resolveRoomForUser(payload);
+  }
+
+  async attachMessageAttachments(payload: {
+    messageId: string;
+    roomId?: string;
+    actorUserId: string;
+    attachmentIds: string[];
+  }) {
+    const { messageId, actorUserId, attachmentIds } = payload;
+    if (
+      !Types.ObjectId.isValid(messageId) ||
+      !Types.ObjectId.isValid(actorUserId)
+    ) {
+      return Response.error(
+        'messageId/actorUserId không hợp lệ',
+        400,
+        'BAD_REQUEST',
+      );
+    }
+
+    const attachmentObjectIds = Array.from(new Set(attachmentIds || []))
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => this.utils.convertToObjectIdMongoose(id));
+
+    if (attachmentObjectIds.length === 0) {
+      return Response.error('attachmentIds không hợp lệ', 400, 'BAD_REQUEST');
+    }
+
+    const message = await this.messageModel
+      .findById(this.utils.convertToObjectIdMongoose(messageId))
+      .lean()
+      .exec();
+    if (!message) {
+      return Response.error(
+        'Không tìm thấy tin nhắn',
+        404,
+        'MESSAGE_NOT_FOUND',
+      );
+    }
+
+    const roomId = payload.roomId || message.msg_roomId?.toString?.();
+    const roomResult = await this.resolveRoomForUser({
+      roomId,
+      userId: actorUserId,
+    });
+    if (roomResult.statusCode !== 200) return roomResult;
+
+    const roomMetadata = roomResult.metadata as { mongoRoomId?: string };
+    if (
+      roomMetadata?.mongoRoomId &&
+      message.msg_roomId?.toString?.() !== roomMetadata.mongoRoomId
+    ) {
+      return Response.error(
+        'Tin nhắn không thuộc phòng này',
+        403,
+        'MESSAGE_ROOM_MISMATCH',
+      );
+    }
+
+    await this.messageModel.findByIdAndUpdate(message._id, {
+      $addToSet: { attachment_ids: { $each: attachmentObjectIds } },
+    });
+
+    return Response.success(
+      {
+        messageId,
+        attachmentIds: attachmentObjectIds.map((id) => id.toString()),
+      },
+      'Attach file vào tin nhắn thành công',
+    );
+  }
+
   async leavedRoom(payload: LeavingRoomDto) {
     const { userId, roomId } = payload;
     if (!userId) throw new NotFoundException('không tìm thấy người dùng');

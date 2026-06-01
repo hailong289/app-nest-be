@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { FilesystemController } from './filesystem.controller';
 import { FilesystemService } from './filesystem.service';
+import gatewayConfig from './config/gateway.config';
 import s3Config from './config/app/s3.config';
 import path from 'path';
 import { FilesystemDatabaseModule, mongoConfig } from 'libs/db/src';
@@ -10,11 +11,12 @@ import { kafkaConfig } from 'libs/kafka';
 import { SharedKafkaClientModule } from 'libs/kafka/kafka-client.module';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
 import { SERVICES } from '@app/constants';
+import { GatewayClientService } from './gateway-client.service';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      load: [s3Config, mongoConfig, kafkaConfig],
+      load: [s3Config, gatewayConfig, mongoConfig, kafkaConfig],
       isGlobal: true,
       envFilePath: path.resolve(
         process.cwd(),
@@ -31,6 +33,6 @@ import { SERVICES } from '@app/constants';
     }),
   ],
   controllers: [FilesystemController],
-  providers: [FilesystemService],
+  providers: [FilesystemService, GatewayClientService],
 })
 export class AppModule {}

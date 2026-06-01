@@ -71,15 +71,7 @@ export class ChatDatabaseModule {}
 @Module({
   imports: [
     MongoConnectionModule,
-    MongooseModule.forFeature([
-      attachmentModel,
-      documentModel,
-      // Legacy cross-service reads (Sprint 3): replace user/room/message reads
-      // with API gateway -> auth/chat contracts before DB cutover.
-      userModel,
-      roomModel,
-      messagesModel,
-    ]),
+    MongooseModule.forFeature([attachmentModel, documentModel]),
   ],
   exports: [MongooseModule],
 })

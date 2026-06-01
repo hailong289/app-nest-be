@@ -7,18 +7,16 @@ import {
   DocumentSchema,
   Attachment,
   AttachmentSchema,
-  Room,
-  RoomSchema,
 } from 'libs/db/src';
 import { SharedKafkaClientModule } from 'libs/kafka';
 import { SERVICES } from '@app/constants';
+import { GatewayClientService } from '../gateway-client.service';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Document.name, schema: DocumentSchema },
       { name: Attachment.name, schema: AttachmentSchema },
-      { name: Room.name, schema: RoomSchema },
     ]),
     SharedKafkaClientModule.registerAsync({
       name: SERVICES.AI,
@@ -32,7 +30,7 @@ import { SERVICES } from '@app/constants';
     }),
   ],
   controllers: [DocumentsController],
-  providers: [DocumentsService],
+  providers: [DocumentsService, GatewayClientService],
   exports: [DocumentsService],
 })
 export class DocumentsModule {}

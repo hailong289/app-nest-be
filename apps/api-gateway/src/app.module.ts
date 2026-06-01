@@ -61,6 +61,8 @@ export class AppModule {
       { path: 'documents', method: RequestMethod.ALL },
       { path: 'documents/*path', method: RequestMethod.ALL },
       { path: 'filesystem/upload-single-user', method: RequestMethod.POST },
+      { path: 'filesystem/upload-multiple-user', method: RequestMethod.POST },
+      { path: 'filesystem/attachments', method: RequestMethod.GET },
       // AI routes — cả non-stream và stream đều cần req.user
       { path: 'ai/*path', method: RequestMethod.ALL },
       { path: 'notifications', method: RequestMethod.GET },

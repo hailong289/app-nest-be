@@ -5,7 +5,6 @@ import {
   BadGatewayException,
   Inject,
   Injectable,
-  NotAcceptableException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -14,14 +13,26 @@ import {
   AttachmentContextEnumType,
   Document,
   DocVisibilityEnum,
-  Room,
-  User,
 } from 'libs/db/src';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as Y from 'yjs';
 import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent } from '@app/dto/enum.type';
+import {
+  GatewayClientService,
+  type GatewayRoomSummary,
+  type GatewayUserSummary,
+} from '../gateway-client.service';
+
+type FormattedUser = {
+  _id: string;
+  usr_id: string;
+  usr_slug: string;
+  usr_fullname: string;
+  usr_avatar: string;
+  usr_email: string;
+};
 
 @Injectable()
 export class DocumentsService {
@@ -31,11 +42,10 @@ export class DocumentsService {
     private readonly attachmentModel: Model<Attachment>,
     @InjectModel(Document.name)
     private readonly docsModel: Model<Document>,
-    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
     @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
 
   /**
@@ -73,30 +83,21 @@ export class DocumentsService {
         return true;
       }
 
-      // 2. Check Room Members (nếu doc chưa populate hoặc user không nằm trong sharedWith)
+      // 2. Check room membership through chat service.
       if (
         doc &&
         Array.isArray((doc as { roomIds?: unknown }).roomIds) &&
         (doc as { roomIds: unknown[] }).roomIds.length > 0
       ) {
-        const roomIdsArray = (doc as { roomIds: string[] }).roomIds;
-        const room = await this.roomModel.findOne({
-          _id: {
-            $in: roomIdsArray.map((i: string) =>
-              this.utils.convertToObjectIdMongoose(i),
-            ),
-          },
-          'room_members.user_id': userObjId,
-        });
-
-        if (room) {
-          const member = room.room_members.find(
-            (m) => m.user_id.toString() === userIdStr,
+        const roomIdsArray = (doc as { roomIds: unknown[] }).roomIds;
+        for (const roomId of roomIdsArray) {
+          const access = await this.gatewayClient.checkRoomAccess(
+            this.objectIdToString(roomId),
+            userIdStr,
           );
-          if (member) {
-            const role = member.role === 'guest' ? 'viewer' : 'editor';
+          if (access?.canView) {
             if (requireEdit) {
-              return role === 'editor';
+              return Boolean(access.canEdit);
             }
             return true;
           }
@@ -133,243 +134,204 @@ export class DocumentsService {
     return Buffer.from(update);
   }
 
-  /**
-   * Helper: Find Room by ID or Pair ID
-   */
-  private async findRoom(roomId: string, userId: string) {
-    // check user
-    const userInfo = await this.userModel.findById(userId);
-    if (!userInfo) {
-      throw new NotFoundException('không tìm thấy thông tin người dùng');
+  private async resolveRoomForDocument(roomId: string, userId: string) {
+    const room = await this.gatewayClient.resolveRoomForUser(roomId, userId);
+    if (!room?.mongoRoomId) {
+      throw new NotFoundException('Phòng không tồn tại');
     }
-
-    // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
-    if (!finInfo) {
-      throw new NotAcceptableException('Phòng không tồn tại');
-    }
-    return finInfo;
+    return room;
   }
 
-  /**
-   * Helper: Aggregation Pipeline to populate Owner and Shared Users
-   */
-  private getPopulateDocsPipeline(matchQuery: Record<string, unknown>): any[] {
-    return [
-      { $match: matchQuery },
-      // Lookup Owner
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'ownerId',
-          foreignField: '_id',
-          as: 'owner_info',
-        },
-      },
-      {
-        $unwind: {
-          path: '$owner_info',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      // Unwind sharedWith to populate
-      // --- NEW LOGIC: Merge Room Members into SharedWith ---
-      {
-        $lookup: {
-          from: 'Rooms',
-          localField: 'roomIds',
-          foreignField: '_id',
-          as: 'room_infos',
-        },
-      },
-      {
-        $addFields: {
-          room_members_normalized: {
-            $reduce: {
-              input: '$room_infos',
-              initialValue: [],
-              in: {
-                $concatArrays: [
-                  '$$value',
-                  {
-                    $map: {
-                      input: '$$this.room_members',
-                      as: 'member',
-                      in: {
-                        userId: '$$member.user_id',
-                        role: {
-                          $cond: {
-                            if: { $eq: ['$$member.role', 'guest'] },
-                            then: 'viewer',
-                            else: 'editor',
-                          },
-                        },
-                        sharedAt: '$$member.joinedAt',
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-      },
-      {
-        $addFields: {
-          combined_shared: {
-            $concatArrays: [
-              { $ifNull: ['$sharedWith', []] },
-              { $ifNull: ['$room_members_normalized', []] },
-            ],
-          },
-        },
-      },
-      {
-        $unwind: {
-          path: '$combined_shared',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      // Lookup sharedWith user
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'combined_shared.userId',
-          foreignField: '_id',
-          as: 'combined_shared.user_info',
-        },
-      },
-      {
-        $unwind: {
-          path: '$combined_shared.user_info',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      // Group back
-      {
-        $group: {
-          _id: '$_id',
-          root: { $first: '$$ROOT' },
-          sharedWith: {
-            $push: {
-              userId: '$combined_shared.userId',
-              role: '$combined_shared.role',
-              sharedAt: '$combined_shared.sharedAt',
-              user: {
-                _id: '$combined_shared.user_info._id',
-                usr_id: '$combined_shared.user_info.usr_id',
-                usr_slug: '$combined_shared.user_info.usr_slug',
-                usr_fullname: '$combined_shared.user_info.usr_fullname',
-                usr_avatar: '$combined_shared.user_info.usr_avatar',
-                usr_email: '$combined_shared.user_info.usr_email',
-              },
-            },
-          },
-        },
-      },
-      // Format output
-      {
-        $addFields: {
-          'root.sharedWith': {
-            $filter: {
-              input: '$sharedWith',
-              as: 'item',
-              cond: { $ifNull: ['$$item.userId', false] },
-            },
-          },
-          'root.owner': {
-            _id: '$root.owner_info._id',
-            usr_id: '$root.owner_info.usr_id',
-            usr_slug: '$root.owner_info.usr_slug',
-            usr_fullname: '$root.owner_info.usr_fullname',
-            usr_avatar: '$root.owner_info.usr_avatar',
-            usr_email: '$root.owner_info.usr_email',
-          },
-        },
-      },
-      {
-        $replaceRoot: { newRoot: '$root' },
-      },
-      // Cleanup temporary fields
-      {
-        $project: {
-          owner_info: 0,
-          room_infos: 0,
-          room_members_normalized: 0,
-          combined_shared: 0,
-          'sharedWith.user_info': 0,
-          yjsSnapshot: 0, // Optimization: Remove heavy binary data
-        },
-      },
-      // Convert ObjectIds and Dates to Strings for gRPC compatibility
-      {
-        $addFields: {
-          _id: { $toString: '$_id' },
-          ownerId: { $toString: '$ownerId' },
-          createdAt: { $toString: '$createdAt' },
-          updatedAt: { $toString: '$updatedAt' },
-          roomIds: {
-            $map: {
-              input: { $ifNull: ['$roomIds', []] },
-              as: 'id',
-              in: { $toString: '$$id' },
-            },
-          },
-          attachmentIds: {
-            $map: {
-              input: { $ifNull: ['$attachmentIds', []] },
-              as: 'id',
-              in: { $toString: '$$id' },
-            },
-          },
-          'owner._id': { $toString: '$owner._id' },
-          sharedWith: {
-            $map: {
-              input: '$sharedWith',
-              as: 'sw',
-              in: {
-                userId: { $toString: '$$sw.userId' },
-                role: '$$sw.role',
-                sharedAt: { $toString: '$$sw.sharedAt' },
-                user: {
-                  _id: { $toString: '$$sw.user._id' },
-                  usr_id: '$$sw.user.usr_id',
-                  usr_slug: '$$sw.user.usr_slug',
-                  usr_fullname: '$$sw.user.usr_fullname',
-                  usr_avatar: '$$sw.user.usr_avatar',
-                  usr_email: '$$sw.user.usr_email',
-                },
-              },
-            },
-          },
-        },
-      },
-    ];
+  private async getFormattedDocumentById(docId: string, actorUserId?: string) {
+    if (!Types.ObjectId.isValid(docId)) return null;
+    const doc = await this.docsModel
+      .findById(this.utils.convertToObjectIdMongoose(docId))
+      .lean();
+    if (!doc) return null;
+    const docs = await this.hydrateDocuments([doc], actorUserId);
+    return docs[0] ?? null;
   }
 
-  /**
-   * Helper: Get formatted document by ID (Standard Output)
-   */
-  private async getFormattedDocumentById(docId: string) {
-    const docs = await this.docsModel.aggregate(
-      this.getPopulateDocsPipeline({
-        _id: this.utils.convertToObjectIdMongoose(docId),
-      }),
+  private async hydrateDocuments(
+    docs: any[],
+    actorUserId?: string,
+    includeSnapshot = true,
+  ) {
+    const plainDocs = docs.map((doc) =>
+      this.plainDocument(doc, includeSnapshot),
     );
-    const doc = docs[0] as Document & { _id: any };
+    const userIds = new Set<string>();
+    const sharedByDocId = new Map<string, Map<string, any>>();
+    const roomCache = new Map<string, Promise<GatewayRoomSummary | null>>();
 
-    if (doc) {
-      // Fix: Re-fetch yjsSnapshot directly to ensure binary data is correct
-      const rawDoc = await this.docsModel.findById(doc._id, { yjsSnapshot: 1 });
-      if (rawDoc?.yjsSnapshot) {
-        doc.yjsSnapshot = rawDoc.yjsSnapshot;
+    const getRoom = (roomId: string) => {
+      const cacheKey = `${roomId}:${actorUserId || ''}`;
+      if (!roomCache.has(cacheKey)) {
+        roomCache.set(
+          cacheKey,
+          this.gatewayClient.getRoomMembers(roomId, actorUserId),
+        );
+      }
+      return roomCache.get(cacheKey) as Promise<GatewayRoomSummary | null>;
+    };
+
+    for (const doc of plainDocs) {
+      if (doc.ownerId) userIds.add(doc.ownerId);
+
+      const sharedMap = new Map<string, any>();
+      for (const shared of doc.sharedWith || []) {
+        if (!shared.userId) continue;
+        this.mergeSharedUser(sharedMap, {
+          userId: shared.userId,
+          role: shared.role || 'viewer',
+          sharedAt: shared.sharedAt || '',
+        });
+      }
+
+      for (const roomId of doc.roomIds || []) {
+        const room = await getRoom(roomId);
+        if (!room) continue;
+        for (const member of room.members || []) {
+          if (!member.userId) continue;
+          this.mergeSharedUser(sharedMap, {
+            userId: member.userId,
+            role: member.role === 'guest' ? 'viewer' : 'editor',
+            sharedAt: member.joinedAt || '',
+          });
+        }
+      }
+
+      for (const userId of sharedMap.keys()) userIds.add(userId);
+      sharedByDocId.set(doc._id, sharedMap);
+    }
+
+    const users = await this.gatewayClient.getUsersSummary([...userIds]);
+    const userMap = new Map<string, GatewayUserSummary>();
+    for (const user of users) {
+      const id = user._id || user.userId;
+      if (id) userMap.set(id, user);
+    }
+
+    return plainDocs.map((doc) => {
+      const sharedMap = sharedByDocId.get(doc._id) ?? new Map<string, any>();
+      return {
+        ...doc,
+        owner: this.formatUserSummary(userMap.get(doc.ownerId), doc.ownerId),
+        sharedWith: [...sharedMap.values()].map((shared) => ({
+          ...shared,
+          user: this.formatUserSummary(
+            userMap.get(shared.userId),
+            shared.userId,
+          ),
+        })),
+      };
+    });
+  }
+
+  private plainDocument(doc: any, includeSnapshot: boolean) {
+    const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
+    const plain = {
+      ...raw,
+      _id: this.objectIdToString(raw._id),
+      ownerId: this.objectIdToString(raw.ownerId),
+      createdAt: this.dateToString(raw.createdAt),
+      updatedAt: this.dateToString(raw.updatedAt),
+      roomIds: ((raw.roomIds as unknown[]) || []).map((id) =>
+        this.objectIdToString(id),
+      ),
+      attachmentIds: ((raw.attachmentIds as unknown[]) || []).map((id) =>
+        this.objectIdToString(id),
+      ),
+      sharedWith: ((raw.sharedWith as any[]) || []).map((shared) => ({
+        userId: this.objectIdToString(shared.userId),
+        role: shared.role || 'viewer',
+        sharedAt: this.dateToString(shared.sharedAt),
+      })),
+    };
+
+    if (!includeSnapshot) {
+      delete (plain as { yjsSnapshot?: unknown }).yjsSnapshot;
+    }
+
+    return plain;
+  }
+
+  private mergeSharedUser(
+    sharedMap: Map<string, any>,
+    shared: { userId: string; role: string; sharedAt?: string },
+  ) {
+    const current = sharedMap.get(shared.userId);
+    if (!current) {
+      sharedMap.set(shared.userId, shared);
+      return;
+    }
+
+    if (current.role !== 'editor' && shared.role === 'editor') {
+      current.role = 'editor';
+    }
+    if (!current.sharedAt && shared.sharedAt) {
+      current.sharedAt = shared.sharedAt;
+    }
+  }
+
+  private formatUserSummary(
+    user?: GatewayUserSummary,
+    fallbackId = '',
+  ): FormattedUser {
+    return {
+      _id: user?._id || user?.userId || fallbackId,
+      usr_id: user?.usr_id || user?.id || '',
+      usr_slug: (user as { slug?: string } | undefined)?.slug || '',
+      usr_fullname: user?.fullname || user?.name || '',
+      usr_avatar: user?.avatar || '',
+      usr_email: user?.email || '',
+    };
+  }
+
+  private dateToString(value: unknown): string {
+    if (!value) return '';
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'string') return value;
+    if (
+      typeof (value as { toISOString?: unknown }).toISOString === 'function'
+    ) {
+      return (value as { toISOString: () => string }).toISOString();
+    }
+    return String(value);
+  }
+
+  private objectIdToString(value: unknown): string {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof (value as { toString?: unknown }).toString === 'function') {
+      return (value as { toString: () => string }).toString();
+    }
+    return String(value);
+  }
+
+  private async collectRoomMemberIds(
+    roomIds: unknown[],
+    actorUserId: string,
+    excludeIds: string[] = [],
+  ) {
+    const exclude = new Set(excludeIds);
+    const receivers = new Set<string>();
+
+    for (const roomId of roomIds || []) {
+      const room = await this.gatewayClient.getRoomMembers(
+        this.objectIdToString(roomId),
+        actorUserId,
+      );
+      for (const memberId of room?.memberIds || []) {
+        if (!exclude.has(memberId)) receivers.add(memberId);
       }
     }
-    return doc;
+
+    return [...receivers];
+  }
+
+  private getUserDisplayName(user: GatewayUserSummary | null) {
+    return user?.fullname || user?.name || 'Ai đó';
   }
 
   /**
@@ -390,12 +352,13 @@ export class DocumentsService {
     // Luôn tạo snapshot rỗng chuẩn cho BlockNote để tránh lỗi từ client
     const finalSnapshot = this.createEmptyBlockNoteBuffer();
 
-    const roomObjectIds: string[] = [];
+    const roomObjectIds: Types.ObjectId[] = [];
+    let roomSummary: GatewayRoomSummary | null = null;
     if (roomId) {
-      const room = await this.findRoom(roomId, owerId);
-      if (room._id) {
-        roomObjectIds.push(room._id.toString());
-      }
+      roomSummary = await this.resolveRoomForDocument(roomId, owerId);
+      roomObjectIds.push(
+        this.utils.convertToObjectIdMongoose(roomSummary.mongoRoomId),
+      );
     }
 
     // Tạo document mới
@@ -416,35 +379,29 @@ export class DocumentsService {
 
     const formattedDoc = await this.getFormattedDocumentById(
       newDoc._id.toString(),
+      owerId,
     );
 
     // Dispatch Notification
-    if (roomId) {
-      const room = await this.roomModel.findById(
-        this.utils.convertToObjectIdMongoose(roomId),
-      );
-      if (room) {
-        const memberIds = room.room_members.map((m) => m.user_id.toString());
-        // Filter out the creator (owner) if needed, but usually they might want to know it's done?
-        // User request: "Receiver: Admin, Người theo dõi folder".
-        // "Ông A vừa quăng bom..." -> Don't notify Ông A?
-        const receiverIds = memberIds.filter((id) => id !== owerId);
+    if (roomSummary) {
+      const receiverIds = roomSummary.memberIds.filter((id) => id !== owerId);
 
-        if (receiverIds.length > 0) {
-          await this.utils.dispatchEventKafka(
-            this.notificationClient,
-            KafkaEvent.DOC_CREATED as unknown as string,
-            {
-              title: 'Tài liệu mới',
-              message: `Tài liệu mới '${title}' đã được thêm vào thư mục ${room.room_name || 'Chung'}.`,
-              userIds: receiverIds,
-              data: {
-                docId: String(formattedDoc._id),
-                roomId: roomId,
-              },
+      if (receiverIds.length > 0) {
+        await this.utils.dispatchEventKafka(
+          this.notificationClient,
+          KafkaEvent.DOC_CREATED as unknown as string,
+          {
+            title: 'Tài liệu mới',
+            message: `Tài liệu mới '${title}' đã được thêm vào thư mục ${
+              roomSummary.roomName || 'Chung'
+            }.`,
+            userIds: receiverIds,
+            data: {
+              docId: String(formattedDoc._id),
+              roomId: roomSummary.mongoRoomId,
             },
-          );
-        }
+          },
+        );
       }
     }
 
@@ -460,7 +417,7 @@ export class DocumentsService {
    * - Trả về document đầy đủ
    */
   async getDoc(docId: string, userId: string) {
-    const doc = await this.getFormattedDocumentById(docId);
+    const doc = await this.getFormattedDocumentById(docId, userId);
 
     if (!doc) {
       throw new NotFoundException('Không tìm thấy tài liệu');
@@ -592,7 +549,7 @@ export class DocumentsService {
       } satisfies AiDocumentEmbeddingPayload);
     }
 
-    const formattedDoc = await this.getFormattedDocumentById(docId);
+    const formattedDoc = await this.getFormattedDocumentById(docId, userId);
 
     // Dispatch Notification
     if (formattedDoc && formattedDoc.sharedWith) {
@@ -657,20 +614,16 @@ export class DocumentsService {
     // Dispatch Notification
     const receivers = new Set<string>();
     if (doc.roomIds && doc.roomIds.length > 0) {
-      const rooms = await this.roomModel.find({ _id: { $in: doc.roomIds } });
-      rooms.forEach((room) => {
-        room.room_members.forEach((m) => {
-          if (m.user_id.toString() !== userId) {
-            receivers.add(m.user_id.toString());
-          }
-        });
-      });
+      const memberIds = await this.collectRoomMemberIds(doc.roomIds, userId, [
+        userId,
+      ]);
+      memberIds.forEach((memberId) => receivers.add(memberId));
     }
 
     const receiverIds = Array.from(receivers);
     if (receiverIds.length > 0) {
-      const deleter = await this.userModel.findById(userId);
-      const deleterName = deleter?.usr_fullname || 'Ai đó';
+      const deleter = await this.gatewayClient.getUserSummary(userId);
+      const deleterName = this.getUserDisplayName(deleter);
       await this.utils.dispatchEventKafka(
         this.notificationClient,
         KafkaEvent.DOC_DELETED as unknown as string,
@@ -708,20 +661,15 @@ export class DocumentsService {
     const query: Record<string, unknown> = {};
 
     if (roomId) {
-      const room = await this.findRoom(roomId, userId);
-      query.roomIds = { $in: [room._id] };
+      const room = await this.resolveRoomForDocument(roomId, userId);
+      query.roomIds = {
+        $in: [this.utils.convertToObjectIdMongoose(room.mongoRoomId)],
+      };
 
-      const isMember = room.room_members.some(
-        (m) => m.user_id.toString() === userObjId.toString(),
-      );
-
-      const accessClauses = [...baseAccessClauses];
-      if (isMember) {
-        // Members can see room-visibility docs
-        accessClauses.push({ visibility: DocVisibilityEnum.room });
-      }
-
-      query.$or = accessClauses;
+      query.$or = [
+        ...baseAccessClauses,
+        { visibility: DocVisibilityEnum.room },
+      ];
     } else {
       // Personal docs: no room binding
       const personalFilter = {
@@ -731,11 +679,15 @@ export class DocumentsService {
       query.$and = [personalFilter, { $or: baseAccessClauses }];
     }
 
-    const docs = await this.docsModel.aggregate(
-      this.getPopulateDocsPipeline(query),
-    );
+    const docs = await this.docsModel
+      .find(query)
+      .select('-yjsSnapshot')
+      .sort({ updatedAt: -1 })
+      .lean();
 
-    return Response.success(docs, 'Lấy danh sách tài liệu thành công');
+    const formattedDocs = await this.hydrateDocuments(docs, userId, false);
+
+    return Response.success(formattedDocs, 'Lấy danh sách tài liệu thành công');
   }
 
   /**
@@ -777,6 +729,11 @@ export class DocumentsService {
       throw new BadGatewayException('Tài liệu đã được chia sẻ với user này');
     }
 
+    const sharedUser = await this.gatewayClient.getUserSummary(shareUserId);
+    if (!sharedUser) {
+      throw new NotFoundException('Không tìm thấy người dùng được chia sẻ');
+    }
+
     // Thêm user vào sharedWith
     await this.docsModel.findByIdAndUpdate(
       doc._id,
@@ -795,11 +752,11 @@ export class DocumentsService {
       { new: true },
     );
 
-    const formattedDoc = await this.getFormattedDocumentById(docId);
+    const formattedDoc = await this.getFormattedDocumentById(docId, userId);
 
     // Dispatch Notification
-    const sharer = await this.userModel.findById(userId);
-    const sharerName = sharer?.usr_fullname || 'Ai đó';
+    const sharer = await this.gatewayClient.getUserSummary(userId);
+    const sharerName = this.getUserDisplayName(sharer);
     await this.utils.dispatchEventKafka(
       this.notificationClient,
       KafkaEvent.DOC_SHARED as unknown as string,
@@ -833,20 +790,22 @@ export class DocumentsService {
       throw new NotFoundException('Chỉ chủ sở hữu mới có thể chia sẻ tài liệu');
     }
 
-    // Tìm phòng và kiểm tra quyền
-    const room = await this.findRoom(room_id, userId);
+    // Tìm phòng và kiểm tra quyền qua chat service
+    const room = await this.resolveRoomForDocument(room_id, userId);
 
     // Add roomId vào doc
     await this.docsModel.findByIdAndUpdate(
       doc._id,
       {
-        $addToSet: { roomIds: room._id },
+        $addToSet: {
+          roomIds: this.utils.convertToObjectIdMongoose(room.mongoRoomId),
+        },
         $set: { updatedAt: new Date() },
       },
       { new: true },
     );
 
-    const formattedDoc = await this.getFormattedDocumentById(docId);
+    const formattedDoc = await this.getFormattedDocumentById(docId, userId);
     return Response.success(
       formattedDoc,
       'Chia sẻ tài liệu vào phòng thành công',
@@ -894,7 +853,7 @@ export class DocumentsService {
       { new: true },
     );
 
-    const formattedDoc = await this.getFormattedDocumentById(docId);
+    const formattedDoc = await this.getFormattedDocumentById(docId, userId);
     return Response.success(
       formattedDoc,
       'Thu hồi chia sẻ tài liệu thành công',
@@ -933,7 +892,7 @@ export class DocumentsService {
       { new: true },
     );
 
-    const formattedDoc = await this.getFormattedDocumentById(docId);
+    const formattedDoc = await this.getFormattedDocumentById(docId, userId);
 
     // Dispatch Notification
     if (formattedDoc && formattedDoc.sharedWith) {
@@ -1001,7 +960,7 @@ export class DocumentsService {
       { new: true },
     );
 
-    const formattedDoc = await this.getFormattedDocumentById(docId);
+    const formattedDoc = await this.getFormattedDocumentById(docId, userId);
 
     // Dispatch Notification
     if (formattedDoc && formattedDoc.sharedWith) {
@@ -1064,6 +1023,7 @@ export class DocumentsService {
 
     const formattedDoc = await this.getFormattedDocumentById(
       newDoc._id.toString(),
+      userId,
     );
     return Response.success(formattedDoc, 'Tạo bản sao thành công');
   }

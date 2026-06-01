@@ -17,6 +17,9 @@ service ChatService {
   rpc ChangeNickName(inputChangeNickName) returns (outputChange);
   rpc ChangeRole(inputChangeRole) returns (outputChange);
   rpc GetRoom(inputGetRoom)returns (outputGetRoom);
+  rpc ResolveRoomForUser(ResolveRoomForUserRequest) returns (ResolveRoomForUserResponse);
+  rpc GetRoomMembers(ResolveRoomForUserRequest) returns (ResolveRoomForUserResponse);
+  rpc AttachMessageAttachments(AttachMessageAttachmentsRequest) returns (AttachMessageAttachmentsResponse);
   rpc CreateNewMsg(InputCreateMsg)returns (CreateMessageOutput);
   rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
   rpc MarkReadUpTo(InputMarkReadUp)returns (CreateMessageOutput);
@@ -149,6 +152,58 @@ message outputGetRoom {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   metadataGetRoomsType metadata = 4;
+}
+
+message InternalRoomMember {
+  string userId = 1;
+  string role = 2;
+  string joinedAt = 3;
+  string name = 4;
+  string avatar = 5;
+  string usrId = 6;
+}
+
+message InternalRoomMetadata {
+  string mongoRoomId = 1;
+  string roomId = 2;
+  string roomName = 3;
+  string roomType = 4;
+  repeated string memberIds = 5;
+  repeated InternalRoomMember members = 6;
+  string currentUserRole = 7;
+  bool canView = 8;
+  bool canEdit = 9;
+}
+
+message ResolveRoomForUserRequest {
+  string roomId = 1;
+  string userId = 2;
+}
+
+message ResolveRoomForUserResponse {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  InternalRoomMetadata metadata = 4;
+}
+
+message AttachMessageAttachmentsRequest {
+  string messageId = 1;
+  string roomId = 2;
+  string actorUserId = 3;
+  repeated string attachmentIds = 4;
+}
+
+message AttachMessageAttachmentsMetadata {
+  string messageId = 1;
+  repeated string attachmentIds = 2;
+}
+
+message AttachMessageAttachmentsResponse {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  AttachMessageAttachmentsMetadata metadata = 4;
 }
 
 

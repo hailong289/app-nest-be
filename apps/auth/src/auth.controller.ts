@@ -73,6 +73,10 @@ interface ResolveBusinessIdsGrpcPayload {
   usrIds: string[];
 }
 
+interface GetUsersBatchGrpcPayload {
+  userIds: string[];
+}
+
 @Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -200,5 +204,10 @@ export class AuthController {
   @GrpcMethod('AuthService', 'ResolveBusinessIds')
   async resolveBusinessIds(data: ResolveBusinessIdsGrpcPayload) {
     return await this.authService.resolveBusinessIds(data.usrIds);
+  }
+
+  @GrpcMethod('AuthService', 'GetUsersBatch')
+  async getUsersBatch(data: GetUsersBatchGrpcPayload) {
+    return await this.authService.getUsersBatch(data.userIds);
   }
 }

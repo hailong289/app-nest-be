@@ -6,12 +6,12 @@ import {
   PutObjectCommandInput,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
 import { InjectModel } from '@nestjs/mongoose';
-import { Attachment, AttachmentKind, Room, User } from 'libs/db/src';
+import { Attachment, AttachmentKind } from 'libs/db/src';
 import { Model, FilterQuery, Types } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import {
@@ -34,6 +34,10 @@ import axios from 'axios';
 import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent } from '@app/dto/enum.type';
+import {
+  GatewayClientService,
+  type GatewayRoomSummary,
+} from './gateway-client.service';
 
 @Injectable()
 export class FilesystemService {
@@ -41,15 +45,14 @@ export class FilesystemService {
   private readonly utils = Utils;
   private readonly MAX_RETRIES = 3;
   private readonly TIMEOUT_MS = 30000;
+  private readonly logger = new Logger(FilesystemService.name);
 
   constructor(
     private configService: ConfigService,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Attachment.name)
     private readonly attachmentModel: Model<Attachment>,
-    @InjectModel(Room.name) private readonly roomModel: Model<Room>,
-    @InjectModel('Message') private readonly messageModel: Model<any>,
     @Inject(SERVICES.AI) private readonly aiClient: ClientKafka,
+    private readonly gatewayClient: GatewayClientService,
   ) {
     this.s3 = new S3Client({
       region: this.configService.get<string>('s3.region') ?? 'us-east-1',
@@ -69,24 +72,26 @@ export class FilesystemService {
   // ============================================================================
 
   async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
-    const { userId, roomId, file, id, messageId } = dto;
-    if (!file?.buffer) throw new Error('File or buffer is missing');
+    const { userId, roomId } = dto;
+    const context = await this.resolveUploadContext(userId, roomId);
+    return this.uploadSingleFileForContext(dto, context.room);
+  }
 
-    // Validate user and room
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
-    const room = await this.roomModel.findOne({
-      room_id: { $in: [roomId, roomPair] },
-    });
-    if (!room) throw new NotFoundException('Room not found');
+  private async uploadSingleFileForContext(
+    dto: uploadSingleFileByUserDTo,
+    room: GatewayRoomSummary,
+  ) {
+    const { userId, file, id, messageId } = dto;
+    if (!file?.buffer) throw new Error('File or buffer is missing');
+    this.assertMongoId(userId, 'userId');
+    this.assertMongoId(room.mongoRoomId, 'roomId');
 
     // Prepare file metadata
     const timestamp = Date.now();
     const ext = file.originalname.split('.').pop() || 'bin';
     const nameWithoutExt = file.originalname.replace(/\.[^/.]+$/, '');
     const fileName = `${this.slugify(nameWithoutExt)}_${timestamp}.${ext}`;
-    const folder = room.room_id;
+    const folder = room.roomId || room.mongoRoomId;
     const fileUrl = `${this.configService.get<string>('s3.endpoint')}/${this.configService.get<string>('s3.bucketName')}/${folder}/${fileName}`;
 
     // Determine file kind
@@ -107,7 +112,7 @@ export class FilesystemService {
       size: file.size,
       mimeType: file.mimetype,
       user_id: this.utils.convertToObjectIdMongoose(userId),
-      room_id: room._id,
+      room_id: this.utils.convertToObjectIdMongoose(room.mongoRoomId),
       status: 'processing' as const,
       width: metadata.width,
       height: metadata.height,
@@ -157,7 +162,7 @@ export class FilesystemService {
             fileType: kind,
             attachmentId: this.objectIdToString(attachment._id),
             userId,
-            roomId: this.objectIdToString(room._id),
+            roomId: room.mongoRoomId,
             mimeType: file.mimetype,
             messageId,
             name: file.originalname,
@@ -174,6 +179,22 @@ export class FilesystemService {
             },
           } satisfies AiFileEmbeddingPayload,
         );
+      }
+
+      if (messageId) {
+        try {
+          await this.gatewayClient.attachFilesToMessage(messageId, {
+            roomId: room.mongoRoomId,
+            actorUserId: userId,
+            attachmentIds: [this.objectIdToString(attachment._id)],
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Attach uploaded file to message failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       }
 
       return Response.success(
@@ -202,36 +223,25 @@ export class FilesystemService {
   async uploadMultipleFilesByUser(dto: UploadMultipleFilesByUserDto) {
     const { files, userId, roomId, messageId } = dto;
 
-    // Validate user and room once
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
-    const room = await this.roomModel.findOne({
-      room_id: { $in: [roomId, roomPair] },
-    });
-    if (!room) throw new NotFoundException('Room not found');
+    const context = await this.resolveUploadContext(userId, roomId);
 
     const results = await Promise.all(
       files.map(async (file) => {
         try {
-          // Reuse uploadSingleFileByUser logic but we need to bypass the user/room check to avoid redundant DB calls
-          // However, uploadSingleFileByUser is tightly coupled with DB checks.
-          // For simplicity and correctness, we can just call uploadSingleFileByUser for each file.
-          // It might be slightly less efficient but ensures consistency.
-          // Or we can refactor uploadSingleFileByUser to accept pre-fetched user/room.
-
-          // Calling uploadSingleFileByUser directly:
-          const result = await this.uploadSingleFileByUser({
-            userId,
-            roomId,
-            file: {
-              ...file,
-              fieldname: '',
-              encoding: '7bit',
-              size: file.buffer.length,
+          const result = await this.uploadSingleFileForContext(
+            {
+              userId,
+              roomId,
+              file: {
+                ...file,
+                fieldname: '',
+                encoding: '7bit',
+                size: file.buffer.length,
+              },
+              messageId,
             },
-            messageId,
-          });
+            context.room,
+          );
           // eslint-disable-next-line @typescript-eslint/no-unsafe-return
           return result.metadata;
         } catch (error) {
@@ -255,27 +265,23 @@ export class FilesystemService {
 
     const filter: FilterQuery<Attachment> = {};
     if (roomId) {
-      // Try to find room by custom ID first
-      let room = await this.roomModel.findOne({ room_id: roomId });
-
-      // If not found, try by ObjectId if roomId is a valid ObjectId
-      if (!room && /^[0-9a-fA-F]{24}$/.test(roomId)) {
-        room = await this.roomModel.findById(roomId);
-      }
-
+      const room = await this.gatewayClient.resolveRoomForUser(roomId, userId);
       if (room) {
-        filter.room_id = room._id;
+        filter.room_id = this.utils.convertToObjectIdMongoose(room.mongoRoomId);
       } else {
-        // If room not found, return empty list
         return Response.success([], 'Room not found');
       }
     }
 
     if (userId) {
-      const user = await this.userModel.findById(userId);
-      if (user) {
-        filter.user_id = user._id;
+      if (!Types.ObjectId.isValid(userId)) {
+        return Response.badRequest('userId không hợp lệ');
       }
+      const user = await this.gatewayClient.getUserSummary(userId);
+      if (!user) {
+        return Response.success([], 'User not found');
+      }
+      filter.user_id = this.utils.convertToObjectIdMongoose(userId);
     }
 
     if (type) {
@@ -442,6 +448,19 @@ export class FilesystemService {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = content.match(urlRegex);
     if (!urls) return;
+    this.assertMongoId(userId, 'userId');
+    this.assertMongoId(messageId, 'messageId');
+
+    let mongoRoomId = this.objectIdToString(roomId);
+    if (!Types.ObjectId.isValid(mongoRoomId)) {
+      const room = await this.gatewayClient.resolveRoomForUser(
+        mongoRoomId,
+        userId,
+      );
+      if (!room) return;
+      mongoRoomId = room.mongoRoomId;
+    }
+    this.assertMongoId(mongoRoomId, 'roomId');
 
     for (const url of urls) {
       try {
@@ -455,7 +474,7 @@ export class FilesystemService {
         const image = $('meta[property="og:image"]').attr('content') || '';
 
         const attachment = await this.attachmentModel.create({
-          room_id: this.utils.convertToObjectIdMongoose(roomId),
+          room_id: this.utils.convertToObjectIdMongoose(mongoRoomId),
           user_id: this.utils.convertToObjectIdMongoose(userId),
           kind: 'link',
           url: url,
@@ -467,8 +486,10 @@ export class FilesystemService {
           size: 0,
         });
 
-        await this.messageModel.findByIdAndUpdate(messageId, {
-          $push: { attachment_ids: attachment._id },
+        await this.gatewayClient.attachFilesToMessage(messageId, {
+          roomId: mongoRoomId,
+          actorUserId: userId,
+          attachmentIds: [this.objectIdToString(attachment._id)],
         });
       } catch (e) {
         console.error(
@@ -709,5 +730,22 @@ export class FilesystemService {
       return (id as { toString: () => string }).toString();
     }
     return String(id);
+  }
+
+  private assertMongoId(id: string, label: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException(`${label} không hợp lệ`);
+    }
+  }
+
+  private async resolveUploadContext(userId: string, roomId: string) {
+    this.assertMongoId(userId, 'userId');
+    const user = await this.gatewayClient.getUserSummary(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const room = await this.gatewayClient.resolveRoomForUser(roomId, userId);
+    if (!room?.mongoRoomId) throw new NotFoundException('Room not found');
+
+    return { user, room };
   }
 }

@@ -51,6 +51,31 @@ export class RoomsController {
     return result;
   }
 
+  @GrpcMethod('ChatService', 'ResolveRoomForUser')
+  async resolveRoomForUser(
+    @Body() payload: { roomId: string; userId?: string },
+  ) {
+    return this.roomsService.resolveRoomForUser(payload);
+  }
+
+  @GrpcMethod('ChatService', 'GetRoomMembers')
+  async getRoomMembers(@Body() payload: { roomId: string; userId?: string }) {
+    return this.roomsService.getRoomMembersForInternal(payload);
+  }
+
+  @GrpcMethod('ChatService', 'AttachMessageAttachments')
+  async attachMessageAttachments(
+    @Body()
+    payload: {
+      messageId: string;
+      roomId?: string;
+      actorUserId: string;
+      attachmentIds: string[];
+    },
+  ) {
+    return this.roomsService.attachMessageAttachments(payload);
+  }
+
   @GrpcMethod('ChatService', 'ChangeAvatar')
   async ChangeAvatar(@Body() payload: ChangelinkAvatarRoomDto) {
     return this.roomsService.changeLinkAvatarRoom(payload);

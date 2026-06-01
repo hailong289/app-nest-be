@@ -170,10 +170,17 @@ export class GatewayFilesystemController implements OnModuleInit {
   }
 
   @Get('attachments')
-  async getAttachments(@Query() query: GetAttachmentsDto) {
+  async getAttachments(
+    @Query() query: GetAttachmentsDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?._id) {
+      throw new NotFoundException('User not authenticated');
+    }
+
     return await this.gatewayService.dispatchGrpcRequest(
       this.filesystemService.getAttachments.bind(this.filesystemService),
-      query,
+      { ...query, userId: req.user._id },
     );
   }
 

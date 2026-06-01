@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
 import { GatewayChatController } from './gateway-chat.controller';
+import { GatewayInternalChatController } from './gateway-internal-chat.controller';
 import { GatewaySocialController } from './social/gateway-social.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
@@ -16,7 +17,11 @@ import chatConfig from '../config/chat.config';
       packages: ['chat', 'social'],
     }),
   ],
-  controllers: [GatewayChatController, GatewaySocialController],
+  controllers: [
+    GatewayChatController,
+    GatewayInternalChatController,
+    GatewaySocialController,
+  ],
   providers: [GatewayService],
 })
 export class GatewayChatModule {}

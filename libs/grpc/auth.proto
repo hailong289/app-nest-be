@@ -22,6 +22,7 @@ service AuthService {
   rpc LogoutAllDevices(LogoutAllDevicesRequest) returns (LogoutResponse);
   rpc GetFcmTokens(GetFcmTokensRequest) returns (GetFcmTokensResponse);
   rpc ResolveBusinessIds(ResolveBusinessIdsRequest) returns (ResolveBusinessIdsResponse);
+  rpc GetUsersBatch(GetUsersBatchRequest) returns (GetUsersBatchResponse);
 }
 
 // Geo location (best-effort, populated by api-gateway via geoip-lite).
@@ -269,6 +270,34 @@ message ResolveBusinessIdsResponse {
   int32                      statusCode       = 2;
   string                     reasonStatusCode = 3;
   ResolveBusinessIdsMetadata metadata         = 4;
+}
+
+message GetUsersBatchRequest {
+  repeated string userIds = 1;
+}
+
+message UserSummary {
+  string _id      = 1;
+  string userId   = 2;
+  string usr_id   = 3;
+  string id       = 4;
+  string name     = 5;
+  string fullname = 6;
+  string email    = 7;
+  string avatar   = 8;
+  string status   = 9;
+  string slug     = 10;
+}
+
+message GetUsersBatchMetadata {
+  repeated UserSummary items = 1;
+}
+
+message GetUsersBatchResponse {
+  string                message          = 1;
+  int32                 statusCode       = 2;
+  string                reasonStatusCode = 3;
+  GetUsersBatchMetadata metadata         = 4;
 }
 
 message GetUserMetadata {

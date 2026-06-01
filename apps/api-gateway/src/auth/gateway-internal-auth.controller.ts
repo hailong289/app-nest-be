@@ -16,6 +16,7 @@ import { GatewayService } from '../gateway/gateway.service';
 interface AuthGrpcService {
   getFcmTokens(data: { userIds: string[] }): Observable<unknown>;
   resolveBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
+  getUsersBatch(data: { userIds: string[] }): Observable<unknown>;
 }
 
 @Controller('internal/auth')
@@ -39,7 +40,9 @@ export class GatewayInternalAuthController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertInternalRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret, [
+      'notification',
+    ]);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.authService.getFcmTokens.bind(this.authService),
@@ -63,7 +66,10 @@ export class GatewayInternalAuthController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertInternalRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret, [
+      'notification',
+      'filesystem',
+    ]);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.authService.resolveBusinessIds.bind(this.authService),
@@ -72,11 +78,30 @@ export class GatewayInternalAuthController implements OnModuleInit {
     );
   }
 
+  @Post('users/batch')
+  async getUsersBatch(
+    @Body() body: { userIds: string[] },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, [
+      'filesystem',
+      'notification',
+    ]);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.authService.getUsersBatch.bind(this.authService),
+      { userIds: body.userIds || [] },
+      30000,
+    );
+  }
+
   private assertInternalRequest(
     internalService?: string,
     internalSecret?: string,
+    allowedServices: string[] = ['notification'],
   ) {
-    if (internalService !== 'notification') {
+    if (!internalService || !allowedServices.includes(internalService)) {
       throw new UnauthorizedException('Invalid internal service');
     }
 
