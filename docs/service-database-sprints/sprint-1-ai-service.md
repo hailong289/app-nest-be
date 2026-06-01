@@ -15,6 +15,8 @@ Dua `ai` ve database rieng som nhat vi domain so huu ro nhat. AI chi so huu embe
 
 Khong tu them model/modal/collection moi trong sprint nay. Chi duoc dung va sua cac model hien co cua AI la `AIEmbedding` va `AIUsageLogs`. Neu can du lieu tu chat/filesystem/auth thi AI phai call qua API gateway den service do, khong query Mongo collection cua service khac va khong inject truc tiep model/client cua service khac.
 
+Luu y user id khi call qua auth: `_id` la MongoDB ObjectId cua `Users`; `id` trong response da parse/unprefix la `usr_id`. Trong AI, field `userId` phai duoc hieu la Mongo `_id` neu request den tu gateway/auth middleware. Neu can hien thi hoac mapping business id thi dung `userBusinessId`/`usrId` lay tu `id` hoac `usr_id`, khong dung `id` thay cho Mongo `_id`.
+
 ## Source Scan
 
 Files can xu ly trong sprint nay:
@@ -39,7 +41,7 @@ Files can xu ly trong sprint nay:
 
 ## Current Coupling To Remove
 
-- `apps/ai/src/app.module.ts` van import/register `User`, `Message`, `Attachment` ngoai AI domain.
+- `apps/ai/src/app.module.ts` hien da dung `AiDatabaseModule` va khong nen them lai `MongooseModule.forFeature()` trung lap.
 - `AiDatabaseModule` van dang giu legacy models: `userModel`, `messagesModel`, `attachmentModel`, `documentModel`.
 - `AIService` inject `Message` va `Attachment`.
 - `AIService.searchMessages()` fallback query truc tiep `Messages`.
@@ -55,6 +57,7 @@ Files can xu ly trong sprint nay:
 - AI chi doc/ghi `AIEmbedding` va `AIUsageLogs` trong `appchat_ai`.
 - Chat/filesystem gui du snapshot qua Kafka de AI tao embedding ma khong can query DB cua service khac.
 - Search cua AI chi search tren `AIEmbedding`; metadata/snapshot can render phai nam trong embedding record hoac API gateway/caller hydrate tu owner service.
+- `userId` trong payload/metadata AI la Mongo `_id`. Neu response auth/gateway co field `id` thi field do la `usr_id` da parse, chi dung cho display/business mapping.
 - Neu AI can du lieu owner theo request on-demand, vi du lay file URL de transcribe attachment, AI call API gateway den filesystem endpoint noi bo.
 - STT cho attachment khong cap nhat `Attachments` truc tiep; AI tra transcript cho gateway/caller hoac call gateway/filesystem endpoint noi bo de filesystem persist transcript.
 - Gateway la lop forward/orchestrate den chat/filesystem/auth; AI khong goi thang gRPC/chat/filesystem/auth va khong query DB cua cac service do.
@@ -71,6 +74,7 @@ Files can xu ly trong sprint nay:
    - `roomId`
    - `roomIds`
    - `userId`
+   - `userBusinessId` hoac `usrId` neu producer/gateway da co; field nay optional va lay tu `usr_id`/`id`, khong thay the `userId`.
    - `messageId`
    - `isSystemMessage`
    - `visibility`
@@ -96,32 +100,39 @@ Files can xu ly trong sprint nay:
    - `x-internal-secret` neu gateway bat buoc ky noi bo.
    - `x-request-id` neu co.
    - `userId`/`actorUserId` trong body khi call noi bo khong co browser cookie.
+   - `userId`/`actorUserId` phai la Mongo `_id`; neu can `usr_id` thi dung field rieng `userBusinessId`/`usrId`.
 5. Khong inject `ClientGrpc` chat/filesystem/auth vao AI. Neu gateway can bo sung contract de forward xuong service dich thi thay doi o gateway va service dich, khong de AI goi thang service do.
 
 ### 3. Bo sung gateway endpoints noi bo neu API hien co chua du
 
-1. Filesystem gateway cho attachment/STT:
+1. Auth gateway cho user summary neu AI/gateway can hydrate user:
+   - `POST /internal/auth/users/batch`
+   - request `{ userIds: string[] }`, trong do `userIds` la Mongo `_id`.
+   - response user summary phai giu ro `_id` la Mongo ObjectId va `id`/`usr_id` la business id `usr_id` sau parse.
+   - AI chi dung user summary de metadata/display/reporting, khong query `Users`.
+2. Filesystem gateway cho attachment/STT:
    - `POST /internal/filesystem/attachments/resolve-for-ai`
    - request `{ attachmentId, messageId, userId }`
    - response `{ attachmentId, messageId, roomId, userId, fileUrl, mimeType, kind, transcript, transcribedAt }`
-2. Filesystem gateway persist transcript:
+3. Filesystem gateway persist transcript:
    - `POST /internal/filesystem/attachments/:attachmentId/transcript`
    - request `{ messageId, userId, transcript, detectedLanguage }`
    - filesystem validate ownership/context va update `Attachments`.
-3. Chat gateway cho permission/hydration neu can:
+4. Chat gateway cho permission/hydration neu can:
    - `POST /internal/chat/rooms/check-access`
    - `POST /internal/chat/messages/hydrate`
    - dung de gateway/caller hydrate search result, khong bat AI query `Messages`.
-4. Document/filesystem gateway cho permission/hydration neu can:
+5. Document/filesystem gateway cho permission/hydration neu can:
    - `POST /internal/filesystem/documents/check-access`
    - `POST /internal/filesystem/documents/hydrate`
-5. Cac endpoint noi bo phai co guard/secret rieng, khong mo public neu co the doc/persist du lieu owner.
-6. Khong tao cache collection user/message/attachment/document trong AI de thay the gateway call.
+6. Cac endpoint noi bo phai co guard/secret rieng, khong mo public neu co the doc/persist du lieu owner.
+7. Khong tao cache collection user/message/attachment/document trong AI de thay the gateway call.
 
 ### 4. Sua Kafka payload vao AI
 
 1. `KafkaEvent.AI_CHAT_MSG_EMBEDDING` tu chat can gui them:
    - `userId`
+   - `userBusinessId` hoac `usrId` neu chat/gateway da co; optional va khong thay the `userId`.
    - `roomId`
    - `messageId`
    - `text`
@@ -131,6 +142,7 @@ Files can xu ly trong sprint nay:
 2. `KafkaEvent.AI_DOC_EMBEDDING` tu filesystem/documents can gui them:
    - `docId`
    - `userId`
+   - `userBusinessId` hoac `usrId` neu co.
    - `roomIds`
    - `title`
    - `plainText`
@@ -141,6 +153,7 @@ Files can xu ly trong sprint nay:
    - `messageId`
    - `roomId`
    - `userId`
+   - `userBusinessId` hoac `usrId` neu co.
    - `fileUrl`
    - `fileType`
    - `mimeType`
@@ -180,11 +193,12 @@ Files can xu ly trong sprint nay:
 
 ### 8. Don `app.module` va database module
 
-1. Trong `apps/ai/src/app.module.ts`, chi register:
-   - `AIUsageLogSchema`
-   - `AIEmbeddingSchema`
-2. Xoa register `Userschema`, `MessageSchema`, `AttachmentSchema`.
-3. Trong `AiDatabaseModule`, chi register:
+1. Trong `apps/ai/src/app.module.ts`, giu pattern hien tai:
+   - import `AiDatabaseModule`.
+   - khong them lai `MongooseModule.forFeature()`.
+   - khong import schema/model ngoai AI domain.
+2. Neu can inject model owned, dang ky qua `AiDatabaseModule`, khong dang ky truc tiep o app root.
+3. Trong `AiDatabaseModule`, sau khi go coupling chi register:
    - `aIEmbeddingModel`
    - `aIUsageLogModel`
 4. Xoa legacy:

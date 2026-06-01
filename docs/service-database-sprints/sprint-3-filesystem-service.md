@@ -15,6 +15,15 @@ Filesystem chi so huu file/document metadata, khong sua message/room/user truc t
 
 Khong tu them model/modal/collection moi trong sprint nay. Chi dung cac model hien co cua filesystem: `Attachments` va `Documents`. Neu can du lieu tu auth/chat thi filesystem phai call qua API gateway den service do, khong query Mongo collection cua service khac va khong inject truc tiep model cua service khac.
 
+ID contract cho sprint nay:
+
+- `_id` la MongoDB ObjectId cua `Users`.
+- `id` trong response auth sau khi parse/unprefix la `usr_id`, khong phai Mongo `_id`.
+- Tat ca input `userId`/`actorUserId` vao filesystem, `Attachments.user_id`, `Documents.ownerId`, `Documents.sharedWith.userId`, notification `userIds`, va AI event `userId` phai dung Mongo `_id`.
+- Neu caller chi co `id`/`usr_id`, phai call API gateway den auth de resolve sang Mongo `_id` truoc khi goi filesystem.
+- Filesystem chi dung `usr_id` de hien thi neu auth summary tra ve; khong dung `usr_id` de luu DB, check access, emit notification, hay tu build private pair room.
+- Gateway public filesystem/documents phai tiep tuc lay actor tu `req.user._id`; khong tin `userId` do client tu truyen trong body/query.
+
 ## Source Scan
 
 Files can xu ly trong sprint nay:
@@ -42,6 +51,7 @@ Files can xu ly trong sprint nay:
 - `FilesystemService` inject `User`, `Room`, `Message`.
 - `uploadSingleFileByUser()` query `Users` va `Rooms` de validate upload.
 - `uploadMultipleFilesByUser()` query `Users` va `Rooms` roi lai goi `uploadSingleFileByUser()` lam validate lap lai.
+- `uploadSingleFileByUser()` va `uploadMultipleFilesByUser()` dang lay `user.usr_id` de tu build `pairRoomId`; logic nay phai chuyen ve chat service.
 - `getAttachments()` query `Rooms` de resolve `roomId` va query `Users` de validate/filter `userId`.
 - `processLinks()` create `Attachment`, sau do update truc tiep `Messages.attachment_ids`.
 - `DocumentsService` inject `Room` va `User`.
@@ -54,7 +64,9 @@ Files can xu ly trong sprint nay:
 ## Target Flow
 
 - Filesystem chi doc/ghi `Attachments` va `Documents` trong `appchat_filesystem`.
-- `room_id`, `roomIds`, `user_id`, `ownerId`, `sharedWith.userId`, `contextId` duoc giu nhu foreign ids, khong phai Mongo relation.
+- `room_id`, `roomIds`, `user_id`, `ownerId`, `sharedWith.userId`, `contextId` duoc giu nhu foreign ids cua service owner, khong populate relation va khong `$lookup` cross-DB.
+- Cac field user-owned (`user_id`, `ownerId`, `sharedWith.userId`, `userId`, `actorUserId`) dung Mongo `_id`.
+- Neu flow chi co `usr_id`, resolve qua `POST /internal/auth/users/resolve-business-ids` truoc khi luu/check/emit.
 - Validate user/user summary bang HTTP call den API gateway, gateway forward den auth service.
 - Validate room/member/room summary bang HTTP call den API gateway, gateway forward den chat service.
 - Cap nhat message attachment bang gateway endpoint cua chat, vi chat so huu `Messages`.
@@ -74,25 +86,33 @@ Files can xu ly trong sprint nay:
    - `x-internal-service: filesystem`
    - `x-internal-secret` neu gateway bat buoc ky noi bo.
    - `x-request-id` neu request goc co.
-   - `userId`/`actorUserId` trong body voi cac call noi bo khong co browser cookie.
+   - `userId`/`actorUserId` trong body voi cac call noi bo khong co browser cookie, bat buoc la Mongo `_id`.
 5. Tao helper adapter noi bo, vi du:
    - `getUserSummary(userId)`
    - `getUsersSummary(userIds)`
+   - `resolveUserBusinessIds(usrIds)`
    - `resolveRoomForUser(roomId, userId)`
    - `getRoomMembers(roomId, userId)`
    - `attachFilesToMessage(messageId, attachmentIds, actorUserId)`
-6. Khong inject client auth/chat truc tiep vao filesystem. Neu gateway can bo sung contract de forward xuong auth/chat thi thay doi o gateway va service dich, khong de filesystem goi thang service do.
+6. Neu adapter nhan `usr_id`/parsed `id`, adapter phai goi gateway/auth resolve sang Mongo `_id` truoc; khong fallback query `Users`.
+7. Khong inject client auth/chat truc tiep vao filesystem. Neu gateway can bo sung contract de forward xuong auth/chat thi thay doi o gateway va service dich, khong de filesystem goi thang service do.
 
 ### 2. Bo sung gateway endpoints noi bo neu API hien co chua du
 
 1. Auth gateway:
-   - endpoint lay user summary theo id: `GET /internal/auth/users/:userId` hoac `POST /internal/auth/users/resolve`.
-   - endpoint batch user summary: `POST /internal/auth/users/batch`.
+   - endpoint batch user summary canonical: `POST /internal/auth/users/batch`.
+   - request: `{ userIds: string[] }`, trong do `userIds` la Mongo `_id`.
    - response chi can cac field hien thi: `_id`, `usr_id`, `name`, `email`, `avatar`, `status` neu can.
+   - endpoint resolve business id canonical: `POST /internal/auth/users/resolve-business-ids`.
+   - request: `{ usrIds: string[] }`.
+   - response can co mapping `{ usrId: string; userId: string }`, trong do `userId`/`_id` la Mongo `_id`.
 2. Chat gateway:
-   - endpoint resolve room va validate membership: `POST /internal/chat/rooms/resolve`.
-   - endpoint lay room members: `POST /internal/chat/rooms/members`.
-   - endpoint attach attachments vao message: `POST /internal/chat/messages/:messageId/attachments`.
+   - endpoint check access canonical: `POST /internal/chat/rooms/check-access`.
+   - endpoint resolve room va validate membership canonical: `POST /internal/chat/rooms/resolve`.
+   - endpoint lay room members canonical: `POST /internal/chat/rooms/members`.
+   - endpoint attach attachments vao message canonical: `POST /internal/chat/messages/:messageId/attachments`.
+   - cac request user context phai dung `{ userId }` hoac `{ actorUserId }` la Mongo `_id`.
+   - chat response can tra `{ mongoRoomId, roomId, roomName, memberIds }`; `memberIds` la Mongo `_id`.
 3. Gateway chiu trach nhiem forward den auth/chat bang co che hien co cua gateway. Filesystem chi biet URL gateway va contract HTTP noi bo.
 4. Cac endpoint noi bo phai co guard/secret rieng, khong mo public neu co the mutate data.
 5. Khong tao collection cache user/room/message trong filesystem de thay the gateway call.
@@ -102,18 +122,21 @@ Files can xu ly trong sprint nay:
 1. Xoa import/inject `User` va `userModel`.
 2. `uploadSingleFileByUser()`:
    - thay `userModel.findById(userId)` bang gateway call den auth user summary endpoint.
+   - validate `userId` la Mongo `_id`; neu input la `usr_id` thi resolve qua gateway/auth truoc.
    - khong can `usr_id` de tu build private room pair trong filesystem; viec resolve room/pair room phai de chat service lam.
 3. `uploadMultipleFilesByUser()`:
    - validate user mot lan qua gateway/auth.
    - truyen user summary/validated context xuong helper upload de khong validate lap lai tung file.
 4. `getAttachments()`:
-   - neu co `userId`, chi convert id thanh ObjectId de filter `Attachment.user_id`; validation user neu can thi goi gateway/auth.
+   - neu co `userId`, chi convert Mongo `_id` thanh ObjectId de filter `Attachment.user_id`; validation user neu can thi goi gateway/auth.
+   - khong chap nhan `usr_id` de filter `Attachment.user_id` vi field nay dang la ObjectId.
 
 ### 4. Bo query `Room` trong `FilesystemService`
 
 1. Xoa import/inject `Room` va `roomModel`.
 2. `uploadSingleFileByUser()`:
    - goi gateway/chat de validate user la member va resolve room.
+   - request gui `actorUserId` la Mongo `_id`; chat tu xu ly private pair room neu `roomId` la business id.
    - gateway response can co it nhat `{ mongoRoomId, roomId, roomName, memberIds }`.
    - luu `Attachment.room_id = mongoRoomId` de tuong thich data hien co.
 3. `uploadMultipleFilesByUser()` dung room context da resolve mot lan.
@@ -144,6 +167,7 @@ Files can xu ly trong sprint nay:
 1. Xoa import/inject `Room` va `roomModel` trong `DocumentsService`.
 2. `checkDocAccess()`:
    - owner/shared/public check tren `Documents` nhu hien tai.
+   - `userId` input la Mongo `_id`; `ownerId` va `sharedWith.userId` trong doc cung la Mongo `_id`.
    - neu doc co `roomIds`, goi gateway/chat check membership cho user voi danh sach room ids.
    - role `guest -> viewer`, role khac -> editor` logic nam trong filesystem helper hoac chat response.
 3. `findRoom()`:
@@ -162,10 +186,10 @@ Files can xu ly trong sprint nay:
 2. Doi flow format:
    - query `Documents` bang `find/aggregate` chi tren collection `Documents`.
    - collect `ownerId`, `sharedWith.userId`, `roomIds`.
-   - goi gateway/auth batch user summary de hydrate owner/shared users.
+   - goi `POST /internal/auth/users/batch` de hydrate owner/shared users; request dung Mongo `_id`.
    - goi gateway/chat de lay room members neu response can merge room members vao `sharedWith`.
 3. Neu gateway/auth chua co batch endpoint:
-   - them `POST /internal/auth/users/batch` hoac dung nhieu gateway call song song tam thoi.
+   - them `POST /internal/auth/users/batch` hoac dung nhieu gateway call song song tam thoi qua API gateway.
    - khong tao collection user cache trong filesystem.
 4. Cap nhat `DocumentMetadata` response mapping neu can, nhung khong them model Mongo moi.
 
@@ -173,14 +197,14 @@ Files can xu ly trong sprint nay:
 
 1. `createDoc()`:
    - lay room members qua gateway/chat thay vi `roomModel.findById`.
-   - gui `DOC_CREATED` voi `userIds` tu chat response.
+   - gui `DOC_CREATED` voi `userIds` Mongo `_id` tu chat response.
 2. `deleteDoc()`:
    - lay members cua cac `doc.roomIds` qua gateway/chat.
    - lay ten nguoi xoa qua gateway/auth user summary endpoint.
 3. `shareDocument()`:
    - lay ten nguoi share qua gateway/auth user summary endpoint.
 4. `updateDoc()`, `updateTitle()`, `updateVisibility()`:
-   - receiverIds lay tu `doc.sharedWith` va room members qua gateway/chat khi can.
+   - receiverIds lay tu `doc.sharedWith` va room members qua gateway/chat khi can; tat ca receiverIds la Mongo `_id`.
 5. Notification van gui Kafka event, khong query DB notification.
 
 ### 9. Chuan hoa AI events tu filesystem
@@ -189,7 +213,7 @@ Files can xu ly trong sprint nay:
    - `attachmentId`
    - `messageId`
    - `roomId`
-   - `userId`
+   - `userId` la Mongo `_id`
    - `fileUrl`
    - `fileType`
    - `mimeType`
@@ -197,7 +221,7 @@ Files can xu ly trong sprint nay:
    - `size`
 2. `AI_DOC_EMBEDDING` payload can gui:
    - `docId`
-   - `userId`
+   - `userId` la Mongo `_id`
    - `roomIds`
    - `title`
    - `plainText`
@@ -220,6 +244,7 @@ Files can xu ly trong sprint nay:
 4. Xoa `RoomSchema` khoi `DocumentsModule`.
 5. Dam bao `apps/filesystem` khong import `User`, `Room`, `Message` tu `libs/db/src`.
 6. Dam bao `apps/filesystem` khong import/inject truc tiep client auth/chat.
+7. Dam bao gateway public `apps/api-gateway/src/filesystem/*` tiep tuc truyen `req.user._id` vao filesystem gRPC, khong truyen `req.user.id`/`req.user.usr_id` lam `userId`.
 
 ### 11. Doi database rieng va migrate data
 
@@ -243,8 +268,10 @@ Files can xu ly trong sprint nay:
 4. Process link event -> tao attachment kind `link`, gateway/chat attach vao message.
 5. Get attachments theo room -> resolve room qua gateway/chat, query `Attachments`.
 6. Create/list/get/update/delete/share document -> khong `$lookup` Users/Rooms, hydrate qua gateway.
-7. Document notification events van co `userIds`.
-8. `npm run build:filesystem` va `npm run build:all` xanh.
+7. Document notification events van co `userIds` Mongo `_id`, khong dung `usr_id`.
+8. Gateway public upload/document routes truyen `req.user._id`; neu payload/body co `id`/`usr_id` thi khong dung lam `userId`.
+9. Case caller chi co `usr_id` -> call `POST /internal/auth/users/resolve-business-ids` -> filesystem nhan Mongo `_id` moi tiep tuc.
+10. `npm run build:filesystem` va `npm run build:all` xanh.
 
 ## Definition of Done
 
@@ -255,5 +282,8 @@ Files can xu ly trong sprint nay:
 - Filesystem khong import/inject truc tiep client auth/chat.
 - `FilesystemDatabaseModule` khong con legacy model ngoai filesystem domain.
 - `DocumentsModule` khong register `RoomSchema`.
+- Cac field user trong filesystem contract dung Mongo `_id`; parsed `id`/`usr_id` khong duoc dung thay `_id`.
+- Neu can user info/summary/resolve business id thi filesystem call API gateway den auth.
+- Private/pair room resolve nam o chat qua API gateway, filesystem khong tu build bang `usr_id`.
 - Khong them model/modal/collection moi.
 - Moi data can tu auth/chat duoc lay bang API gateway den service do.

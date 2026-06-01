@@ -25,14 +25,19 @@ Dam bao cac service khong so huu DB van sach dependency va production-ready sau 
 - Duoc dung Kafka client cho event gateway da co contract.
 - Khong import `MongooseModule`, `InjectModel`, `MongoConnectionModule`, `MongodbModule`, `*DatabaseModule`, hay `libs/db/src/mongo/model/*`.
 - La lop public HTTP va internal HTTP cho service-to-service qua gateway.
+- `req.user._id` tu JWT/auth middleware la MongoDB ObjectId; neu response co `id` sau parse/unprefix thi `id` la `usr_id`, khong phai Mongo `_id`.
+- Khi forward den service owner bang field `userId`/`actorUserId`, gateway phai uu tien Mongo `_id`. Neu caller chi dua `usr_id`/parsed `id`, gateway phai goi internal auth resolve truoc.
 
 ### `socket`
 
 - Khong co database target.
 - Duoc dung Redis cho presence, Socket.IO adapter, token blacklist check, call state.
 - Duoc dung Bull/Redis cho delayed job nhu auto-miss call.
-- Duoc dung gRPC client den chat/filesystem/ai va SFU RPC.
+- Duoc dung API gateway internal endpoints de goi chat/filesystem/ai khi can domain data/command.
+- Duoc dung SFU RPC rieng cho media plane.
 - Khong import Mongo model va khong co DB env.
+- `client.userId` phai la JWT payload `_id` MongoDB; `client.user.usr_id` hoac parsed `id` chi la FE-facing business id.
+- Presence/status co the dung `usr_id` neu contract FE dang dung `usr_id`; nhung CRUD/domain command di qua API gateway den owner service phai dung Mongo `_id`.
 
 ### `sfu`
 
@@ -41,7 +46,19 @@ Dam bao cac service khong so huu DB van sach dependency va production-ready sau 
 - Chi expose gRPC `sfu.proto`, protected bang `SFU_INTERNAL_SECRET`.
 - Khong can Redis/Mongo/Kafka neu khong co use case moi ro rang.
 
-Khong tu them model/modal/bang/collection moi trong sprint nay. Edge services khong duoc tao DB rieng. Neu can du lieu tu service nao thi API gateway forward den service owner; socket/SFU khong query DB.
+Khong tu them model/modal/bang/collection moi trong sprint nay. Edge services khong duoc tao DB rieng. Neu can du lieu tu service nao thi API gateway forward den service owner; socket/SFU khong query DB, socket khong goi direct gRPC den domain service de lay data.
+
+## ID Contract Cho Edge
+
+- `_id` la MongoDB ObjectId cua user trong auth `Users`.
+- `usr_id` la business id cua user.
+- `id` trong response da parse/unprefix tu auth la `usr_id`, khong phai Mongo `_id`.
+- Edge services khong tu resolve bang DB; chi auth la service duoc map Mongo `_id` <-> `usr_id`.
+- Gateway request context sau auth middleware phai giu `req.user._id` la actor Mongo `_id`; khong overwrite bang `id`/`usr_id`.
+- Socket request context phai giu `client.userId = payload._id` cho internal service calls; `client.user.usr_id` dung cho presence/FE-facing payload neu contract hien tai can `usr_id`.
+- Internal auth routes co `userId`/`userIds` bat buoc nhan Mongo `_id`; routes co `usrId`/`usrIds` chi dung cho `resolve-business-ids`.
+- Truoc khi edge/service nao can ghi ObjectId field ma chi co `id`/`usr_id`, phai call `POST /internal/auth/users/resolve-business-ids` qua API gateway de lay `_id`.
+- Public response co the giu `id = usr_id` de tuong thich FE, nhung internal response/hydration phai tra ca `_id` va `usr_id`.
 
 ## Source Scan
 
@@ -115,9 +132,13 @@ Files can xu ly trong sprint nay:
 - `api-gateway/.env.development` dang co `PORT=5001`, trong khi `.env.example` dung `PORT=5000`; can chot port gateway nhat quan.
 - `api-gateway` chua co internal endpoint matrix day du cho cac sprint 1-6; can them/standardize route internal.
 - `AuthMiddleware` verify JWT bang Redis blacklist `REFRESH_TOKEN(userId, jti)` va khong doc DB, dung huong.
-- `socket` khong import Mongo model, dung Redis/Bull/gRPC/SFU RPC.
+- `AuthMiddleware` gan payload vao `req.user`; `payload._id` dang la Mongo `_id` va la actor id canonical de forward den service owner.
+- Can audit controller nao doc `req.user?.id` hoac parsed auth `id`; neu endpoint owner can ObjectId thi doi sang `req.user?._id` hoac resolve qua auth.
+- `socket` khong import Mongo model, dung Redis/Bull, API gateway internal endpoints cho domain data/command, va SFU RPC cho media.
+- `WsJwtGuard` gan `client.userId = payload._id`; day la Mongo `_id` cho internal service calls.
+- `PresenceService` dang dung `usr_id` cho online/status FE-facing; giu behavior nay nhung document ro khong duoc dung presence `id` thay Mongo `_id` khi goi service owner.
 - `socket/.env` hien trong repo co dau hieu bi lech domain (`PROTO_URL=libs/grpc/ai.proto`, `GOOGLE_*`), can don lai dung socket env.
-- `socket/.env.example` chua liet ke day du gRPC host/proto cho chat/filesystem/ai/notification/auth neu socket can dung.
+- `socket/.env.example` chua liet ke day du API gateway internal URL/secret va SFU RPC config; khong nen them direct gRPC host/proto den chat/filesystem/ai/notification/auth neu rule la di qua gateway.
 - `sfu` khong import Mongo/Redis/Kafka, dung in-memory mediasoup va gRPC protected bang `SFU_INTERNAL_SECRET`, dung huong.
 - `docker-compose.dev.yml` reference `apps/sfu/.env.local` va `apps/socket/.env.local`, nhung repo scan chua thay cac file nay; can tao template/example hoac sua compose dung `.env.example`/`.env.development` phu hop.
 - `docker-compose.yml` reference nhieu `.env.docker` chua thay trong repo scan; can chuan hoa file template hoac update compose docs.
@@ -130,7 +151,11 @@ Files can xu ly trong sprint nay:
 - Internal service-to-service khi can du lieu service khac thi call API gateway internal endpoint.
 - API gateway forward request den service owner bang gRPC/Kafka theo contract.
 - API gateway co the hydrate public response bang batch call den service owner, nhung khong query Mongo.
-- Socket gateway chi handle realtime transport, auth token, presence, fan-out; CRUD/nghiep vu van goi gRPC den service owner.
+- Gateway khi hydrate user qua auth phai nhan va forward ro `_id` Mongo va `usr_id`; public `id` neu co chi la alias cua `usr_id`.
+- Gateway khi gan actor cho request den chat/filesystem/learning/ai/notification phai dung `req.user._id` neu field ten `userId`/`actorUserId` yeu cau Mongo ObjectId.
+- Neu public/client gui parsed `id`/`usr_id`, gateway phai resolve sang Mongo `_id` qua `/internal/auth/users/resolve-business-ids` truoc khi forward den owner co ObjectId field.
+- Socket gateway chi handle realtime transport, auth token, presence, fan-out; CRUD/nghiep vu domain phai goi API gateway internal endpoint de gateway forward den service owner.
+- Socket presence/status co the key theo `usr_id`; chat/doc/call domain commands phai gui `client.userId` la Mongo `_id` qua API gateway. Chi SFU media commands duoc goi SFU RPC truc tiep.
 - SFU chi xu ly media room/transport/producer/consumer in-memory; chat/call history van thuoc chat service.
 - Redis la shared infrastructure cho token blacklist, presence, Socket.IO adapter, FCM token cache, Bull queue.
 - Mongo credentials chi duoc cap cho services co DB target: auth/chat/filesystem/ai/learning/notification. Gateway/socket/sfu khong co `DB_*` env.
@@ -143,20 +168,20 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
 
 1. `POST /internal/auth/users/batch`
    - caller: chat, filesystem, learning, ai, gateway public hydration.
-   - request: `{ userIds: string[] }`
-   - response: `{ users: UserSummary[] }`
+   - request: `{ userIds: string[] }` voi `userIds` la Mongo `_id[]`.
+   - response: `{ users: UserSummary[] }` trong do moi user co `_id`, `usr_id`, va optional `id = usr_id`.
 2. `POST /internal/auth/users/resolve-business-ids`
-   - caller: chat/social.
-   - request: `{ usrIds: string[] }`
-   - response: `{ users: UserSummary[] }`
+   - caller: chat/social, gateway/socket khi chi co parsed `id`/`usr_id`.
+   - request: `{ usrIds: string[] }` voi `usrIds` la `usr_id[]`.
+   - response: `{ users: UserSummary[] }` dung de lay Mongo `_id` truoc khi forward den owner service.
 3. `POST /internal/auth/users/search`
    - caller: chat/social, gateway social.
-   - request: `{ keyword, page, limit, excludeUserIds? }`
-   - response: paged user summaries.
+   - request: `{ keyword, page, limit, excludeUserIds? }` voi `excludeUserIds` la Mongo `_id[]`.
+   - response: paged user summaries co `_id` va `usr_id`; `id` neu co la `usr_id`.
 4. `POST /internal/auth/users/fcm-tokens`
    - caller: notification.
-   - request: `{ userIds: string[] }`
-   - response: `{ items: Array<{ userId: string, tokens: string[] }> }`
+   - request: `{ userIds: string[] }` voi `userIds` la Mongo `_id[]`.
+   - response: `{ items: Array<{ userId: string, tokens: string[] }> }` voi `userId` la Mongo `_id`.
    - compatibility: sprint 2 co de xuat `/internal/auth/fcm-tokens`; giu alias tam thoi hoac migrate notification ve canonical route nay.
 
 ### Chat internal routes
@@ -266,7 +291,10 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - `x-request-id`
    - `x-internal-service`
    - actor/user id neu caller da pass va endpoint cho phep.
+   - actor Mongo `_id` trong `x-actor-user-id` neu downstream can ObjectId.
+   - actor `usr_id` trong `x-actor-usr-id` neu downstream can FE-facing/business id.
 6. Log internal calls co route, caller, status, latency; khong log token/secret/payload nhay cam.
+7. Guard khong duoc bien doi `req.user._id` thanh parsed `id`; neu can them alias thi them field rieng, khong overwrite.
 
 ### 3. Hoan thien `GatewayService`
 
@@ -290,17 +318,23 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - sau khi chat tra raw ids/snapshot, gateway co the hydrate user qua auth.
    - hydrate attachments/documents qua filesystem.
    - hydrate learning cards qua learning.
+   - neu raw ids la Mongo `_id` thi goi `/internal/auth/users/batch`.
+   - neu raw ids la `usr_id`/parsed `id` thi goi `/internal/auth/users/resolve-business-ids` truoc khi can ObjectId.
 2. Filesystem public responses:
    - hydrate owner/shared users qua auth khi can.
+   - owner/shared user ObjectId phai la Mongo `_id`; public `id` trong hydrated user van la `usr_id` neu giu shape cu.
 3. Learning public responses:
    - hydrate quiz results/todo project members qua auth.
    - check card sent status qua chat.
+   - user result/member fields dang ObjectId phai dung Mongo `_id` khi call auth batch.
 4. AI public responses:
    - neu can user/file/message metadata, hydrate qua owner service.
+   - neu AI payload chi co `usr_id`, gateway resolve auth truoc khi forward sang owner can Mongo `_id`.
 5. Hydration phai batch, co timeout, va degrade graceful:
    - neu owner service fail thi tra raw id/snapshot hien co.
    - khong query Mongo fallback.
 6. Khong tao cache collection trong gateway.
+7. Khong them collection projection/cache user trong gateway de giai quyet hydration.
 
 ### 5. Lam sach dependency cua `socket`
 
@@ -311,12 +345,16 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - `MongooseModule`
    - `libs/db/src/mongo/model/*`
 2. `SharedBullModule` trong socket chi duoc dung Redis/Bull, khong keo Mongo.
-3. `ChatWebSocketModule` chi goi chat gRPC.
-4. `DocWebSocketModule` chi goi filesystem/document gRPC.
-5. `CallWebSocketModule` chi goi chat/ai gRPC va SFU RPC.
+3. `ChatWebSocketModule` chi goi API gateway internal chat endpoints; gateway forward den chat service.
+4. `DocWebSocketModule` chi goi API gateway internal filesystem/document endpoints; gateway forward den filesystem service.
+5. `CallWebSocketModule` chi goi API gateway internal chat/ai endpoints cho domain state va SFU RPC cho media plane.
 6. Auth trong socket chi verify JWT va Redis blacklist, khong call/query auth DB.
 7. Presence/room/socket mapping chi dung Redis keys trong `REDISKEY`.
-8. Neu socket can data service khac de emit payload day du, goi gateway hoac service owner qua contract da co; khong import model.
+8. Neu socket can data service khac de emit payload day du, goi API gateway internal endpoint qua contract da co; khong import model va khong goi direct owner DB/gRPC.
+9. Khi goi API gateway hoac SFU RPC:
+   - user/actor id cho domain service gui qua gateway dung `client.userId` = Mongo `_id`.
+   - FE-facing status/member display co the dung `client.user.usr_id`.
+   - neu event payload tu client chi co parsed `id`/`usr_id`, socket phai resolve qua gateway/auth truoc khi goi owner service can ObjectId.
 
 ### 6. Chuan hoa socket realtime contracts
 
@@ -325,9 +363,11 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - `GATEWAY_JWT_ACCESS_SECRET` hoac `JWT_ACCESS_SECRET` phai duoc standardize, tranh 2 ten bien bi lech.
 2. Redis blacklist:
    - socket tiep tuc check `REFRESH_TOKEN(userId, jti)`.
+   - `userId` trong blacklist la Mongo `_id` tu JWT payload `_id`.
    - khong check DB `Keys`.
 3. Presence:
    - `USER_ONLINE`, `SOCKET_ALIVE`, `USER_LAST_SEEN` chi nam Redis.
+   - presence `id` hien co the la `usr_id` de FE query/status; khong dung presence `id` thay Mongo `_id` khi ghi/call domain.
    - online cleanup task khong query DB.
 4. Socket.IO Redis adapter:
    - can fail soft ve in-memory trong local.
@@ -335,7 +375,7 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
 5. Call auto-miss:
    - Bull queue dung Redis.
    - job id deterministic de tranh duplicate khi multi-instance.
-6. Chat/doc/call gateways phai emit theo response tu service owner, khong tu tinh business state bang DB.
+6. Chat/doc/call gateways phai emit theo response tu API gateway/owner service, khong tu tinh business state bang DB.
 
 ### 7. Lam sach dependency cua `sfu`
 
@@ -351,7 +391,7 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
 3. `SfuGrpcController` chi expose methods trong `libs/grpc/sfu.proto`.
 4. `SharedSecretInterceptor` bat buoc `SFU_INTERNAL_SECRET`; neu thieu thi reject request nhu hien tai.
 5. Khong persist room/transport/producer vao DB trong sprint nay.
-6. Chat service van la owner call history; socket/call gateway goi chat khi can log call.
+6. Chat service van la owner call history; socket/call gateway goi API gateway -> chat khi can log call.
 
 ### 8. Chuan hoa SFU deployment
 
@@ -398,7 +438,7 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - Redis config.
    - Bull Redis config neu khac Redis chung.
    - JWT secret naming thong nhat.
-   - gRPC host/port/proto cho chat/filesystem/ai.
+   - API gateway internal URL va `GATEWAY_INTERNAL_SECRET` de socket goi domain owner qua gateway.
    - SFU client config.
    - khong co `DB_*`.
 4. `apps/socket/.env`:
@@ -436,7 +476,7 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - khong set `DB_*`.
 2. Neu co build socket:
    - tao `build-socket-service.yaml` neu chua co.
-   - set Redis, JWT, gRPC host/port/proto, SFU host/port/tls/secret.
+   - set Redis, JWT, API gateway internal URL/secret, SFU host/port/tls/secret.
    - khong set `DB_*`.
 3. Neu co build SFU:
    - tao `build-sfu-service.yaml` hoac deploy VM script.
@@ -446,7 +486,11 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
 5. Standardize `PROTO_URL` vs `PROTO_PATH`:
    - app main/config dang dung bien nao thi env/build dung bien do.
    - tranh deploy set `PROTO_PATH` nhung code doc `PROTO_URL`.
-6. Document rollback:
+6. Standardize auth user id env/docs:
+   - gateway/socket JWT payload phai co `_id` Mongo va `usr_id`.
+   - public docs phai noi `id = usr_id`, `_id = Mongo`.
+   - internal route docs phai noi `userIds` la Mongo `_id[]`, `usrIds` la business id `usr_id[]`.
+7. Document rollback:
    - service DB owner rollback bang `DB_NAME` ve DB cu.
    - edge rollback bang image/env previous revision.
 
@@ -491,7 +535,8 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - notification -> `appchat_notification`
 4. Them script check forbidden direct service client trong app services neu policy la call gateway:
    - app service khong inject direct `ClientGrpc` den service khac ngoai allowed Kafka/gateway.
-   - gateway/socket duoc phep co gRPC clients.
+   - gateway duoc phep co gRPC clients den owner services.
+   - socket chi duoc phep co SFU RPC client; khong co direct gRPC client den chat/filesystem/ai/notification/auth.
 5. CI build:
    - `npm run build:gateway`
    - `npm run build:socket`
@@ -513,24 +558,30 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
    - `/internal/*` reject khi thieu `x-internal-secret`.
    - accept khi secret dung va caller service hop le.
 6. Internal auth batch/search/fcm-token routes forward den auth.
-7. Internal chat/filesystem/learning hydrate routes forward den owner.
-8. Notification route co raw token/test va userIds production flow tach ro.
-9. Gateway khong log secret/cookie/token trong error output.
+7. `POST /internal/auth/users/batch` chi nhan `userIds` Mongo `_id`; khong treat `usr_id` nhu `_id`.
+8. `POST /internal/auth/users/resolve-business-ids` map `usr_id`/parsed `id` sang `_id` truoc khi gateway forward sang owner can ObjectId.
+9. Gateway protected controllers forward `req.user._id` cho `userId`/`actorUserId`; khong forward parsed `id`.
+10. Internal chat/filesystem/learning hydrate routes forward den owner.
+11. Notification route co raw token/test va userIds production flow tach ro, trong do production `userIds` la Mongo `_id[]`.
+12. Gateway khong log secret/cookie/token trong error output.
 
 ### 15. Smoke tests cho socket
 
 1. Socket boot khong co `DB_*` env.
 2. Socket connect thieu JWT -> reject.
-3. Socket connect JWT hop le -> register presence Redis.
-4. Token JTI bi blacklist -> socket reject/re-auth fail.
-5. Chat socket event:
-   - send message -> goi chat gRPC.
-   - mark read/react/pin/delete/recall -> goi chat gRPC.
-6. Doc socket event:
-   - document access/mutation -> goi filesystem/document gRPC.
-7. Presence heartbeat refresh `SOCKET_ALIVE`.
-8. Multi-instance local test voi Redis adapter neu co the.
-9. Bull auto-miss job enqueue/process duoc voi Redis.
+3. Socket connect JWT hop le -> `client.userId = payload._id` Mongo va `client.user.usr_id` duoc giu rieng.
+4. Socket connect JWT hop le -> register presence Redis bang `usr_id` neu contract presence FE dang dung `usr_id`.
+5. Token JTI bi blacklist -> socket reject/re-auth fail voi Redis key dung Mongo `_id`.
+6. Chat socket event:
+   - send message -> goi API gateway internal chat route.
+   - mark read/react/pin/delete/recall -> goi API gateway internal chat route.
+   - payload user/actor gui sang gateway/chat la Mongo `_id`, khong phai parsed `id`.
+7. Doc socket event:
+   - document access/mutation -> goi API gateway internal filesystem/document route.
+   - payload actor gui sang gateway/filesystem la Mongo `_id`.
+8. Presence heartbeat refresh `SOCKET_ALIVE`.
+9. Multi-instance local test voi Redis adapter neu co the.
+10. Bull auto-miss job enqueue/process duoc voi Redis.
 
 ### 16. Smoke tests cho SFU
 
@@ -554,7 +605,9 @@ Chot mot naming convention: internal route bat dau bang `/internal/<owner-servic
 - `api-gateway`, `socket`, `sfu` khong import Mongo model/module.
 - `api-gateway` khong con import `TodoStatus`/`TodoPriority` tu `libs/db/src/mongo/model/todo.model`.
 - Internal gateway endpoints cho auth/chat/filesystem/learning/ai/notification duoc chot route, guard va timeout.
-- Cac sprint service co the call API gateway de lay data service khac, khong can goi direct Mongo/gRPC cross-service.
+- Edge ID contract duoc document/enforce: `_id` la Mongo ObjectId, parsed `id` la `usr_id`, `userIds` internal la Mongo `_id[]`, `usrIds` chi dung cho resolve business id.
+- Gateway/socket forward actor Mongo `_id` cho domain service; presence/public payload duoc phep dung `usr_id` nhung khong duoc ghi/call ObjectId field bang `usr_id`.
+- Cac sprint service co the call API gateway de lay data service khac, khong can goi direct Mongo/gRPC cross-service; ngoai le cua edge la socket -> SFU RPC cho media plane.
 - Env examples day du va khong commit secret production.
 - Docker Compose va Cloud Build phan biet ro service co DB va edge service khong DB.
 - Mongo credential cua tung service bi gioi han theo dung DB ownership; edge services khong co Mongo credential.

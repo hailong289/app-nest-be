@@ -19,6 +19,15 @@ Learning tach khoi user/message/chat truc tiep, chi so huu quiz/flashcard/todo. 
 
 Khong tu them model/modal/collection moi trong sprint nay. Chi duoc dung va sua cac model hien co cua learning o tren. Neu can du lieu tu auth/chat/filesystem/notification thi learning phai call qua API gateway den service do, khong query Mongo collection cua service khac va khong inject truc tiep model/client cua service khac.
 
+ID contract cho sprint nay:
+
+- `_id` la MongoDB ObjectId cua `Users`.
+- `id` trong response auth sau khi parse/unprefix la `usr_id`, khong phai Mongo `_id`.
+- Tat ca field user ObjectId trong learning phai dung Mongo `_id`: `quiz_createdBy`, `quiz_results.user_id`, `card_userId`, `deck_userId`, `todo_createdBy`, `todo_assignees`, `project_createdBy`, `project_members`.
+- `FlashcardProgress.user_id` hien la string, nhung gia tri van phai la Mongo `_id` string, khong luu `usr_id`.
+- Neu caller chi co `id`/`usr_id`, phai call API gateway den auth de resolve sang Mongo `_id` truoc khi goi learning.
+- Gateway public learning phai lay actor tu `req.user._id`; khong tin `userId`, `createdBy`, `member_id`, `assignee_ids` do client truyen neu cac field do dai dien cho actor hien tai.
+
 ## Source Scan
 
 Files can xu ly trong sprint nay:
@@ -63,6 +72,8 @@ Files can xu ly trong sprint nay:
 - `TodoProjectService` inject `User`.
 - `TodoProjectService.getProjectMembers()` query `Users` de hydrate member profile va search theo `usr_fullname`.
 - `Quiz`, `Flashcard`, `FlashcardDeck`, `Todo`, `TodoProject` dang luu user/room id bang ObjectId ref; sau khi tach DB cac field nay chi la foreign ids, khong populate/query cross DB.
+- Gateway public da co nhieu endpoint truyen `req.user._id` vao learning, nhung `createQuizz()` hien con nhan body truc tiep nen can chuan hoa actor o gateway.
+- `FlashcardProgress.user_id` dang la string trong schema; can chot convention gia tri la Mongo `_id` string.
 - Chat service hien inject/query learning collections:
   - `handle-chat.service.ts` inject `Quiz`, `TodoProject`.
   - `messages.model.ts` link `quiz_id`, `desk_id`, `todo_project_id`.
@@ -72,10 +83,12 @@ Files can xu ly trong sprint nay:
 
 - Learning chi doc/ghi 6 collection owned trong `appchat_learning`.
 - `quiz_roomId`, `quiz_createdBy`, `card_userId`, `deck_userId`, `todo_roomId`, `todo_createdBy`, `todo_assignees`, `project_roomId`, `project_createdBy`, `project_members` duoc xem la foreign ids, khong phai Mongo relation cross DB.
+- Cac user foreign ids o tren dung Mongo `_id`; parsed auth `id`/`usr_id` khong duoc luu vao cac field nay.
+- Neu flow chi co `usr_id`, resolve qua `POST /internal/auth/users/resolve-business-ids` truoc khi validate/luu/query/emit notification.
 - Validate/hydrate user qua API gateway den auth.
 - Validate room/member va check message/link status qua API gateway den chat.
 - Chat khong `$lookup` truc tiep vao learning DB. Chat luu id + snapshot render nhanh, hoac hydrate learning card qua API gateway den learning.
-- Notification neu can gui theo user thi learning emit Kafka `PUSH_NOTIFICATION_USERS` hoac call API gateway theo contract production; khong query notification DB.
+- Notification neu can gui theo user thi learning emit Kafka `PUSH_NOTIFICATION_USERS` voi `userIds` Mongo `_id` hoac call API gateway theo contract production; khong query notification DB.
 
 ## Tasks
 
@@ -91,25 +104,30 @@ Files can xu ly trong sprint nay:
    - `x-internal-service: learning`
    - `x-internal-secret` neu gateway bat buoc ky noi bo.
    - `x-request-id` neu co.
-   - `userId`/`actorUserId` trong body khi call noi bo khong co browser cookie.
+   - `userId`/`actorUserId` trong body khi call noi bo khong co browser cookie, bat buoc la Mongo `_id`.
 5. Tao helper adapter noi bo, vi du:
    - `getUserSummary(userId)`
    - `getUsersSummary(userIds, search?)`
+   - `resolveUserBusinessIds(usrIds)`
    - `resolveRoomForUser(roomId, userId)`
    - `checkRoomAccess(roomId, userId)`
    - `checkLearningCardSentToRoom(sourceType, sourceId, roomId)`
-6. Khong inject `ClientGrpc` auth/chat vao learning. Neu gateway can bo sung contract de forward xuong auth/chat thi thay doi o gateway va service dich, khong de learning goi thang service do.
+6. Neu adapter nhan `usr_id`/parsed `id`, adapter phai goi gateway/auth resolve sang Mongo `_id` truoc; khong fallback query `Users`.
+7. Khong inject `ClientGrpc` auth/chat vao learning. Neu gateway can bo sung contract de forward xuong auth/chat thi thay doi o gateway va service dich, khong de learning goi thang service do.
 
 ### 2. Bo sung gateway endpoints noi bo neu API hien co chua du
 
 1. Auth gateway:
-   - `POST /internal/auth/users/batch`
-   - request `{ userIds: string[], search?: string }`
-   - response `{ users: Array<{ _id, usr_id, fullname, email, phone, avatar }> }`
+   - canonical: `POST /internal/auth/users/batch`
+   - request `{ userIds: string[], search?: string }`, trong do `userIds` la Mongo `_id`.
+   - response `{ users: Array<{ _id, usr_id, fullname, email, phone, avatar }> }`, trong do `_id` la Mongo `_id`, `usr_id` chi de hien thi/search.
+   - canonical: `POST /internal/auth/users/resolve-business-ids`
+   - request `{ usrIds: string[] }`
+   - response can co mapping `{ usrId: string; userId: string }`, trong do `userId`/`_id` la Mongo `_id`.
 2. Chat gateway:
    - `POST /internal/chat/rooms/check-access`
-   - request `{ roomId, userId }`
-   - response `{ allowed, mongoRoomId, roomId, memberIds }`
+   - request `{ roomId, userId }`, trong do `userId` la Mongo `_id`.
+   - response `{ allowed, mongoRoomId, roomId, memberIds }`, trong do `memberIds` la Mongo `_id`.
 3. Chat gateway check learning card da gui vao room:
    - `POST /internal/chat/messages/learning-card-status`
    - request `{ roomId, sourceType: 'quiz' | 'flashcard_deck' | 'todo_project', sourceIds: string[] }`
@@ -125,7 +143,8 @@ Files can xu ly trong sprint nay:
 
 1. Xoa import/inject `User`, `Message`.
 2. `createQuizz()`:
-   - validate `quiz_createdBy` qua gateway/auth neu request khong di tu gateway public.
+   - gateway public `apps/api-gateway/src/learning/quizz/gateway-quizz.controller.ts` phai set `quiz_createdBy=req.user._id`, khong tin `quiz_createdBy` tu body client.
+   - validate `quiz_createdBy` la Mongo `_id` qua gateway/auth neu request khong di tu gateway public.
    - validate `quiz_roomId` va membership qua gateway/chat.
    - luu `quiz_roomId` va `quiz_createdBy` nhu foreign ids.
 3. `listQuizzes()`:
@@ -134,11 +153,12 @@ Files can xu ly trong sprint nay:
    - neu gateway/chat fail thi tra `is_send=false` hoac bo field theo behavior da chon, khong query `Messages`.
 4. `getQuizzResults()`:
    - collect `quiz_results.user_id`.
-   - hydrate user summary qua gateway/auth batch.
+   - hydrate user summary qua `POST /internal/auth/users/batch`, request dung Mongo `_id`.
    - map leaderboard voi `fullname/avatar` tu gateway response.
    - neu auth gateway fail thi van tra ket qua score voi user_id, user_name/avatar rong.
 5. `submitQuizz()`:
-   - validate user qua gateway/auth neu can.
+   - user id lay tu gateway public `req.user._id` va ghi vao `quiz_results.user_id` bang Mongo `_id`.
+   - validate user qua gateway/auth neu request noi bo khong di tu gateway public.
    - khong query user DB.
 6. Khong them model/collection moi cho quiz results.
 
@@ -146,15 +166,17 @@ Files can xu ly trong sprint nay:
 
 1. Xoa import/inject `User`.
 2. `createProject()` va `getOrCreateDefaultProject()`:
-   - validate creator qua gateway/auth neu request khong di tu gateway public.
+   - gateway public phai set `project_createdBy=req.user._id`.
+   - validate creator la Mongo `_id` qua gateway/auth neu request khong di tu gateway public.
    - neu co `project_roomId`, validate room/member qua gateway/chat.
 3. `addProjectMember()`:
+   - `member_id` phai la Mongo `_id`; neu UI co `usr_id` thi gateway/learning adapter phai resolve qua auth truoc.
    - validate member id qua gateway/auth.
    - neu project co `project_roomId`, validate member thuoc room qua gateway/chat neu nghiep vu yeu cau.
 4. `getProjectMembers()`:
    - khong query `Users`.
    - collect `project_members`.
-   - call gateway/auth batch voi `member_ids` va `search`.
+   - call gateway/auth batch voi `member_ids` Mongo `_id` va `search`.
    - filter/search user o auth gateway hoac filter tren response summary, khong query Mongo `Users`.
 5. `removeProjectMember()` giu rule khong remove creator, khong query user DB.
 6. Khong tao user cache collection trong learning.
@@ -163,14 +185,16 @@ Files can xu ly trong sprint nay:
 
 1. `TodoService` hien chi inject `Todo` va `TodoProject`; giu nhu vay.
 2. `createTodo()`:
-   - validate `todo_createdBy` qua gateway/auth neu request khong di tu gateway public.
-   - validate `todo_assignees` qua gateway/auth batch.
+   - gateway public phai set `todo_createdBy=req.user._id`.
+   - validate `todo_createdBy` la Mongo `_id` qua gateway/auth neu request khong di tu gateway public.
+   - validate `todo_assignees` la Mongo `_id` qua gateway/auth batch.
    - neu co `todo_roomId`, validate room/member qua gateway/chat.
    - neu assignee phai thuoc room thi check qua gateway/chat.
 3. `listTodos()`:
    - chi query `Todos` trong learning DB.
    - neu can room access, check permission qua gateway/chat truoc khi query theo `roomId`.
 4. `assignTodo()`:
+   - `assignee_ids` phai la Mongo `_id`; neu client gui `usr_id` thi resolve qua gateway/auth truoc.
    - validate assignees qua gateway/auth batch.
    - neu todo co `todo_roomId`, validate assignees thuoc room qua gateway/chat.
 5. `toMetadata()` chi tra foreign ids; user/room display name do gateway/caller hydrate neu can.
@@ -179,12 +203,12 @@ Files can xu ly trong sprint nay:
 
 1. `FlashcardService` hien chi inject `Flashcard`, `FlashcardDeck`, `FlashcardProgress`; giu nhu vay.
 2. `createFlashcard()` va `createFlashcardDeck()`:
-   - `card_userId`/`deck_userId` lay tu gateway public request.
+   - `card_userId`/`deck_userId` lay tu gateway public `req.user._id`, khong tin body client.
    - validate user qua gateway/auth neu request noi bo khong di tu gateway public.
 3. `cloneFlashcardDeck()`:
-   - validate target user qua gateway/auth neu can.
+   - target user lay tu gateway public `req.user._id`; validate qua gateway/auth neu request noi bo khong di tu gateway public.
    - khong query user DB.
-4. `FlashcardProgress` tiep tuc dung `user_id` string hien co; khong tao progress collection moi.
+4. `FlashcardProgress` tiep tuc dung `user_id` string hien co; gia tri phai la Mongo `_id` string, khong tao progress collection moi va khong luu `usr_id`.
 5. Neu flashcard/deck can gui vao chat message, chat hoac gateway phai luu snapshot/hydrate qua learning gateway, khong `$lookup` cross DB.
 
 ### 7. Sua chat integration voi learning card
@@ -218,6 +242,11 @@ Files can xu ly trong sprint nay:
 4. Xoa `userModel` khoi `LearningModule`.
 5. Dam bao `apps/learning` khong import `User`, `Message`, `Room` tu `libs/db/src`.
 6. Dam bao `apps/learning` khong import/inject truc tiep client auth/chat.
+7. Dam bao gateway public `apps/api-gateway/src/learning/*` tiep tuc truyen `req.user._id` vao learning gRPC cho actor hien tai:
+   - quiz: `quiz_createdBy`, submit/result `user_id`.
+   - flashcard: `card_userId`, `deck_userId`, progress `user_id`.
+   - todo: `todo_createdBy`, `project_createdBy`, join/leave `member_id`.
+8. Gateway khong duoc truyen `req.user.id`/`req.user.usr_id` lam `userId` vao learning.
 
 ### 9. Doi database rieng va migrate data
 
@@ -257,7 +286,10 @@ Files can xu ly trong sprint nay:
 5. Todo/project CRUD -> chi ghi `Todos`, `TodoProjects`.
 6. Project members -> hydrate/search user qua gateway/auth.
 7. Chat message co quiz/deck/todo project -> render card khong `$lookup` learning collection trong chat DB.
-8. `npm run build:learning` va `npm run build:all` xanh.
+8. Gateway public learning routes truyen `req.user._id`; payload/body co `id`/`usr_id` khong duoc dung lam actor.
+9. Case caller chi co `usr_id` -> call `POST /internal/auth/users/resolve-business-ids` -> learning nhan Mongo `_id` moi tiep tuc.
+10. Notification/event payload neu co `userIds` phai la Mongo `_id`.
+11. `npm run build:learning` va `npm run build:all` xanh.
 
 ## Definition of Done
 
@@ -267,6 +299,9 @@ Files can xu ly trong sprint nay:
 - Learning khong import/inject truc tiep client auth/chat.
 - `LearningDatabaseModule` khong con `userModel`, `messagesModel`.
 - `LearningModule` khong register `userModel`.
+- Cac field user trong learning contract dung Mongo `_id`; parsed `id`/`usr_id` khong duoc dung thay `_id`.
+- `FlashcardProgress.user_id` neu giu string thi string do van la Mongo `_id`, khong phai `usr_id`.
+- Neu can user info/summary/resolve business id thi learning call API gateway den auth.
 - Chat khong query/lookup truc tiep learning collections de render card.
 - Moi data can tu auth/chat duoc lay bang API gateway den service do.
 - Khong them model/modal/collection moi.

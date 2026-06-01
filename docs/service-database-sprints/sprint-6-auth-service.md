@@ -18,6 +18,17 @@ Khong tu them model/modal/collection moi trong sprint nay. Chi duoc dung va sua 
 
 Luu y domain: `Otps` thuoc auth, khong thuoc notification. OTP dung de chung minh identity trong register/reset-password/change-password, nen service verify identity phai so huu state OTP. Notification chi nhan email/phone + otp/token da tao san de deliver, khong luu/verify OTP va khong them bang OTP rieng.
 
+## ID Contract Cho Sprint Nay
+
+- `_id` la MongoDB ObjectId cua document `Users`.
+- `usr_id` la business id cua user, dang duoc luu tren field `Users.usr_id`.
+- `id` trong response da parse/unprefix tu `Utils.unprefix(..., 'usr_')` la `usr_id`, khong phai Mongo `_id`.
+- Auth la service duy nhat duoc resolve qua lai giua Mongo `_id` va `usr_id`.
+- Cac contract request co field `userId`/`userIds` cho `users/batch`, `users/fcm-tokens`, Redis `USER_FCM_TOKENS(userId)` va `Keys.tkn_userId` bat buoc dung Mongo `_id`.
+- Cac contract request co field `usrId`/`usrIds` chi dung cho `resolve-business-ids`, search/social flow can business id, hoac OTP flow noi bo dang luu `usr_id`.
+- Neu service khac chi co `id` da parse ra tu auth response, phai hieu do la `usr_id`; truoc khi ghi vao field ObjectId phai call API gateway den auth de lay Mongo `_id`.
+- User summary tra cho service khac phai co ca `_id` va `usr_id`; neu giu field `id` de tuong thich public response thi ghi ro `id = usr_id`.
+
 ## Source Scan
 
 Files can xu ly trong sprint nay:
@@ -54,6 +65,7 @@ Files can xu ly trong sprint nay:
 - `AuthService` dang sync FCM token tu `Keys` sang Redis `USER_FCM_TOKENS` luc start; notification sprint can Redis-first va fallback qua gateway/auth, nen auth phai expose contract lay token theo user.
 - API hien tai co `GetUser` va `SearchUser`, nhung chua co batch user summary, resolve theo `usr_id`, va FCM token lookup cho service khac.
 - `SearchUser` hien search truc tiep trong auth la dung owner DB, nhung response can thanh user summary an toan va paging on dinh cho chat/social.
+- `GetUser`/`SearchUser` response hien co the bi hieu nham vi `Utils.unprefix()` bien `usr_id` thanh `id`; sprint nay phai document va chuan hoa ro `id = usr_id`, `_id = Mongo ObjectId`.
 - Cac service khac van con import/query auth-owned model:
   - chat: `userModel`, `keysModel`, `$lookup Users`.
   - filesystem: `userModel`, `$lookup Users`.
@@ -66,10 +78,13 @@ Files can xu ly trong sprint nay:
 ## Target Flow
 
 - Auth chi doc/ghi `Users`, `Keys`, `Otps` trong `appchat_auth`.
+- Auth la ID authority: noi duy nhat map Mongo `_id` <-> `usr_id`.
 - Login/register/refresh/logout/session management chi thao tac `Users` va `Keys` cua auth.
 - OTP register/reset-password chi thao tac `Otps` trong auth; gui email/notification qua API gateway den notification.
 - User summary/search/batch/resolve/fcm-token la auth-owned API. Service khac chi call API gateway, khong import `User`, `Key`, `Otp`.
-- FCM tokens tiep tuc nam trong `Keys` va Redis set `USER_FCM_TOKENS(userId)`. Notification service dung Redis first; neu miss thi call API gateway den auth de fallback va hydrate Redis lai.
+- `userId`/`userIds` trong internal contract la Mongo `_id`; `usrId`/`usrIds` chi dung khi can resolve business id sang Mongo `_id`.
+- Public `/auth/me` va `/auth/search` co the giu `id = usr_id` de tuong thich FE, nhung internal/gateway context phai giu `_id` neu service downstream can ghi ObjectId.
+- FCM tokens tiep tuc nam trong `Keys` va Redis set `USER_FCM_TOKENS(userId)` voi `userId` la Mongo `_id`. Notification service dung Redis first; neu miss thi call API gateway den auth de fallback va hydrate Redis lai.
 - Neu service khac can display user name/avatar/status thi call gateway/auth hoac dung snapshot da nhan tu event; khong tao collection cache moi trong auth.
 - Neu auth can attachment/avatar file metadata tu filesystem trong tuong lai, auth call API gateway den filesystem; hien tai `updateAvatar()` chi nhan URL va luu vao `Users`.
 
@@ -106,13 +121,14 @@ Files can xu ly trong sprint nay:
 ### 3. Bo sung auth service contracts cho user summary
 
 1. Them method trong `AuthService`:
-   - `getUserSummary(userId)`
-   - `getUsersBatch(userIds)`
-   - `resolveUsersByBusinessIds(usrIds)`
-   - `searchUsersForInternal(keyword, page, limit, excludeUserIds?)`
+   - `getUserSummary(userId)` voi `userId` la Mongo `_id`.
+   - `getUsersBatch(userIds)` voi `userIds` la Mongo `_id[]`.
+   - `resolveUsersByBusinessIds(usrIds)` voi `usrIds` la `usr_id[]`.
+   - `searchUsersForInternal(keyword, page, limit, excludeUserIds?)` voi `excludeUserIds` la Mongo `_id[]`.
 2. Output user summary thong nhat:
-   - `_id`
-   - `usr_id`
+   - `_id` la Mongo ObjectId string.
+   - `usr_id` la business id.
+   - `id` optional alias cho `usr_id` neu can giu public shape hien tai.
    - `slug`
    - `fullname`
    - `email`
@@ -128,9 +144,12 @@ Files can xu ly trong sprint nay:
    - `__v`
    - token/JTI/session fields.
 4. `getUsersBatch()` can preserve order theo input hoac tra map `{ [userId]: summary }`; ghi ro contract trong proto/DTO.
-5. `resolveUsersByBusinessIds()` dung `usr_id` de chat/social resolve member id, friend id.
-6. `searchUsersForInternal()` chi search tren `Users` cua auth, co paging va limit toi da de tranh scan lon.
-7. Khong tao collection projection/cache moi trong auth cho user summary.
+5. `getUsersBatch()` khong duoc fallback sang query `usr_id`; neu input khong phai ObjectId hop le thi reject hoac tra error item ro rang.
+6. `resolveUsersByBusinessIds()` dung `usr_id` de chat/social resolve member id, friend id thanh Mongo `_id` truoc khi ghi vao room/message/notification ObjectId fields.
+7. Response cua `resolveUsersByBusinessIds()` phai tra mapping co ca `_id`, `usr_id`, va optional `id = usr_id`.
+8. `getUserSummary()` neu nhan `usr_id` tu caller cu thi khong tu doan; yeu cau caller dung endpoint resolve hoac them flag/request rieng ro rang.
+9. `searchUsersForInternal()` chi search tren `Users` cua auth, co paging va limit toi da de tranh scan lon.
+10. Khong tao collection projection/cache moi trong auth cho user summary.
 
 ### 4. Cap nhat gRPC proto/controller cho auth contracts
 
@@ -145,7 +164,13 @@ Files can xu ly trong sprint nay:
    - `GetUsersBatchDto`
    - `ResolveUsersByBusinessIdsDto`
    - `GetFcmTokensByUsersDto`
-6. Neu proto output thay doi, cap nhat FE/gateway mapping de khong pha public `/auth/me` va `/auth/search`.
+6. Trong `libs/grpc/auth.proto`, document ro:
+   - `User._id` la Mongo ObjectId string.
+   - `User.id` la parsed business id, tuong duong `usr_id`, khong phai Mongo `_id`.
+7. DTO/proto request phai tach ten field:
+   - `userIds` cho Mongo `_id[]`.
+   - `usrIds` cho business id `usr_id[]`.
+8. Neu proto output thay doi, cap nhat FE/gateway mapping de khong pha public `/auth/me` va `/auth/search`.
 
 ### 5. Bo sung API gateway internal endpoints cho service khac
 
@@ -156,33 +181,38 @@ Files can xu ly trong sprint nay:
    - `POST /internal/auth/users/fcm-tokens`
 2. Cac endpoint noi bo phai co guard/secret rieng, khong mo public neu co the doc danh sach user/token.
 3. Request batch:
-   - `{ userIds: string[] }`
+   - `{ userIds: string[] }` voi `userIds` la Mongo `_id[]`.
 4. Request resolve business ids:
-   - `{ usrIds: string[] }`
+   - `{ usrIds: string[] }` voi `usrIds` la `usr_id[]`.
 5. Request search:
-   - `{ keyword, page, limit, excludeUserIds? }`
+   - `{ keyword, page, limit, excludeUserIds? }` voi `excludeUserIds` la Mongo `_id[]`.
 6. Request fcm tokens:
-   - `{ userIds: string[] }`
+   - `{ userIds: string[] }` voi `userIds` la Mongo `_id[]`.
 7. Response fcm tokens:
-   - `{ items: Array<{ userId: string, tokens: string[] }> }`
-8. API gateway la noi cac service khac goi den; chat/filesystem/learning/ai/notification khong duoc goi thang auth gRPC.
+   - `{ items: Array<{ userId: string, tokens: string[] }> }` voi `userId` la Mongo `_id`.
+8. Response resolve business ids:
+   - `{ items: Array<{ _id: string, usr_id: string, id?: string }> }` voi `id = usr_id` neu co tra.
+9. API gateway la noi cac service khac goi den; chat/filesystem/learning/ai/notification khong duoc goi thang auth gRPC.
 
 ### 6. FCM token ownership va notification fallback
 
 1. `Keys.tkn_fcmToken` tiep tuc la source DB cua device FCM token.
-2. Redis `USER_FCM_TOKENS(userId)` la cache/fan-out nhanh.
-3. `AuthService.onModuleInit()` co the giu sync tu `Keys` sang Redis, nhung can:
+2. `Keys.tkn_userId` la Mongo `_id`; khong luu `usr_id` trong field nay.
+3. Redis `USER_FCM_TOKENS(userId)` la cache/fan-out nhanh, trong do `userId` la Mongo `_id`.
+4. `AuthService.onModuleInit()` co the giu sync tu `Keys` sang Redis, nhung can:
    - chi lay session active `tkn_revokedAt: null`.
    - bo token null/empty.
    - log count theo user/token.
-4. Them service method `getFcmTokensByUsers(userIds)`:
+5. Them service method `getFcmTokensByUsers(userIds)`:
+   - chi nhan `userIds` la Mongo `_id[]`.
    - doc Redis set truoc.
    - neu Redis miss, query `Keys` active theo `tkn_userId`.
    - hydrate Redis lai bang ket qua DB.
    - tra unique tokens.
-5. Notification service khi can fallback chi call gateway/auth endpoint o tren, khong inject `keysModel`.
-6. Login/register/logout/logoutDevice/logoutAllDevices tiep tuc update Redis FCM set nhu hien tai.
-7. Neu client refresh co cap nhat FCM token trong tuong lai, chi sua `Keys` hien co; khong tao collection token moi.
+6. Neu caller chi co `usr_id`, caller phai call `POST /internal/auth/users/resolve-business-ids` truoc roi moi goi `fcm-tokens`.
+7. Notification service khi can fallback chi call gateway/auth endpoint o tren, khong inject `keysModel`.
+8. Login/register/logout/logoutDevice/logoutAllDevices tiep tuc update Redis FCM set bang Mongo `_id`.
+9. Neu client refresh co cap nhat FCM token trong tuong lai, chi sua `Keys` hien co; khong tao collection token moi.
 
 ### 7. Public auth flow khong bi pha
 
@@ -190,13 +220,16 @@ Files can xu ly trong sprint nay:
    - query `Users` bang email/phone trong auth DB.
    - tao `Keys` row device session.
    - set Redis FCM token neu co.
+   - JWT/session context cho gateway va service noi bo phai carry Mongo `_id`; public response co the expose `id = usr_id`.
    - return cookie metadata qua gateway nhu hien tai.
 2. `register()`:
    - verify `tempRegisterToken`.
    - tao `Users` va `Keys`.
+   - `Keys.tkn_userId` va Redis FCM key dung Mongo `_id` cua user moi.
    - khong tao room/friend/profile collection o service khac.
 3. `sendOtp()` va `forgotPassword()`:
    - tao `Otps` trong auth DB.
+   - `Otps.userId` hien la string va co the tiep tuc luu `usr_id` cho reset-password flow noi bo; khong dung field nay lam contract cho service khac.
    - gui email qua API gateway den notification.
 4. `verifyOtp()`:
    - verify/delete `Otps` trong auth DB.
@@ -224,28 +257,34 @@ Files can xu ly trong sprint nay:
    - `USER_AVATAR_UPDATED`
    - `USER_STATUS_CHANGED`
 3. Payload chi gom user summary an toan, khong gom `usr_salt`/token.
-4. Neu chua them Kafka event trong sprint nay, phai ghi ro service khac dung gateway hydrate la bat buoc truoc khi cat DB.
-5. Khong tao collection outbox/projection moi trong auth cho sprint nay.
+4. Payload neu co user id phai gom `_id` Mongo va `usr_id`; `id` neu co chi la alias cua `usr_id`.
+5. Neu chua them Kafka event trong sprint nay, phai ghi ro service khac dung gateway hydrate la bat buoc truoc khi cat DB.
+6. Khong tao collection outbox/projection moi trong auth cho sprint nay.
 
 ### 9. Sua contract cho cac service dang doc `Users`/`Keys`
 
 1. Chat service:
-   - dung `POST /internal/auth/users/batch` de hydrate room/message/social.
-   - dung `POST /internal/auth/users/resolve-business-ids` cho `usr_id`.
+   - dung `POST /internal/auth/users/batch` de hydrate room/message/social khi dang co Mongo `_id`.
+   - dung `POST /internal/auth/users/resolve-business-ids` khi dang co `usr_id`/parsed `id`.
    - dung `POST /internal/auth/users/search` cho social search.
+   - friendship hien co the dung `usr_id`, nhung room/message/read/reaction/notification ObjectId fields phai resolve sang Mongo `_id` truoc.
    - khong query `Users`, `Keys`.
 2. Filesystem service:
-   - dung `POST /internal/auth/users/batch` de hydrate owner/shared users.
+   - dung `POST /internal/auth/users/batch` de hydrate owner/shared users bang Mongo `_id`.
+   - neu chi co parsed `id`/`usr_id`, resolve qua auth truoc khi ghi owner/shared ObjectId.
    - khong `$lookup Users`.
 3. Learning service:
-   - dung `POST /internal/auth/users/batch` de hydrate quiz results/todo project members.
+   - dung `POST /internal/auth/users/batch` de hydrate quiz results/todo project members bang Mongo `_id`.
+   - neu chi co parsed `id`/`usr_id`, resolve qua auth truoc.
    - khong query `Users`.
 4. AI service:
-   - dung `POST /internal/auth/users/batch` neu can user metadata cho logs/summary.
+   - dung `POST /internal/auth/users/batch` neu can user metadata cho logs/summary bang Mongo `_id`.
+   - neu chi co parsed `id`/`usr_id`, resolve qua auth truoc.
    - khong query `Users`.
 5. Notification service:
    - Redis first cho FCM token.
-   - Redis miss -> `POST /internal/auth/users/fcm-tokens` qua API gateway.
+   - Redis miss -> `POST /internal/auth/users/fcm-tokens` qua API gateway voi Mongo `_id`.
+   - neu payload notification chi co `usr_id`/parsed `id`, resolve qua auth truoc khi lay FCM tokens.
    - khong query `Keys`.
 6. Socket/gateway:
    - JWT verify co the tiep tuc dung shared Redis blacklist.
@@ -285,20 +324,23 @@ Files can xu ly trong sprint nay:
 5. Khong expose `Keys`, `Otps`, `tkn_jit`, `tkn_clientId`, `tkn_fcmToken` qua public response.
 6. JWT secret trong auth va gateway/socket phai dong bo sau khi tach deploy.
 7. Redis blacklist key `REFRESH_TOKEN(userId, jti)` tiep tuc la contract shared; DB `Keys` khong bi service khac doc truc tiep.
+8. Public/client docs phai ghi ro `id = usr_id`, `_id = Mongo ObjectId` de tranh service downstream dung nham `id` cho ObjectId field.
 
 ### 12. Smoke tests
 
 1. Register OTP -> verify OTP -> register -> login cookie/token OK.
-2. Login co `fcmToken` -> `Keys` co session active -> Redis `USER_FCM_TOKENS(userId)` co token.
+2. Login co `fcmToken` -> `Keys` co session active voi `tkn_userId` la Mongo `_id` -> Redis `USER_FCM_TOKENS(userId)` co token voi `userId` la Mongo `_id`.
 3. Refresh token -> old JTI bi blacklist -> `Keys.tkn_jit` update -> token moi dung duoc.
 4. Logout device -> `Keys.tkn_revokedAt` set -> Redis FCM token bi xoa.
-5. `GET /auth/me` tra user profile dung shape hien tai.
-6. `POST /internal/auth/users/batch` tra summary theo list user ids.
-7. `POST /internal/auth/users/resolve-business-ids` resolve dung `usr_id`.
-8. `POST /internal/auth/users/search` co paging va khong tra sensitive fields.
-9. `POST /internal/auth/users/fcm-tokens` Redis hit va Redis miss fallback DB deu dung.
-10. Notification OTP email van di qua API gateway, khong co direct notification DB access.
-11. Chay `npm run build:auth` neu repo co script; neu khong thi chay build chung phu hop.
+5. `GET /auth/me` tra user profile dung shape hien tai va phan biet ro `_id` Mongo voi `id`/`usr_id`.
+6. `POST /internal/auth/users/batch` tra summary theo list `userIds` la Mongo `_id`.
+7. `POST /internal/auth/users/batch` khong interpret `usr_id` nhu Mongo `_id`; input sai phai fail ro hoac tra error item.
+8. `POST /internal/auth/users/resolve-business-ids` resolve dung `usr_id` sang Mongo `_id`.
+9. `POST /internal/auth/users/search` co paging, co `_id` + `usr_id`, va khong tra sensitive fields.
+10. `POST /internal/auth/users/fcm-tokens` Redis hit va Redis miss fallback DB deu dung voi Mongo `_id`.
+11. `POST /internal/auth/users/fcm-tokens` khong nhan `usr_id` nhu `userId`; neu caller co `usr_id` thi phai resolve truoc.
+12. Notification OTP email van di qua API gateway, khong co direct notification DB access.
+13. Chay `npm run build:auth` neu repo co script; neu khong thi chay build chung phu hop.
 
 ## Definition of Done
 
@@ -307,5 +349,8 @@ Files can xu ly trong sprint nay:
 - Khong service nao con import/query truc tiep `User`, `Key`, `Otp`; tat ca di qua API gateway den auth.
 - Auth neu can notification/email thi call API gateway den notification, khong doc/ghi notification DB.
 - User batch/search/resolve/fcm-token contracts du de chat/filesystem/learning/ai/notification cat DB coupling.
+- ID contract duoc enforce/document: `_id` la Mongo ObjectId, `id` sau parse/unprefix la `usr_id`, `userIds` internal la Mongo `_id[]`, `usrIds` chi dung cho resolve business id.
+- `POST /internal/auth/users/resolve-business-ids` la duong bat buoc khi service khac chi co `usr_id`/parsed `id` ma can ghi ObjectId.
+- FCM token contract dung Mongo `_id` cho Redis `USER_FCM_TOKENS(userId)` va `Keys.tkn_userId`.
 - Login/register/refresh/logout/session management chay tren auth DB rieng.
 - Public response khong ro ri password hash, OTP, token blacklist, FCM token hay device secret.

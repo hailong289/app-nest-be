@@ -14,6 +14,14 @@ Tach notification khoi `Keys` cua auth. Notification chi so huu in-app notificat
 
 Khong tu them model/modal/bang/collection moi trong sprint nay. Token thiet bi van thuoc `Keys` cua auth; notification chi doc token qua Redis/cache hoac call API gateway den auth, khong query Mongo `Keys` truc tiep.
 
+ID contract cho sprint nay:
+
+- `_id` la MongoDB ObjectId cua `Users`.
+- `id` trong response auth sau khi parse/unprefix la `usr_id`, khong phai Mongo `_id`.
+- `userIds` trong notification payload va `Notifications.noti_userId` phai la Mongo `_id`.
+- Neu producer chi co `id`/`usr_id`, phai call API gateway den auth de resolve sang Mongo `_id` truoc khi emit notification.
+- Khong dua `usr_id` vao `userIds` va khong query `Users`/`Keys` truc tiep tu notification de tu map ID.
+
 ## Source Scan
 
 Files can xu ly trong sprint nay:
@@ -51,11 +59,12 @@ Files can xu ly trong sprint nay:
 
 - Notification chi doc/ghi `Notifications` trong `appchat_notification`.
 - Auth la source of truth session/device va tiep tuc so huu `Keys.tkn_fcmToken`.
-- Auth tiep tuc dong bo active FCM tokens sang Redis key hien co `chat:user:{userId}:fcm_tokens`.
+- Auth tiep tuc dong bo active FCM tokens sang Redis key hien co `chat:user:{userId}:fcm_tokens`, trong do `userId` la Mongo `_id`.
 - Notification resolve active tokens tu Redis truoc.
 - Neu Redis miss, notification call API gateway den auth endpoint noi bo de lay active FCM tokens tu `Keys`; gateway forward den auth service, notification khong goi thang auth service.
 - Token lay tu gateway/auth duoc add lai vao Redis set de warm cache.
-- Cac service khac gui notification theo `userIds`; notification tu resolve active tokens tu Redis/gateway.
+- Cac service khac gui notification theo `userIds` la Mongo `_id`; notification tu resolve active tokens tu Redis/gateway.
+- Neu service khac chi co `id` tu auth response, coi do la `usr_id` va resolve qua API gateway den auth truoc khi gui notification.
 - Raw `fcmTokens` chi dung cho test/admin/direct push va khong nen dung de tao in-app notification neu khong co `userIds`.
 
 ## Tasks
@@ -64,7 +73,7 @@ Files can xu ly trong sprint nay:
 
 1. Khong tao `NotificationDevices`/`PushTokens` hay collection tuong duong.
 2. `Keys` tiep tuc la bang source of truth cho device session va `tkn_fcmToken`.
-3. Redis set hien co `REDISKEY.USER_FCM_TOKENS(userId)` la token cache chung cho fan-out notification.
+3. Redis set hien co `REDISKEY.USER_FCM_TOKENS(userId)` la token cache chung cho fan-out notification, voi `userId` la Mongo `_id`.
 4. Auth tiep tuc cap nhat Redis trong login/register/logout/logoutDevice/logoutAllDevices.
 5. Giu `AuthService.onModuleInit()` sync `Keys` -> Redis de phuc hoi cache sau Redis flush/restart.
 6. Xac nhan Redis key convention hien tai du dung cho notification, chua can doi namespace de tranh migration lon.
@@ -81,32 +90,40 @@ Files can xu ly trong sprint nay:
    - `x-internal-service: notification`
    - `x-internal-secret` neu gateway bat buoc ky noi bo.
    - `x-request-id` neu co.
-   - `userIds` trong body voi request lay FCM tokens.
-5. Khong inject client auth truc tiep vao notification. Neu gateway can bo sung contract de forward xuong auth thi thay doi o gateway/auth, khong de notification goi thang auth service.
+   - `userIds` trong body voi request lay FCM tokens, bat buoc la Mongo `_id`.
+5. Neu caller/trong event chi co `usr_id` hoac `id` da parse tu auth response, goi gateway/auth resolve ID truoc:
+   - `POST /internal/auth/users/resolve-business-ids`
+   - request: `{ usrIds: string[] }`
+   - response can co mapping `{ usrId: string; userId: string }`, trong do `userId` la Mongo `_id`.
+6. Khong inject client auth truc tiep vao notification. Neu gateway can bo sung contract de forward xuong auth thi thay doi o gateway/auth, khong de notification goi thang auth service.
 
 ### 3. Bo sung gateway/auth endpoint lay active FCM tokens
 
 1. Them endpoint noi bo tren API gateway, de xuat:
-   - `POST /internal/auth/fcm-tokens`
+   - canonical: `POST /internal/auth/users/fcm-tokens`
+   - compatibility alias neu code cu da dung: `POST /internal/auth/fcm-tokens`
 2. Request/response de xuat:
-   - request: `{ userIds: string[] }`
-   - response: `{ items: Array<{ userId: string; fcmTokens: string[] }> }`
+   - request: `{ userIds: string[] }`, trong do `userIds` la Mongo `_id`.
+   - response: `{ items: Array<{ userId: string; fcmTokens: string[] }> }`, trong do `userId` la Mongo `_id`.
 3. Gateway endpoint phai co guard/secret rieng, khong mo public.
 4. Gateway chiu trach nhiem forward den auth service bang co che hien co cua gateway.
 5. Auth service implement logic doc `Keys`:
+   - convert `userIds` sang ObjectId neu can.
    - `tkn_userId in userIds`
    - `tkn_fcmToken != null`
    - `tkn_revokedAt == null`
-6. Auth service la service duy nhat doc `Keys`; notification chi call gateway.
-7. Khong tao collection cache token trong notification.
+6. Neu caller co `usrIds`, khong query theo `usr_id` trong `Keys`; resolve `usrIds` sang Mongo `_id` qua `Users` trong auth truoc, roi moi lookup `Keys.tkn_userId`.
+7. Auth service la service duy nhat doc `Keys`; notification chi call gateway.
+8. Khong tao collection cache token trong notification.
 
 ### 4. Resolve FCM tokens trong notification qua Redis truoc, gateway sau
 
 1. Tao helper `resolveFcmTokensForUsers(userIds)` trong `FirebaseService` hoac helper rieng.
 2. Flow helper:
+   - validate `userIds` la Mongo `_id`, khong nhan `usr_id`.
    - de-duplicate `userIds`.
-   - doc Redis `REDISKEY.USER_FCM_TOKENS(userId)` cho tung user.
-   - user nao Redis miss thi call `POST /internal/auth/fcm-tokens` qua API gateway.
+   - doc Redis `REDISKEY.USER_FCM_TOKENS(userId)` cho tung user, voi `userId` la Mongo `_id`.
+   - user nao Redis miss thi call `POST /internal/auth/users/fcm-tokens` qua API gateway.
    - token lay tu gateway/auth duoc add lai vao Redis set de warm cache.
    - de-duplicate token truoc khi goi Firebase.
 3. Neu gateway/auth khong tra token cho user nao thi log warning va bo qua user do.
@@ -120,8 +137,9 @@ Files can xu ly trong sprint nay:
 3. `pushNotificationForUsers()` resolve token theo helper `resolveFcmTokensForUsers(userIds)`.
 4. `pushNotification()` voi raw `fcmTokens`:
    - khong query auth `Keys`.
-   - neu payload co `userIds` thi save DB theo `userIds`.
+   - neu payload co `userIds` Mongo `_id` thi save DB theo `userIds`.
    - neu khong co `userIds` thi chi push, khong save in-app notification.
+   - neu payload co `id`/`usr_id` thi khong coi la `userIds`; can resolve qua gateway/auth truoc o producer.
 5. De-duplicate token truoc khi goi Firebase.
 6. Xu ly token invalid tu Firebase response:
    - remove token khoi Redis set neu xac dinh duoc userId tu mapping trong helper.
@@ -129,16 +147,17 @@ Files can xu ly trong sprint nay:
 
 ### 6. Sua payload producers dung `userIds`
 
-1. `apps/chat/src/handle-chat/handle-chat.service.ts` da gui `PUSH_NOTIFICATION_USERS`; giu luong nay va dam bao `userIds` dung voi Redis token cache cua auth.
-2. `apps/chat/src/social/social.service.ts` khong query `Key` nua:
+1. Tat ca producer phai gui `userIds` la Mongo `_id`; neu producer lay `id` tu auth response thi do la `usr_id` va phai resolve qua gateway/auth truoc.
+2. `apps/chat/src/handle-chat/handle-chat.service.ts` da gui `PUSH_NOTIFICATION_USERS`; giu luong nay va dam bao `userIds` dung voi Redis token cache cua auth.
+3. `apps/chat/src/social/social.service.ts` khong query `Key` nua:
    - xoa `keysModel`/`Key` import va injection.
    - thay `PUSH_NOTIFICATION` + `fcmTokens` bang `PUSH_NOTIFICATION_USERS` + `userIds`.
    - notification service tu resolve token.
-3. `apps/filesystem/src/documents/documents.service.ts` tiep tuc gui document events voi `userIds`; chuan hoa `saveToDb=true` trong notification consumer.
-4. `apps/api-gateway/src/notification/gateway-notification.controller.ts`:
+4. `apps/filesystem/src/documents/documents.service.ts` tiep tuc gui document events voi `userIds`; chuan hoa `saveToDb=true` trong notification consumer.
+5. `apps/api-gateway/src/notification/gateway-notification.controller.ts`:
    - endpoint `/push-notification` production nen nhan `userIds` va emit `PUSH_NOTIFICATION_USERS`.
    - raw `fcmTokens` chi dung `/push-notification-test` hoac admin test.
-5. Neu caller chi co raw token va khong co userId, chi push test/direct, khong tao in-app notification.
+6. Neu caller chi co raw token va khong co userId, chi push test/direct, khong tao in-app notification.
 
 ### 7. Neu can realtime cache sync thi them event, khong tao bang moi
 
@@ -178,14 +197,16 @@ Files can xu ly trong sprint nay:
 ### 10. Smoke test can co
 
 1. Login/register voi `fcmToken` -> auth ghi `Keys` va Redis FCM set.
-2. Gui message chat -> `PUSH_NOTIFICATION_USERS` -> lay token tu Redis cache va push.
+2. Gui message chat voi `userIds` Mongo `_id` -> `PUSH_NOTIFICATION_USERS` -> lay token tu Redis cache va push.
 3. Xoa Redis FCM set thu cong trong local -> gui notification -> notification call API gateway den auth lay token va warm Redis lai.
 4. Send friend request/accept/reject -> social khong query `Key`, notification van push dung user.
 5. Logout one device -> token bi remove, push sau logout khong gui toi device do.
 6. Logout all devices -> tat ca token inactive.
 7. Push raw `fcmTokens` test -> chi push Firebase, khong save in-app notification neu khong co `userIds`.
 8. GetNotifications/mark read/delete van doc/ghi `Notifications` trong DB rieng.
-9. `npm run build:notification` va `npm run build:all` xanh.
+9. Payload dung `usr_id`/parsed `id` khong duoc dua thang vao `userIds`; phai reject hoac resolve qua gateway/auth thanh Mongo `_id` truoc.
+10. `POST /internal/auth/users/fcm-tokens` voi Redis miss tra token theo Mongo `_id`, khong tra theo `usr_id`.
+11. `npm run build:notification` va `npm run build:all` xanh.
 
 ## Definition of Done
 
@@ -196,6 +217,8 @@ Files can xu ly trong sprint nay:
 - `FirebaseService` khong import/inject/query `Key`.
 - Notification khong import/inject truc tiep client auth.
 - Notification fallback Redis miss bang API gateway den auth, khong goi thang auth service.
+- `userIds` trong notification contract la Mongo `_id`; parsed `id`/`usr_id` khong duoc dung thay `_id`.
+- Redis `USER_FCM_TOKENS(userId)` va response FCM token endpoint deu dung `userId` la Mongo `_id`.
 - Chat social khong query `Key` de lay FCM token.
 - Khong them model/modal/bang/collection moi.
 - Notification startup voi `DB_NAME=appchat_notification`.
