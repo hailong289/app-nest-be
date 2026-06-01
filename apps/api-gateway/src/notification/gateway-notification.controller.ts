@@ -17,11 +17,9 @@ import { GatewayService } from '../gateway/gateway.service';
 import { SERVICES } from '@app/constants/services';
 import type { Request, Response } from 'express';
 import type { Observable } from 'rxjs';
-import { SendOtpDto, VerifyOtpDto } from '@app/dto';
-import {
-  setAuthCookie,
-  type AuthCookiePayload,
-} from 'libs/helpers/src';
+import { KafkaEvent, SendOtpDto, VerifyOtpDto } from '@app/dto';
+import { Response as ServiceResponse } from '@app/helpers/response';
+import { setAuthCookie, type AuthCookiePayload } from 'libs/helpers/src';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -139,14 +137,30 @@ export class GatewayNotificationController implements OnModuleInit {
     body: {
       title: string;
       message: string;
-      fcmTokens: string[];
+      userIds?: string[];
+      fcmTokens?: string[];
+      saveToDb?: boolean;
       data?: Record<string, unknown>;
     },
   ) {
+    if (!Array.isArray(body.userIds) || body.userIds.length === 0) {
+      return ServiceResponse.error(
+        'push-notification yêu cầu userIds Mongo _id; dùng push-notification-test cho raw fcmTokens',
+        400,
+        'INVALID_NOTIFICATION_TARGET',
+      );
+    }
+
     return await this.gatewayService.dispatchServiceEvent(
       this.notificationClient,
-      'push_notification',
-      body,
+      KafkaEvent.PUSH_NOTIFICATION_USERS,
+      {
+        title: body.title,
+        message: body.message,
+        userIds: body.userIds,
+        data: body.data,
+        saveToDb: body.saveToDb ?? true,
+      },
     );
   }
 
@@ -195,9 +209,7 @@ export class GatewayNotificationController implements OnModuleInit {
   }
 
   @Delete(':notificationId')
-  async deleteNotification(
-    @Param('notificationId') notificationId: string,
-  ) {
+  async deleteNotification(@Param('notificationId') notificationId: string) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.notificationGrpc.DeleteNotification.bind(this.notificationGrpc),
       { notificationId },

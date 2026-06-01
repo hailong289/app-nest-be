@@ -20,6 +20,8 @@ service AuthService {
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc LogoutDevice(LogoutDeviceRequest) returns (LogoutResponse);
   rpc LogoutAllDevices(LogoutAllDevicesRequest) returns (LogoutResponse);
+  rpc GetFcmTokens(GetFcmTokensRequest) returns (GetFcmTokensResponse);
+  rpc ResolveBusinessIds(ResolveBusinessIdsRequest) returns (ResolveBusinessIdsResponse);
 }
 
 // Geo location (best-effort, populated by api-gateway via geoip-lite).
@@ -229,6 +231,46 @@ message LogoutAllDevicesRequest {
   string userId = 1;
 }
 
+message GetFcmTokensRequest {
+  repeated string userIds = 1;
+}
+
+message UserFcmTokens {
+  string userId = 1;
+  repeated string fcmTokens = 2;
+}
+
+message GetFcmTokensMetadata {
+  repeated UserFcmTokens items = 1;
+}
+
+message GetFcmTokensResponse {
+  string               message          = 1;
+  int32                statusCode       = 2;
+  string               reasonStatusCode = 3;
+  GetFcmTokensMetadata metadata         = 4;
+}
+
+message ResolveBusinessIdsRequest {
+  repeated string usrIds = 1;
+}
+
+message BusinessUserMapping {
+  string usrId = 1;
+  string userId = 2;
+}
+
+message ResolveBusinessIdsMetadata {
+  repeated BusinessUserMapping items = 1;
+}
+
+message ResolveBusinessIdsResponse {
+  string                     message          = 1;
+  int32                      statusCode       = 2;
+  string                     reasonStatusCode = 3;
+  ResolveBusinessIdsMetadata metadata         = 4;
+}
+
 message GetUserMetadata {
   User user = 1;
 }
@@ -345,4 +387,3 @@ message SearchUserResponse {
   string        reasonStatusCode = 3;
   repeated User metadata         = 4;
 }
-

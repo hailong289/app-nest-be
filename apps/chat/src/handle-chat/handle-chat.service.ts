@@ -380,7 +380,7 @@ export class HandleChatService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION_USERS,
         {
-          userIds: roomUserState.map((i) => i.user_id),
+          userIds: roomUserState.map((i) => i.user_id.toString()),
           title:
             finInfo.room_type === RoomType.Private
               ? userInfo.usr_fullname

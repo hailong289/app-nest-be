@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import firebaseConfig from './config/app/firebase.config';
+import gatewayConfig from './config/app/gateway.config';
 import mailConfig from './config/app/mail.config';
 import { FirebaseService } from './firebase.service';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
+import { GatewayClientService } from './gateway-client.service';
 import path from 'path';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
@@ -30,6 +32,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
         firebaseConfig,
         mailConfig,
         appConfig,
+        gatewayConfig,
         kafkaConfig,
         redisConfig,
         mongoConfig,
@@ -68,10 +71,6 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
     NotificationDatabaseModule,
   ],
   controllers: [NotificationController],
-  providers: [
-    NotificationService,
-    FirebaseService,
-    // Provide Key model for injection
-  ],
+  providers: [NotificationService, FirebaseService, GatewayClientService],
 })
 export class AppModule {}

@@ -598,7 +598,7 @@ export class DocumentsService {
     if (formattedDoc && formattedDoc.sharedWith) {
       const receiverIds = formattedDoc.sharedWith
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
-        .map((s: any) => s.userId)
+        .map((s: any) => String(s.userId))
         .filter((id: string) => id !== userId);
 
       if (receiverIds.length > 0) {
@@ -939,7 +939,7 @@ export class DocumentsService {
     if (formattedDoc && formattedDoc.sharedWith) {
       const receiverIds = formattedDoc.sharedWith
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
-        .map((s: any) => s.userId)
+        .map((s: any) => String(s.userId))
         .filter((id: string) => id !== userId);
 
       if (receiverIds.length > 0) {
@@ -1007,7 +1007,7 @@ export class DocumentsService {
     if (formattedDoc && formattedDoc.sharedWith) {
       const receiverIds = formattedDoc.sharedWith
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
-        .map((s: any) => s.userId)
+        .map((s: any) => String(s.userId))
         .filter((id: string) => id !== userId);
 
       if (receiverIds.length > 0) {

@@ -39,6 +39,7 @@ export class NotificationController {
       title: string;
       message: string;
       fcmTokens: string[];
+      userIds?: string[];
       data?: Record<string, any>;
     },
   ) {
@@ -168,6 +169,7 @@ export class NotificationController {
       title: string;
       message: string;
       fcmTokens: string[];
+      userIds?: string[];
       data?: Record<string, any>;
     },
   ) {

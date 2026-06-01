@@ -65,6 +65,14 @@ interface LogoutAllDevicesGrpcPayload {
   userId: string;
 }
 
+interface GetFcmTokensGrpcPayload {
+  userIds: string[];
+}
+
+interface ResolveBusinessIdsGrpcPayload {
+  usrIds: string[];
+}
+
 @Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -182,5 +190,15 @@ export class AuthController {
   @GrpcMethod('AuthService', 'SearchUser')
   async searchUser(data: SearchUserDto) {
     return await this.authService.searchUser(data);
+  }
+
+  @GrpcMethod('AuthService', 'GetFcmTokens')
+  async getFcmTokens(data: GetFcmTokensGrpcPayload) {
+    return await this.authService.getActiveFcmTokensForUsers(data.userIds);
+  }
+
+  @GrpcMethod('AuthService', 'ResolveBusinessIds')
+  async resolveBusinessIds(data: ResolveBusinessIdsGrpcPayload) {
+    return await this.authService.resolveBusinessIds(data.usrIds);
   }
 }

@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Response } from 'libs/helpers/response';
 import { compare, hash } from 'bcrypt';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
@@ -216,6 +216,88 @@ export class AuthService implements OnModuleInit {
     }
   }
 
+  async getActiveFcmTokensForUsers(userIds: string[]) {
+    const uniqueUserIds = Array.from(
+      new Set(
+        (userIds || [])
+          .filter((userId): userId is string => typeof userId === 'string')
+          .map((userId) => userId.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const invalid = uniqueUserIds.filter(
+      (userId) => !Types.ObjectId.isValid(userId),
+    );
+    if (invalid.length > 0) {
+      return Response.error(
+        'userIds phải là Mongo ObjectId',
+        400,
+        'INVALID_USER_IDS',
+        { invalid },
+      );
+    }
+
+    const keys = await this.keyModel
+      .find({
+        tkn_userId: {
+          $in: uniqueUserIds.map((userId) => new Types.ObjectId(userId)),
+        },
+        tkn_fcmToken: { $exists: true, $ne: null, $type: 'string' },
+        tkn_revokedAt: null,
+      })
+      .select('tkn_userId tkn_fcmToken')
+      .lean()
+      .exec();
+
+    const tokenMap = new Map<string, Set<string>>();
+    for (const key of keys) {
+      if (!key.tkn_fcmToken) continue;
+      const userId = key.tkn_userId.toString();
+      if (!tokenMap.has(userId)) {
+        tokenMap.set(userId, new Set());
+      }
+      tokenMap.get(userId)?.add(key.tkn_fcmToken);
+    }
+
+    return Response.success(
+      {
+        items: uniqueUserIds.map((userId) => ({
+          userId,
+          fcmTokens: Array.from(tokenMap.get(userId) ?? []),
+        })),
+      },
+      'Lấy FCM tokens thành công',
+    );
+  }
+
+  async resolveBusinessIds(usrIds: string[]) {
+    const uniqueUsrIds = Array.from(
+      new Set(
+        (usrIds || [])
+          .filter((usrId): usrId is string => typeof usrId === 'string')
+          .map((usrId) => usrId.trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const users = await this.userModel
+      .find({ usr_id: { $in: uniqueUsrIds } })
+      .select('_id usr_id')
+      .lean()
+      .exec();
+
+    return Response.success(
+      {
+        items: users.map((user) => ({
+          usrId: user.usr_id,
+          userId: user._id.toString(),
+        })),
+      },
+      'Resolve business ids thành công',
+    );
+  }
+
   async login(loginDto: LoginDto) {
     const user = await this.userModel
       .findOne({
@@ -340,8 +422,7 @@ export class AuthService implements OnModuleInit {
 
     try {
       const payload = this.jwtService.verify(registerDto.tempRegisterToken, {
-        secret:
-          process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
+        secret: process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
       }) as { email?: string; scope?: string };
 
       if (payload.scope !== 'register') {
@@ -482,8 +563,7 @@ export class AuthService implements OnModuleInit {
       const tempRegisterToken = this.jwtService.sign(
         { email: normalizedIndicator, scope: 'register' },
         {
-          secret:
-            process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
+          secret: process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
           expiresIn: '15m',
         },
       );

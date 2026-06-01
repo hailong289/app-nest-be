@@ -57,7 +57,6 @@ export class AuthDatabaseModule {}
       // gateway -> auth, filesystem lookups with API gateway -> filesystem,
       // and learning card lookups with API gateway -> learning.
       userModel,
-      keysModel,
       attachmentModel,
       documentModel,
       quizModel,
@@ -121,12 +120,7 @@ export class LearningDatabaseModule {}
 @Module({
   imports: [
     MongoConnectionModule,
-    MongooseModule.forFeature([
-      notificationModel,
-      // Legacy cross-service reads (Sprint 2): replace Keys lookup with Redis
-      // first and API gateway -> auth fallback. Do not add notification token collections.
-      keysModel,
-    ]),
+    MongooseModule.forFeature([notificationModel]),
   ],
   exports: [MongooseModule],
 })

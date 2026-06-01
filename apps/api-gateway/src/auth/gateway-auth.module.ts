@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
 import { GatewayAuthController } from './gateway-auth.controller';
+import { GatewayInternalAuthController } from './gateway-internal-auth.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import authConfig from '../config/auth.config';
@@ -15,7 +16,7 @@ import authConfig from '../config/auth.config';
       packages: ['auth'],
     }),
   ],
-  controllers: [GatewayAuthController],
+  controllers: [GatewayAuthController, GatewayInternalAuthController],
   providers: [GatewayService],
 })
 export class GatewayAuthModule {}
