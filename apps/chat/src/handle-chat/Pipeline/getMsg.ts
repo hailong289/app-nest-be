@@ -1,193 +1,38 @@
 import Utils from '@app/helpers/utils';
 import { PipelineStage } from 'mongoose';
 
-/**
- * Build a MongoDB projection expression for a quiz document stored at `$quizDoc`.
- * Converts ObjectId fields to strings and Date fields to ISO strings so they
- * serialize correctly over gRPC (QuizCore proto message).
- */
 function buildQuizProjection() {
-  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
-
-  const toIso = (field: string) => ({
-    $dateToString: { date: field, format: isoFmt },
-  });
-
-  const toIsoIfNotNull = (field: string) => ({
-    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
-  });
-
   return {
     $cond: [
-      { $ifNull: ['$quizDoc', false] },
+      { $ifNull: ['$quiz_id', false] },
       {
-        id: { $toString: '$quizDoc._id' },
-        quiz_id: '$quizDoc.quiz_id',
-        quiz_title: '$quizDoc.quiz_title',
-        quiz_description: '$quizDoc.quiz_description',
-        quiz_roomId: { $toString: '$quizDoc.quiz_roomId' },
-        quiz_createdBy: { $toString: '$quizDoc.quiz_createdBy' },
-        quiz_questions: {
-          $map: {
-            input: { $ifNull: ['$quizDoc.quiz_questions', []] },
-            as: 'q',
-            in: {
-              question_text: '$$q.question_text',
-              question_type: '$$q.question_type',
-              answers: {
-                $map: {
-                  input: { $ifNull: ['$$q.answers', []] },
-                  as: 'a',
-                  in: {
-                    answer_text: '$$a.answer_text',
-                    is_correct: '$$a.is_correct',
-                    points: '$$a.points',
-                  },
-                },
-              },
-              points: '$$q.points',
-              order: '$$q.order',
-              explanation: '$$q.explanation',
-              image_url: '$$q.image_url',
-            },
-          },
-        },
-        quiz_status: '$quizDoc.quiz_status',
-        quiz_timeLimit: '$quizDoc.quiz_timeLimit',
-        quiz_startTime: toIsoIfNotNull('$quizDoc.quiz_startTime'),
-        quiz_endTime: toIsoIfNotNull('$quizDoc.quiz_endTime'),
-        quiz_showResults: '$quizDoc.quiz_showResults',
-        quiz_allowRetake: '$quizDoc.quiz_allowRetake',
-        quiz_maxAttempts: '$quizDoc.quiz_maxAttempts',
-        quiz_results: {
-          $map: {
-            input: { $ifNull: ['$quizDoc.quiz_results', []] },
-            as: 'r',
-            in: {
-              user_id: { $toString: '$$r.user_id' },
-              user_answers: {
-                $map: {
-                  input: { $ifNull: ['$$r.user_answers', []] },
-                  as: 'ua',
-                  in: {
-                    question_index: '$$ua.question_index',
-                    selected_answer_indices: '$$ua.selected_answer_indices',
-                    text_answer: '$$ua.text_answer',
-                    is_correct: '$$ua.is_correct',
-                    points_earned: '$$ua.points_earned',
-                    answered_at: toIso('$$ua.answered_at'),
-                  },
-                },
-              },
-              total_score: '$$r.total_score',
-              max_score: '$$r.max_score',
-              correct_count: '$$r.correct_count',
-              total_questions: '$$r.total_questions',
-              started_at: toIso('$$r.started_at'),
-              completed_at: toIsoIfNotNull('$$r.completed_at'),
-              time_taken: '$$r.time_taken',
-              is_completed: '$$r.is_completed',
-              is_submitted: '$$r.is_submitted',
-            },
-          },
-        },
-        quiz_totalParticipants: '$quizDoc.quiz_totalParticipants',
-        quiz_totalSubmissions: '$quizDoc.quiz_totalSubmissions',
-        quiz_image: '$quizDoc.quiz_image',
-        createdAt: toIso('$quizDoc.createdAt'),
-        updatedAt: toIso('$quizDoc.updatedAt'),
+        id: { $toString: '$quiz_id' },
+        quiz_id: { $toString: '$quiz_id' },
       },
       null,
     ],
   };
 }
 
-/**
- * Build a MongoDB projection expression for a flashcard document stored at `$flashcardDoc`.
- * Converts ObjectId fields to strings and Date fields to ISO strings.
- */
 function buildFlashcardDeckProjection() {
-  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
-
-  const toIso = (field: string) => ({
-    $dateToString: { date: field, format: isoFmt },
-  });
-
-  const toIsoIfNotNull = (field: string) => ({
-    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
-  });
-
   return {
     $cond: [
-      { $ifNull: ['$deskDoc', false] },
+      { $ifNull: ['$desk_id', false] },
       {
-        id: { $toString: '$deskDoc._id' },
-        deck_id: '$deskDoc.deck_id',
-        deck_name: '$deskDoc.deck_name',
-        deck_description: '$deskDoc.deck_description',
-        deck_image: '$deskDoc.deck_image',
-        deck_totalCards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
-        total_cards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
-        deck_level: { $ifNull: ['$deskDoc.deck_level', ''] },
-        createdAt: toIso('$deskDoc.createdAt'),
-        updatedAt: toIsoIfNotNull('$deskDoc.updatedAt'),
+        id: { $toString: '$desk_id' },
+        deck_id: { $toString: '$desk_id' },
       },
       null,
     ],
   };
 }
 
-/**
- * Build a MongoDB projection expression for a todo project document stored at `$todoProjectDoc`.
- * Converts ObjectId fields to strings and maps nested project_statuses to the proto format.
- */
 function buildTodoProjectProjection() {
-  const isoFmt = '%Y-%m-%dT%H:%M:%S.%LZ';
-
-  const toIso = (field: string) => ({
-    $dateToString: { date: field, format: isoFmt },
-  });
-
-  const toIsoIfNotNull = (field: string) => ({
-    $ifNull: [{ $dateToString: { date: field, format: isoFmt } }, ''],
-  });
-
   return {
     $cond: [
-      { $ifNull: ['$todoProjectDoc', false] },
+      { $ifNull: ['$todo_project_id', false] },
       {
-        project_id: '$todoProjectDoc.project_id',
-        project_name: '$todoProjectDoc.project_name',
-        project_description: '$todoProjectDoc.project_description',
-        project_color: '$todoProjectDoc.project_color',
-        project_createdBy: {
-          $ifNull: [{ $toString: '$todoProjectDoc.project_createdBy' }, ''],
-        },
-        project_roomId: {
-          $ifNull: [{ $toString: '$todoProjectDoc.project_roomId' }, ''],
-        },
-        is_default: { $ifNull: ['$todoProjectDoc.is_default', false] },
-        project_statuses: {
-          $map: {
-            input: { $ifNull: ['$todoProjectDoc.project_statuses', []] },
-            as: 's',
-            in: {
-              status_id: { $ifNull: ['$$s.status_id', ''] },
-              status_name: { $ifNull: ['$$s.status_name', ''] },
-              status_color: { $ifNull: ['$$s.status_color', ''] },
-              status_order: { $ifNull: ['$$s.status_order', 0] },
-            },
-          },
-        },
-        createdAt: toIso('$todoProjectDoc.createdAt'),
-        updatedAt: toIsoIfNotNull('$todoProjectDoc.updatedAt'),
-        project_members: {
-          $map: {
-            input: { $ifNull: ['$todoProjectDoc.project_members', []] },
-            as: 'm',
-            in: { $ifNull: [{ $toString: '$$m' }, ''] },
-          },
-        },
+        project_id: { $toString: '$todo_project_id' },
       },
       null,
     ],
@@ -599,87 +444,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
 
-    /** 7.1) Quiz */
-    {
-      $lookup: {
-        from: 'Quizzes',
-        localField: 'quiz_id',
-        foreignField: '_id',
-        as: 'quizDoc',
-      },
-    },
-    {
-      $addFields: {
-        quizDoc: { $first: '$quizDoc' },
-      },
-    },
-
-    /** 7.1b) Flashcard Deck */
-    {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
-      },
-    },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard Deck */
-    {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
-      },
-    },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard Deck */
-    {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
-      },
-    },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1025,21 +789,6 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
-    /** 7.1) Quiz */
-    {
-      $lookup: {
-        from: 'Quizzes',
-        localField: 'quiz_id',
-        foreignField: '_id',
-        as: 'quizDoc',
-      },
-    },
-    {
-      $addFields: {
-        quizDoc: { $first: '$quizDoc' },
-      },
-    },
-
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1374,21 +1123,6 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
     {
       $addFields: {
         callHistoryDoc: { $first: '$callHistoryDoc' },
-      },
-    },
-
-    /** 7.1) Quiz */
-    {
-      $lookup: {
-        from: 'Quizzes',
-        localField: 'quiz_id',
-        foreignField: '_id',
-        as: 'quizDoc',
-      },
-    },
-    {
-      $addFields: {
-        quizDoc: { $first: '$quizDoc' },
       },
     },
 

@@ -16,7 +16,10 @@ import { GatewayService } from '../gateway/gateway.service';
 interface AuthGrpcService {
   getFcmTokens(data: { userIds: string[] }): Observable<unknown>;
   resolveBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
-  getUsersBatch(data: { userIds: string[] }): Observable<unknown>;
+  getUsersBatch(data: {
+    userIds: string[];
+    search?: string;
+  }): Observable<unknown>;
 }
 
 @Controller('internal/auth')
@@ -69,6 +72,7 @@ export class GatewayInternalAuthController implements OnModuleInit {
     this.assertInternalRequest(internalService, internalSecret, [
       'notification',
       'filesystem',
+      'learning',
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(
@@ -80,18 +84,19 @@ export class GatewayInternalAuthController implements OnModuleInit {
 
   @Post('users/batch')
   async getUsersBatch(
-    @Body() body: { userIds: string[] },
+    @Body() body: { userIds: string[]; search?: string },
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
     this.assertInternalRequest(internalService, internalSecret, [
       'filesystem',
       'notification',
+      'learning',
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.authService.getUsersBatch.bind(this.authService),
-      { userIds: body.userIds || [] },
+      { userIds: body.userIds || [], search: body.search || '' },
       30000,
     );
   }

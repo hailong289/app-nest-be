@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Quiz } from 'libs/db/src/mongo/model/quiz.model';
-import { User } from 'libs/db/src/mongo/model/user.model';
-import { Message } from 'libs/db/src/mongo/model/messages.model';
 import { Model, Types } from 'mongoose';
 import {
   AnswerSubmitDto,
@@ -10,21 +8,45 @@ import {
   UpdateQuizzDto,
 } from './dto/quizz.dto';
 import { Response } from 'libs/helpers/response';
+import { GatewayClientService } from '../gateway-client.service';
 
 @Injectable()
 export class QuizzService {
   constructor(
     @InjectModel(Quiz.name) private readonly quizModel: Model<Quiz>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
-    @InjectModel(Message.name) private readonly messageModel: Model<Message>,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
+
+  private assertObjectId(id: string, label: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new Error(`${label} phải là Mongo ObjectId`);
+    }
+  }
+
+  private async resolveRoom(roomId: string, userId: string) {
+    const room = await this.gatewayClient.resolveRoomForUser(roomId, userId);
+    if (!room?.mongoRoomId) {
+      throw new Error('Room not found');
+    }
+    return room;
+  }
 
   async createQuizz(data: CreateQuizzDto) {
     try {
+      this.assertObjectId(data.quiz_createdBy, 'quiz_createdBy');
+      const user = await this.gatewayClient.getUserSummary(data.quiz_createdBy);
+      if (!user) {
+        return Response.error('User not found', 404, 'NOT_FOUND');
+      }
+      const room = await this.resolveRoom(
+        data.quiz_roomId,
+        data.quiz_createdBy,
+      );
+
       // Convert string IDs to ObjectId
       const quizData = {
         ...data,
-        quiz_roomId: new Types.ObjectId(data.quiz_roomId),
+        quiz_roomId: new Types.ObjectId(room.mongoRoomId),
         quiz_createdBy: new Types.ObjectId(data.quiz_createdBy),
       };
       const quiz = await this.quizModel.create(quizData);
@@ -35,7 +57,11 @@ export class QuizzService {
   }
 
   async getQuizzById(quiz_id: string) {
-    const quiz = await this.quizModel.findOne({ quiz_id });
+    const filter =
+      Types.ObjectId.isValid(quiz_id) && quiz_id.length === 24
+        ? { $or: [{ quiz_id }, { _id: new Types.ObjectId(quiz_id) }] }
+        : { quiz_id };
+    const quiz = await this.quizModel.findOne(filter);
     if (!quiz) {
       return Response.error('Quiz not found', 404, 'NOT_FOUND');
     }
@@ -48,8 +74,22 @@ export class QuizzService {
     roomId: string,
     createdBy?: string,
   ) {
+    const actorId = createdBy;
+    if (!actorId || !Types.ObjectId.isValid(actorId)) {
+      return Response.error('createdBy không hợp lệ', 400, 'BAD_REQUEST');
+    }
+    const room = await this.gatewayClient.resolveRoomForUser(roomId, actorId);
+    if (!room?.mongoRoomId) {
+      return Response.success({
+        data: [],
+        total_item: 0,
+        total_page: 0,
+        page,
+      });
+    }
+
     const filter: Record<string, any> = {
-      quiz_roomId: new Types.ObjectId(roomId),
+      quiz_roomId: new Types.ObjectId(room.mongoRoomId),
     };
     if (createdBy && Types.ObjectId.isValid(createdBy)) {
       filter.quiz_createdBy = new Types.ObjectId(createdBy);
@@ -65,16 +105,14 @@ export class QuizzService {
       this.quizModel.countDocuments(filter),
     ]);
 
-    // Lấy tất cả _id của quizzes trong trang hiện tại
-    const quizObjectIds = quizzes.map((q) => q._id);
-
-    // 1 query duy nhất: tìm tất cả message có quiz_id thuộc danh sách trên
-    const sentMessages = await this.messageModel
-      .find({ quiz_id: { $in: quizObjectIds } })
-      .select('quiz_id')
-      .lean();
-
-    const sentSet = new Set(sentMessages.map((m) => m.quiz_id?.toString()));
+    const statusItems = await this.gatewayClient.checkLearningCardStatus(
+      'quiz',
+      quizzes.map((q) => q._id.toString()),
+      room.mongoRoomId,
+    );
+    const sentSet = new Set(
+      statusItems.filter((item) => item.isSend).map((item) => item.sourceId),
+    );
 
     const data = quizzes.map((q) => ({
       ...q,
@@ -128,17 +166,11 @@ export class QuizzService {
     const submitted_count = rawResults.filter((r) => r.is_submitted).length;
     const not_submitted_count = total_participants - submitted_count;
 
-    // Lấy thông tin user cho tất cả kết quả
     const userIds = rawResults
-      .map((r) => r.user_id)
-      .filter(Boolean) as Types.ObjectId[];
-
-    const users = await this.userModel
-      .find({ _id: { $in: userIds } })
-      .select('_id usr_fullname usr_avatar')
-      .lean();
-
-    const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+      .map((r) => r.user_id?.toString())
+      .filter(Boolean) as string[];
+    const users = await this.gatewayClient.getUsersSummary(userIds);
+    const userMap = new Map(users.map((u) => [u._id || u.userId, u]));
 
     // Bảng xếp hạng: chỉ user đã nộp, sắp xếp theo correct_count giảm dần, time_taken tăng dần
     const leaderboard = rawResults
@@ -148,8 +180,8 @@ export class QuizzService {
         return {
           rank: 0,
           user_id: r.user_id?.toString() ?? '',
-          user_name: user?.usr_fullname ?? '',
-          user_avatar: user?.usr_avatar ?? '',
+          user_name: user?.fullname || user?.name || '',
+          user_avatar: user?.avatar ?? '',
           correct_count: r.correct_count,
           total_score: r.total_score,
           max_score: r.max_score,
@@ -211,6 +243,19 @@ export class QuizzService {
       }
       if (quiz.quiz_status !== 'active') {
         return Response.error('Quiz chưa được kích hoạt', 400, 'BAD_REQUEST');
+      }
+
+      this.assertObjectId(answer.userId, 'userId');
+      const user = await this.gatewayClient.getUserSummary(answer.userId);
+      if (!user) {
+        return Response.error('User not found', 404, 'NOT_FOUND');
+      }
+      const access = await this.gatewayClient.checkRoomAccess(
+        quiz.quiz_roomId.toString(),
+        answer.userId,
+      );
+      if (!access?.canView) {
+        return Response.error('Bạn không thuộc phòng quiz', 403, 'FORBIDDEN');
       }
 
       const userId = new Types.ObjectId(answer.userId);

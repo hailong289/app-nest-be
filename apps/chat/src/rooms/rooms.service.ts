@@ -1355,6 +1355,64 @@ export class RoomsService {
     );
   }
 
+  async checkLearningCardStatus(payload: {
+    roomId?: string;
+    sourceType: 'quiz' | 'flashcard_deck' | 'todo_project';
+    sourceIds: string[];
+  }) {
+    const fieldByType = {
+      quiz: 'quiz_id',
+      flashcard_deck: 'desk_id',
+      todo_project: 'todo_project_id',
+    } as const;
+    const field = fieldByType[payload.sourceType];
+    if (!field) {
+      return Response.error('sourceType không hợp lệ', 400, 'BAD_REQUEST');
+    }
+
+    const sourceIds = Array.from(new Set(payload.sourceIds || []))
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => this.utils.convertToObjectIdMongoose(id));
+
+    if (sourceIds.length === 0) {
+      return Response.success({ items: [] }, 'Check learning card thành công');
+    }
+
+    const filter: Record<string, unknown> = {
+      [field]: { $in: sourceIds },
+    };
+    if (payload.roomId && Types.ObjectId.isValid(payload.roomId)) {
+      filter.msg_roomId = this.utils.convertToObjectIdMongoose(payload.roomId);
+    }
+
+    const messages = await this.messageModel
+      .find(filter, { _id: 1, [field]: 1 })
+      .lean()
+      .exec();
+    const messageMap = new Map<string, string>();
+    messages.forEach((message) => {
+      const rawSourceId = (message as Record<string, unknown>)[field];
+      if (rawSourceId) {
+        messageMap.set(rawSourceId.toString(), message._id.toString());
+      }
+    });
+
+    return Response.success(
+      {
+        items: sourceIds.map((id) => {
+          const sourceId = id.toString();
+          const messageId = messageMap.get(sourceId);
+          return {
+            sourceId,
+            isSend: Boolean(messageId),
+            messageId: messageId || '',
+          };
+        }),
+      },
+      'Check learning card thành công',
+    );
+  }
+
   async leavedRoom(payload: LeavingRoomDto) {
     const { userId, roomId } = payload;
     if (!userId) throw new NotFoundException('không tìm thấy người dùng');

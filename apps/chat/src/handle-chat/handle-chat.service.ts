@@ -36,7 +36,6 @@ import {
   Attachment,
   User,
   Document,
-  Quiz,
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -52,7 +51,7 @@ import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
-import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * Shape of a Room served from RoomCacheRepository: a plain (lean) object that
@@ -98,10 +97,7 @@ export class HandleChatService {
     private readonly userModel: Model<User>,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
-    @InjectModel(Quiz.name)
-    private readonly quizModel: Model<Quiz>,
-    @InjectModel(TodoProject.name)
-    private readonly todoProjectModel: Model<TodoProject>,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -129,6 +125,52 @@ export class HandleChatService {
       }
     }
     return msg;
+  }
+
+  private async hydrateLearningCard(
+    type: 'quiz' | 'flashcard_deck' | 'todo_project',
+    id?: string,
+  ) {
+    if (!id) return null;
+
+    const baseUrl = (
+      this.configService.get<string>('GATEWAY_URL') || 'http://localhost:5000'
+    ).replace(/\/+$/, '');
+    const headers: Record<string, string> = {
+      'x-internal-service': 'chat',
+    };
+    const internalSecret =
+      this.configService.get<string>('GATEWAY_INTERNAL_SECRET') || '';
+    if (internalSecret) {
+      headers['x-internal-secret'] = internalSecret;
+    }
+
+    const path = '/internal/learning/cards/hydrate';
+    const gatewayPath = baseUrl.endsWith('/api') ? path : `/api${path}`;
+    const result = await Utils.callApiGateway(
+      `${baseUrl}${gatewayPath}`,
+      'POST',
+      { items: [{ type, id }] },
+      headers,
+      15_000,
+    );
+    if (result?.statusCode && result.statusCode !== 200) return null;
+
+    const item = result?.metadata?.items?.[0];
+    return item?.found ? (item.metadata as Record<string, unknown>) : null;
+  }
+
+  private resolveLearningMongoId(
+    metadata: Record<string, unknown> | null,
+    fallbackId?: string,
+  ) {
+    const candidate =
+      metadata?._id ||
+      metadata?.id ||
+      (fallbackId && Types.ObjectId.isValid(fallbackId) ? fallbackId : '');
+    return typeof candidate === 'string' && Types.ObjectId.isValid(candidate)
+      ? candidate
+      : '';
   }
 
   async createMessage(payload: CreateMessage) {
@@ -191,6 +233,28 @@ export class HandleChatService {
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
 
+    const [quizCard, deckCard, todoProjectCard] = await Promise.all([
+      this.hydrateLearningCard('quiz', quizId),
+      this.hydrateLearningCard('flashcard_deck', desk_id),
+      this.hydrateLearningCard('todo_project', todoProjectId),
+    ]);
+    const quizMongoId = this.resolveLearningMongoId(quizCard, quizId);
+    const deckMongoId = this.resolveLearningMongoId(deckCard, desk_id);
+    const todoProjectMongoId = this.resolveLearningMongoId(
+      todoProjectCard,
+      todoProjectId,
+    );
+
+    if (quizId && !quizMongoId) {
+      throw new NotFoundException('Quiz không tồn tại');
+    }
+    if (desk_id && !deckMongoId) {
+      throw new NotFoundException('Bộ flashcard không tồn tại');
+    }
+    if (todoProjectId && !todoProjectMongoId) {
+      throw new NotFoundException('Dự án không tồn tại');
+    }
+
     const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
@@ -203,20 +267,16 @@ export class HandleChatService {
       document_id: documentId
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
-      quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
-      desk_id: desk_id ? this.utils.convertToObjectIdMongoose(desk_id) : null,
-      todo_project_id: null as Types.ObjectId | null,
+      quiz_id: quizMongoId
+        ? this.utils.convertToObjectIdMongoose(quizMongoId)
+        : null,
+      desk_id: deckMongoId
+        ? this.utils.convertToObjectIdMongoose(deckMongoId)
+        : null,
+      todo_project_id: todoProjectMongoId
+        ? this.utils.convertToObjectIdMongoose(todoProjectMongoId)
+        : null,
     };
-
-    if (todoProjectId) {
-      const todoProject = await this.todoProjectModel.findOne({
-        project_id: todoProjectId,
-      });
-      if (!todoProject) {
-        throw new NotFoundException('Dự án không tồn tại');
-      }
-      updatePayload.todo_project_id = todoProject._id;
-    }
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new
     const createNewMsg = await this.messageModel.findOneAndUpdate(

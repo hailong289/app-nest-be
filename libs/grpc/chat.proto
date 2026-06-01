@@ -20,6 +20,7 @@ service ChatService {
   rpc ResolveRoomForUser(ResolveRoomForUserRequest) returns (ResolveRoomForUserResponse);
   rpc GetRoomMembers(ResolveRoomForUserRequest) returns (ResolveRoomForUserResponse);
   rpc AttachMessageAttachments(AttachMessageAttachmentsRequest) returns (AttachMessageAttachmentsResponse);
+  rpc CheckLearningCardStatus(LearningCardStatusRequest) returns (LearningCardStatusResponse);
   rpc CreateNewMsg(InputCreateMsg)returns (CreateMessageOutput);
   rpc GetOneMsg(InputGetOneMsg)returns (MessageCore);
   rpc MarkReadUpTo(InputMarkReadUp)returns (CreateMessageOutput);
@@ -204,6 +205,29 @@ message AttachMessageAttachmentsResponse {
   int32 statusCode = 2;
   string reasonStatusCode = 3;
   AttachMessageAttachmentsMetadata metadata = 4;
+}
+
+message LearningCardStatusRequest {
+  string roomId = 1;
+  string sourceType = 2;
+  repeated string sourceIds = 3;
+}
+
+message LearningCardStatusItem {
+  string sourceId = 1;
+  bool isSend = 2;
+  string messageId = 3;
+}
+
+message LearningCardStatusMetadata {
+  repeated LearningCardStatusItem items = 1;
+}
+
+message LearningCardStatusResponse {
+ string message = 1;
+  int32 statusCode = 2;
+  string reasonStatusCode = 3;
+  LearningCardStatusMetadata metadata = 4;
 }
 
 

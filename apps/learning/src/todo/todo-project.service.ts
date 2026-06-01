@@ -4,7 +4,6 @@ import {
   ProjectStatus,
   TodoProject,
 } from 'libs/db/src/mongo/model/todo-project.model';
-import { User } from 'libs/db/src/mongo/model/user.model';
 import { Model, Types } from 'mongoose';
 import Utils from 'libs/helpers/utils';
 import { Response } from 'libs/helpers/response';
@@ -21,18 +20,43 @@ import {
   UpdateProjectStatusDto,
   UpdateTodoProjectDto,
 } from './dto/todo-project.dto';
+import { GatewayClientService } from '../gateway-client.service';
 
 @Injectable()
 export class TodoProjectService {
   constructor(
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
+
+  private assertObjectId(id: string, label: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new Error(`${label} phải là Mongo ObjectId`);
+    }
+  }
+
+  private async validateUser(userId: string, label = 'userId') {
+    this.assertObjectId(userId, label);
+    const user = await this.gatewayClient.getUserSummary(userId);
+    if (!user) {
+      throw new Error(`${label} không tồn tại`);
+    }
+    return user;
+  }
+
+  private async resolveRoom(roomId: string | undefined, userId: string) {
+    if (!roomId) return null;
+    const room = await this.gatewayClient.resolveRoomForUser(roomId, userId);
+    if (!room?.mongoRoomId) {
+      throw new Error('Room not found');
+    }
+    return room;
+  }
 
   private toMetadata(project: Record<string, any>) {
     return {
+      _id: project._id?.toString() ?? '',
       project_id: project.project_id ?? '',
       project_name: project.project_name ?? '',
       project_description: project.project_description ?? '',
@@ -58,15 +82,15 @@ export class TodoProjectService {
     };
   }
 
-  private getDefaultProjectPayload(userId: string, roomId?: string) {
+  private getDefaultProjectPayload(userId: string, mongoRoomId?: string) {
     return {
       project_name: 'Default',
       project_description: 'Default project',
       project_color: '#3B82F6',
       project_createdBy: new Types.ObjectId(userId),
       project_roomId:
-        roomId && Types.ObjectId.isValid(roomId)
-          ? new Types.ObjectId(roomId)
+        mongoRoomId && Types.ObjectId.isValid(mongoRoomId)
+          ? new Types.ObjectId(mongoRoomId)
           : null,
       is_default: true,
       project_members: [new Types.ObjectId(userId)],
@@ -75,14 +99,19 @@ export class TodoProjectService {
 
   async createProject(data: CreateTodoProjectDto) {
     try {
+      await this.validateUser(data.project_createdBy, 'project_createdBy');
+      const room = await this.resolveRoom(
+        data.project_roomId,
+        data.project_createdBy,
+      );
       const project = await this.todoProjectModel.create({
         project_name: data.project_name,
         project_description: data.project_description ?? '',
         project_color: data.project_color ?? '#3B82F6',
         project_createdBy: new Types.ObjectId(data.project_createdBy),
         project_roomId:
-          data.project_roomId && Types.ObjectId.isValid(data.project_roomId)
-            ? new Types.ObjectId(data.project_roomId)
+          room?.mongoRoomId && Types.ObjectId.isValid(room.mongoRoomId)
+            ? new Types.ObjectId(room.mongoRoomId)
             : null,
         is_default: data.is_default ?? false,
         project_members: [new Types.ObjectId(data.project_createdBy)],
@@ -94,7 +123,10 @@ export class TodoProjectService {
   }
 
   async getProjectById(project_id: string, userId?: string) {
-    const filter: Record<string, any> = { project_id };
+    const filter: Record<string, any> =
+      Types.ObjectId.isValid(project_id) && project_id.length === 24
+        ? { $or: [{ project_id }, { _id: new Types.ObjectId(project_id) }] }
+        : { project_id };
     if (userId && Types.ObjectId.isValid(userId)) {
       const userObjectId = new Types.ObjectId(userId);
       filter.$or = [
@@ -120,8 +152,12 @@ export class TodoProjectService {
       ],
     };
 
-    if (roomId && Types.ObjectId.isValid(roomId)) {
-      filter.project_roomId = new Types.ObjectId(roomId);
+    if (roomId) {
+      const room = await this.resolveRoom(roomId, userId);
+      if (!room) {
+        return Response.error('Room not found', 404, 'NOT_FOUND');
+      }
+      filter.project_roomId = new Types.ObjectId(room.mongoRoomId);
     } else {
       filter.project_roomId = null;
     }
@@ -287,9 +323,11 @@ export class TodoProjectService {
 
   async getOrCreateDefaultProject(data: GetOrCreateDefaultProjectDto) {
     try {
+      await this.validateUser(data.userId);
+      const room = await this.resolveRoom(data.roomId, data.userId);
       const roomObjectId =
-        data.roomId && Types.ObjectId.isValid(data.roomId)
-          ? new Types.ObjectId(data.roomId)
+        room?.mongoRoomId && Types.ObjectId.isValid(room.mongoRoomId)
+          ? new Types.ObjectId(room.mongoRoomId)
           : null;
 
       let project = await this.todoProjectModel.findOne({
@@ -300,7 +338,7 @@ export class TodoProjectService {
 
       if (!project) {
         project = await this.todoProjectModel.create(
-          this.getDefaultProjectPayload(data.userId, data.roomId),
+          this.getDefaultProjectPayload(data.userId, room?.mongoRoomId),
         );
       }
 
@@ -315,6 +353,7 @@ export class TodoProjectService {
       if (!Types.ObjectId.isValid(data.member_id)) {
         return Response.error('Invalid member id', 400, 'BAD_REQUEST');
       }
+      await this.validateUser(data.member_id, 'member_id');
       // project_id là business id (string). Hỗ trợ thêm trường hợp FE gửi Mongo _id
       // bằng cách check ObjectId hợp lệ và match theo _id.
       const projectFilter: Record<string, any> = Types.ObjectId.isValid(
@@ -327,6 +366,27 @@ export class TodoProjectService {
             ],
           }
         : { project_id: data.project_id };
+      const existingProject = await this.todoProjectModel
+        .findOne(projectFilter)
+        .lean();
+
+      if (!existingProject) {
+        return Response.error('Project not found', 404, 'NOT_FOUND');
+      }
+      if (existingProject.project_roomId) {
+        const access = await this.gatewayClient.checkRoomAccess(
+          existingProject.project_roomId.toString(),
+          data.member_id,
+        );
+        if (!access?.canView) {
+          return Response.error(
+            'Member không thuộc phòng của project',
+            403,
+            'FORBIDDEN',
+          );
+        }
+      }
+
       const project = await this.todoProjectModel
         .findOneAndUpdate(
           projectFilter,
@@ -391,34 +451,29 @@ export class TodoProjectService {
         return Response.error('Project not found', 404, 'NOT_FOUND');
       }
 
-      const memberObjectIds = (project.project_members ?? []).map((m: any) =>
-        typeof m === 'string' ? new Types.ObjectId(m) : m,
+      const memberIds = (project.project_members ?? []).map((m: any) =>
+        m?.toString(),
       );
       const creatorId = project.project_createdBy?.toString() ?? '';
 
-      const userFilter: Record<string, any> = { _id: { $in: memberObjectIds } };
-      if (data.search?.trim()) {
-        userFilter.usr_fullname = { $regex: data.search.trim(), $options: 'i' };
-      }
-
-      const users = await this.userModel
-        .find(userFilter)
-        .select('_id usr_id usr_fullname usr_email usr_phone usr_avatar')
-        .lean();
+      const users = await this.gatewayClient.getUsersSummary(
+        memberIds,
+        data.search,
+      );
 
       const members = users.map((u: any) => ({
-        _id: u._id?.toString() ?? '',
+        _id: u._id || u.userId || '',
         usr_id: u.usr_id ?? '',
-        fullname: u.usr_fullname ?? '',
-        email: u.usr_email ?? '',
-        phone: u.usr_phone ?? '',
-        avatar: u.usr_avatar ?? '',
-        is_creator: u._id?.toString() === creatorId,
+        fullname: u.fullname || u.name || '',
+        email: u.email ?? '',
+        phone: u.phone ?? '',
+        avatar: u.avatar ?? '',
+        is_creator: (u._id || u.userId) === creatorId,
       }));
 
       return Response.success({
         project_id: project.project_id,
-        member_ids: memberObjectIds.map((id: any) => id.toString()),
+        member_ids: memberIds,
         members,
       });
     } catch (error) {

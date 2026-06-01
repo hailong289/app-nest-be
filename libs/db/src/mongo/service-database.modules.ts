@@ -54,13 +54,10 @@ export class AuthDatabaseModule {}
       friendshipModel,
       callHistoryModel,
       // Legacy cross-service reads (Sprint 5): replace auth lookups with API
-      // gateway -> auth, filesystem lookups with API gateway -> filesystem,
-      // and learning card lookups with API gateway -> learning.
+      // gateway -> auth and filesystem lookups with API gateway -> filesystem.
       userModel,
       attachmentModel,
       documentModel,
-      quizModel,
-      todoProjectModel,
     ]),
   ],
   exports: [MongooseModule],
@@ -98,10 +95,6 @@ export class AiDatabaseModule {}
       flashcardProgressModel,
       todoModel,
       todoProjectModel,
-      // Legacy cross-service reads (Sprint 4): replace with API gateway ->
-      // auth/chat and keep ObjectId/business-id conversion in auth.
-      userModel,
-      messagesModel,
     ]),
   ],
   exports: [MongooseModule],

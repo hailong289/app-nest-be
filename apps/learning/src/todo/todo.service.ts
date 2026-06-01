@@ -11,6 +11,7 @@ import {
   UpdateTodoStatusDto,
 } from './dto/todo.dto';
 import { Response } from 'libs/helpers/response';
+import { GatewayClientService } from '../gateway-client.service';
 
 @Injectable()
 export class TodoService {
@@ -18,11 +19,52 @@ export class TodoService {
     @InjectModel(Todo.name) private readonly todoModel: Model<Todo>,
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
+
+  private assertObjectId(id: string, label: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new Error(`${label} phải là Mongo ObjectId`);
+    }
+  }
+
+  private async validateUser(userId: string, label = 'userId') {
+    this.assertObjectId(userId, label);
+    const user = await this.gatewayClient.getUserSummary(userId);
+    if (!user) {
+      throw new Error(`${label} không tồn tại`);
+    }
+    return user;
+  }
+
+  private async validateUsers(userIds: string[], label = 'userIds') {
+    const uniqueIds = Array.from(new Set(userIds || []));
+    uniqueIds.forEach((id) => this.assertObjectId(id, label));
+    if (uniqueIds.length === 0) return [];
+
+    const users = await this.gatewayClient.getUsersSummary(uniqueIds);
+    const foundIds = new Set(users.map((user) => user._id || user.userId));
+    const missing = uniqueIds.filter((id) => !foundIds.has(id));
+    if (missing.length > 0) {
+      throw new Error(`${label} không tồn tại: ${missing.join(', ')}`);
+    }
+    return users;
+  }
+
+  private async resolveRoom(roomId: string | undefined, userId: string) {
+    if (!roomId) return null;
+    const room = await this.gatewayClient.resolveRoomForUser(roomId, userId);
+    if (!room?.mongoRoomId) {
+      throw new Error('Room not found');
+    }
+    return room;
+  }
 
   private async getOrCreateDefaultProject(userId: string, roomId?: string) {
     const roomObjectId =
-      roomId && Types.ObjectId.isValid(roomId) ? new Types.ObjectId(roomId) : null;
+      roomId && Types.ObjectId.isValid(roomId)
+        ? new Types.ObjectId(roomId)
+        : null;
     const userObjectId = new Types.ObjectId(userId);
 
     let project = await this.todoProjectModel.findOne({
@@ -74,7 +116,10 @@ export class TodoService {
       if (statusId) allowedStatuses.add(statusId);
     });
 
-    if (allowedStatuses.size > 0 && !allowedStatuses.has(status.toLowerCase())) {
+    if (
+      allowedStatuses.size > 0 &&
+      !allowedStatuses.has(status.toLowerCase())
+    ) {
       throw new Error('Status is not allowed in this project');
     }
 
@@ -104,14 +149,38 @@ export class TodoService {
 
   async createTodo(data: CreateTodoDto) {
     try {
+      await this.validateUser(data.todo_createdBy, 'todo_createdBy');
+      await this.validateUsers(data.todo_assignees ?? [], 'todo_assignees');
+      const room = await this.resolveRoom(
+        data.todo_roomId,
+        data.todo_createdBy,
+      );
+      for (const assigneeId of data.todo_assignees ?? []) {
+        if (room?.mongoRoomId) {
+          const access = await this.gatewayClient.checkRoomAccess(
+            room.mongoRoomId,
+            assigneeId,
+          );
+          if (!access?.canView) {
+            return Response.error(
+              'Assignee không thuộc phòng của todo',
+              403,
+              'FORBIDDEN',
+            );
+          }
+        }
+      }
+
       let desiredStatus = data.todo_status;
       if (!desiredStatus) {
         const project = data.todo_projectId
-          ? await this.todoProjectModel.findOne({ project_id: data.todo_projectId }).lean()
+          ? await this.todoProjectModel
+              .findOne({ project_id: data.todo_projectId })
+              .lean()
           : (
               await this.getOrCreateDefaultProject(
                 data.todo_createdBy,
-                data.todo_roomId,
+                room?.mongoRoomId,
               )
             ).toObject();
         desiredStatus =
@@ -123,7 +192,7 @@ export class TodoService {
         data.todo_projectId,
         desiredStatus,
         data.todo_createdBy,
-        data.todo_roomId,
+        room?.mongoRoomId,
       );
 
       const todoData: Record<string, any> = {
@@ -142,8 +211,8 @@ export class TodoService {
         todoData.todo_dueDate = new Date(data.todo_dueDate);
       }
 
-      if (data.todo_roomId && Types.ObjectId.isValid(data.todo_roomId)) {
-        todoData.todo_roomId = new Types.ObjectId(data.todo_roomId);
+      if (room?.mongoRoomId && Types.ObjectId.isValid(room.mongoRoomId)) {
+        todoData.todo_roomId = new Types.ObjectId(room.mongoRoomId);
       }
 
       const todo = await this.todoModel.create(todoData);
@@ -169,14 +238,22 @@ export class TodoService {
     if (projectId) {
       // Khi đã lọc theo project thì không cần filter theo assignee/creator.
       filter.todo_projectId = projectId;
-      if (roomId && Types.ObjectId.isValid(roomId)) {
-        filter.todo_roomId = new Types.ObjectId(roomId);
+      if (roomId) {
+        const room = await this.resolveRoom(roomId, userId);
+        if (!room) {
+          return Response.error('Room not found', 404, 'NOT_FOUND');
+        }
+        filter.todo_roomId = new Types.ObjectId(room.mongoRoomId);
       } else {
         filter.todo_roomId = null;
       }
-    } else if (roomId && Types.ObjectId.isValid(roomId)) {
+    } else if (roomId) {
       // Lấy todo theo phòng
-      filter.todo_roomId = new Types.ObjectId(roomId);
+      const room = await this.resolveRoom(roomId, userId);
+      if (!room) {
+        return Response.error('Room not found', 404, 'NOT_FOUND');
+      }
+      filter.todo_roomId = new Types.ObjectId(room.mongoRoomId);
     } else {
       // Lấy todo cá nhân: do user tạo hoặc được assign, và không thuộc phòng
       filter.todo_roomId = null;
@@ -232,8 +309,10 @@ export class TodoService {
         if (!existingTodo) {
           return Response.error('Todo not found', 404, 'NOT_FOUND');
         }
-        const nextProjectId = data.todo_projectId ?? existingTodo.todo_projectId ?? undefined;
-        const nextStatus = data.todo_status ?? existingTodo.todo_status ?? 'todo';
+        const nextProjectId =
+          data.todo_projectId ?? existingTodo.todo_projectId ?? undefined;
+        const nextStatus =
+          data.todo_status ?? existingTodo.todo_status ?? 'todo';
         await this.ensureProjectAndStatus(
           nextProjectId,
           nextStatus,
@@ -265,9 +344,27 @@ export class TodoService {
 
   async assignTodo(todo_id: string, assignee_ids: string[] = []) {
     try {
-      const assignees = assignee_ids
-        .filter((id) => Types.ObjectId.isValid(id))
-        .map((id) => new Types.ObjectId(id));
+      await this.validateUsers(assignee_ids, 'assignee_ids');
+      const assignees = assignee_ids.map((id) => new Types.ObjectId(id));
+      const existingTodo = await this.todoModel.findOne({ todo_id }).lean();
+      if (!existingTodo) {
+        return Response.error('Todo not found', 404, 'NOT_FOUND');
+      }
+      if (existingTodo.todo_roomId) {
+        for (const assignee of assignees) {
+          const access = await this.gatewayClient.checkRoomAccess(
+            existingTodo.todo_roomId.toString(),
+            assignee.toString(),
+          );
+          if (!access?.canView) {
+            return Response.error(
+              'Assignee không thuộc phòng của todo',
+              403,
+              'FORBIDDEN',
+            );
+          }
+        }
+      }
 
       const todo = await this.todoModel
         .findOneAndUpdate(

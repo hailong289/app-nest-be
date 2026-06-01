@@ -274,6 +274,7 @@ message ResolveBusinessIdsResponse {
 
 message GetUsersBatchRequest {
   repeated string userIds = 1;
+  string search = 2;
 }
 
 message UserSummary {
@@ -287,6 +288,7 @@ message UserSummary {
   string avatar   = 8;
   string status   = 9;
   string slug     = 10;
+  string phone    = 11;
 }
 
 message GetUsersBatchMetadata {

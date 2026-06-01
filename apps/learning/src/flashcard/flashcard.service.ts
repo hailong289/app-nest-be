@@ -13,6 +13,7 @@ import {
   UpdateFlashcardDeckDto,
 } from './dto/flashcard.dto';
 import { Response } from 'libs/helpers/response';
+import { GatewayClientService } from '../gateway-client.service';
 
 @Injectable()
 export class FlashcardService {
@@ -23,11 +24,24 @@ export class FlashcardService {
     private readonly flashcardDeckModel: Model<FlashcardDeck>,
     @InjectModel(FlashcardProgress.name)
     private readonly flashcardProgressModel: Model<FlashcardProgress>,
-  ) { }
+    private readonly gatewayClient: GatewayClientService,
+  ) {}
+
+  private async validateUser(userId: string, label = 'userId') {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new Error(`${label} phải là Mongo ObjectId`);
+    }
+    const user = await this.gatewayClient.getUserSummary(userId);
+    if (!user) {
+      throw new Error(`${label} không tồn tại`);
+    }
+    return user;
+  }
 
   // Flashcard methods
   async createFlashcard(data: CreateFlashcardDto & { card_userId: string }) {
     try {
+      await this.validateUser(data.card_userId, 'card_userId');
       const flashcardData = {
         ...data,
         card_userId: new Types.ObjectId(data.card_userId),
@@ -59,6 +73,7 @@ export class FlashcardService {
     try {
       const query: any = {};
       if (userId) {
+        await this.validateUser(userId);
         query.card_userId = new Types.ObjectId(userId);
       }
       if (deckId) {
@@ -122,6 +137,10 @@ export class FlashcardService {
   // Flashcard Deck methods
   async createFlashcardDeck(data: CreateFlashcardDeckDto) {
     try {
+      if (!data.deck_userId) {
+        return Response.error('deck_userId is required', 400, 'BAD_REQUEST');
+      }
+      await this.validateUser(data.deck_userId, 'deck_userId');
       const deckData = {
         ...data,
         deck_userId: new Types.ObjectId(data.deck_userId),
@@ -143,7 +162,11 @@ export class FlashcardService {
   }
 
   async getFlashcardDeckById(deck_id: string, userId?: string) {
-    const deck = await this.flashcardDeckModel.findOne({ deck_id }).lean();
+    const filter =
+      Types.ObjectId.isValid(deck_id) && deck_id.length === 24
+        ? { $or: [{ deck_id }, { _id: new Types.ObjectId(deck_id) }] }
+        : { deck_id };
+    const deck = await this.flashcardDeckModel.findOne(filter).lean();
     if (!deck) {
       return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
     }
@@ -216,6 +239,7 @@ export class FlashcardService {
     try {
       const query: any = {};
       if (userId) {
+        await this.validateUser(userId);
         query.deck_userId = new Types.ObjectId(userId);
       }
 
@@ -319,7 +343,10 @@ export class FlashcardService {
 
   async cloneFlashcardDeck(deck_id: string, userId: string) {
     try {
-      const originalDeck = await this.flashcardDeckModel.findOne({ deck_id }).lean();
+      await this.validateUser(userId);
+      const originalDeck = await this.flashcardDeckModel
+        .findOne({ deck_id })
+        .lean();
       if (!originalDeck) {
         return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
       }
@@ -359,13 +386,14 @@ export class FlashcardService {
           card_isPublic: false,
         }));
 
-        const insertedCards = await this.flashcardModel.insertMany(newCardsData);
+        const insertedCards =
+          await this.flashcardModel.insertMany(newCardsData);
 
         // Update deck_cardIds
-        const cardIds = insertedCards.map(c => c._id);
+        const cardIds = insertedCards.map((c) => c._id);
         await this.flashcardDeckModel.updateOne(
           { _id: newDeck._id },
-          { $set: { deck_cardIds: cardIds } }
+          { $set: { deck_cardIds: cardIds } },
         );
       }
 
@@ -382,6 +410,7 @@ export class FlashcardService {
     data: Record<string, any>,
   ) {
     try {
+      await this.validateUser(user_id, 'user_id');
       const updateData: Record<string, any> = {};
       const allowedFields = [
         'mastery_level',
@@ -413,6 +442,7 @@ export class FlashcardService {
 
   async getFlashcardProgress(card_id: string, user_id: string) {
     try {
+      await this.validateUser(user_id, 'user_id');
       const progress = await this.flashcardProgressModel.findOne({
         card_id,
         user_id,

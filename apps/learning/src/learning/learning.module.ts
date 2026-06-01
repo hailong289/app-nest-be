@@ -17,7 +17,7 @@ import { TodoService } from '../todo/todo.service';
 import TodoSchema from 'libs/db/src/mongo/model/todo.model';
 import TodoProjectSchema from 'libs/db/src/mongo/model/todo-project.model';
 import { TodoProjectService } from '../todo/todo-project.service';
-import userModel from 'libs/db/src/mongo/model/user.model';
+import { GatewayClientService } from '../gateway-client.service';
 
 @Module({
   imports: [
@@ -28,7 +28,6 @@ import userModel from 'libs/db/src/mongo/model/user.model';
       flashcardProgressModel,
       TodoSchema,
       TodoProjectSchema,
-      userModel,
     ]),
   ],
   controllers: [
@@ -44,7 +43,13 @@ import userModel from 'libs/db/src/mongo/model/user.model';
     // TodoProjectController here.
     TodoController,
   ],
-  providers: [QuizzService, FlashcardService, TodoService, TodoProjectService],
+  providers: [
+    QuizzService,
+    FlashcardService,
+    TodoService,
+    TodoProjectService,
+    GatewayClientService,
+  ],
   exports: [QuizzService, FlashcardService, TodoService, TodoProjectService],
 })
 export class LearningModule {}

@@ -5,6 +5,7 @@ import { GatewayService } from '../gateway/gateway.service';
 import { GatewayQuizzController } from './quizz/gateway-quizz.controller';
 import { GatewayFlashcardController } from './flashcard/gateway-flashcard.controller';
 import { GatewayTodoController } from './todo/gateway-todo.controller';
+import { GatewayInternalLearningController } from './gateway-internal-learning.controller';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import learningConfig from '../config/learning.config';
 
@@ -21,6 +22,7 @@ import learningConfig from '../config/learning.config';
     GatewayQuizzController,
     GatewayFlashcardController,
     GatewayTodoController,
+    GatewayInternalLearningController,
   ],
   providers: [GatewayService],
 })

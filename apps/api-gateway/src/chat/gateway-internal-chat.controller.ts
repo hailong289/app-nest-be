@@ -29,6 +29,11 @@ interface ChatInternalGrpcService {
     actorUserId: string;
     attachmentIds: string[];
   }): Observable<unknown>;
+  checkLearningCardStatus(data: {
+    roomId?: string;
+    sourceType: 'quiz' | 'flashcard_deck' | 'todo_project';
+    sourceIds: string[];
+  }): Observable<unknown>;
 }
 
 @Controller('internal/chat')
@@ -52,7 +57,7 @@ export class GatewayInternalChatController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertFilesystemRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.chatService.resolveRoomForUser.bind(this.chatService),
@@ -76,7 +81,7 @@ export class GatewayInternalChatController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertFilesystemRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.chatService.getRoomMembers.bind(this.chatService),
@@ -97,7 +102,7 @@ export class GatewayInternalChatController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertFilesystemRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.chatService.attachMessageAttachments.bind(this.chatService),
@@ -106,11 +111,35 @@ export class GatewayInternalChatController implements OnModuleInit {
     );
   }
 
-  private assertFilesystemRequest(
+  @Post('messages/learning-card-status')
+  async checkLearningCardStatus(
+    @Body()
+    body: {
+      roomId?: string;
+      sourceType: 'quiz' | 'flashcard_deck' | 'todo_project';
+      sourceIds: string[];
+    },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, [
+      'learning',
+      'filesystem',
+    ]);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.checkLearningCardStatus.bind(this.chatService),
+      body,
+      30000,
+    );
+  }
+
+  private assertInternalRequest(
     internalService?: string,
     internalSecret?: string,
+    allowedServices: string[] = ['filesystem', 'learning'],
   ) {
-    if (internalService !== 'filesystem') {
+    if (!internalService || !allowedServices.includes(internalService)) {
       throw new UnauthorizedException('Invalid internal service');
     }
 

@@ -75,6 +75,7 @@ interface ResolveBusinessIdsGrpcPayload {
 
 interface GetUsersBatchGrpcPayload {
   userIds: string[];
+  search?: string;
 }
 
 @Controller()

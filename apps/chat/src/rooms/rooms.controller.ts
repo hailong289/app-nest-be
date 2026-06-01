@@ -76,6 +76,18 @@ export class RoomsController {
     return this.roomsService.attachMessageAttachments(payload);
   }
 
+  @GrpcMethod('ChatService', 'CheckLearningCardStatus')
+  async checkLearningCardStatus(
+    @Body()
+    payload: {
+      roomId?: string;
+      sourceType: 'quiz' | 'flashcard_deck' | 'todo_project';
+      sourceIds: string[];
+    },
+  ) {
+    return this.roomsService.checkLearningCardStatus(payload);
+  }
+
   @GrpcMethod('ChatService', 'ChangeAvatar')
   async ChangeAvatar(@Body() payload: ChangelinkAvatarRoomDto) {
     return this.roomsService.changeLinkAvatarRoom(payload);

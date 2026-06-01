@@ -325,7 +325,7 @@ export class AuthService implements OnModuleInit {
         _id: { $in: uniqueUserIds.map((userId) => new Types.ObjectId(userId)) },
       })
       .select(
-        '_id usr_id usr_fullname usr_email usr_avatar usr_status usr_slug',
+        '_id usr_id usr_fullname usr_email usr_phone usr_avatar usr_status usr_slug',
       )
       .lean()
       .exec();
@@ -340,6 +340,7 @@ export class AuthService implements OnModuleInit {
           name: user.usr_fullname,
           fullname: user.usr_fullname,
           email: user.usr_email,
+          phone: user.usr_phone,
           avatar: user.usr_avatar,
           status: user.usr_status,
           slug: user.usr_slug,

@@ -209,6 +209,7 @@ message FlashcardDeckProgress {
 }
 
 message FlashcardDeckMetadata {
+    string _id = 18;
     string deck_id = 1;
     string deck_userId = 2;
     string deck_name = 3;
