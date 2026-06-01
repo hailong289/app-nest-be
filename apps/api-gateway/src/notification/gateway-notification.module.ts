@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { SERVICES } from '@app/constants';
 import { GatewayNotificationController } from './gateway-notification.controller';
+import { GatewayInternalNotificationController } from './gateway-internal-notification.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { SharedKafkaClientModule } from 'libs/kafka';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
@@ -28,7 +29,7 @@ import authConfig from '../config/auth.config';
       packages: ['auth'],
     }),
   ],
-  controllers: [GatewayNotificationController],
+  controllers: [GatewayNotificationController, GatewayInternalNotificationController],
   providers: [GatewayService],
 })
 export class GatewayNotificationModule {}

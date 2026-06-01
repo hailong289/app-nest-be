@@ -39,6 +39,13 @@ interface FileSystemService {
 }
 
 interface DocumentService {
+  GetDoc(data: { docId: string; userId?: string }): Observable<unknown>;
+  UpdateDoc(data: {
+    docId: string;
+    userId?: string;
+    yjsSnapshot?: unknown;
+    plainText?: string;
+  }): Observable<unknown>;
   HydrateDocuments(data: {
     documentIds: string[];
     actorUserId?: string;
@@ -96,6 +103,51 @@ export class GatewayInternalFilesystemController implements OnModuleInit {
     );
   }
 
+  @Post('documents/:docId/open')
+  async openDocument(
+    @Param('docId') docId: string,
+    @Body() body: { userId?: string },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.documentService.GetDoc.bind(this.documentService),
+      {
+        docId,
+        userId: body.userId || '',
+      },
+      20000,
+    );
+  }
+
+  @Post('documents/:docId/update')
+  async updateDocument(
+    @Param('docId') docId: string,
+    @Body()
+    body: {
+      userId?: string;
+      yjsSnapshot?: unknown;
+      plainText?: string;
+    },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.documentService.UpdateDoc.bind(this.documentService),
+      {
+        docId,
+        userId: body.userId || '',
+        yjsSnapshot: this.toByteBuffer(body.yjsSnapshot),
+        plainText: body.plainText || '',
+      },
+      20000,
+    );
+  }
+
   @Post('attachments/resolve-for-ai')
   async resolveAttachmentForAi(
     @Body() body: ResolveAttachmentForAiRequest,
@@ -149,5 +201,20 @@ export class GatewayInternalFilesystemController implements OnModuleInit {
     if (expectedSecret && internalSecret !== expectedSecret) {
       throw new UnauthorizedException('Invalid internal secret');
     }
+  }
+
+  private toByteBuffer(value: unknown): Buffer | undefined {
+    if (!value) return undefined;
+    if (Buffer.isBuffer(value)) return value;
+    if (Array.isArray(value)) return Buffer.from(value);
+    if (typeof value === 'string') return Buffer.from(value, 'base64');
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      Array.isArray((value as { data?: unknown }).data)
+    ) {
+      return Buffer.from((value as { data: number[] }).data);
+    }
+    return undefined;
   }
 }

@@ -23,7 +23,7 @@ export default registerAs('learning', () => {
 
   return {
     host: get('GATEWAY_LEARNING_HOST') || 'localhost',
-    port: get('GATEWAY_LEARNING_PORT') || '5005',
+    port: get('GATEWAY_LEARNING_PORT') || '5007',
     protoPath: get('GATEWAY_LEARNING_PROTO_PATH') || 'libs/grpc/learning.proto',
     nodeEnv,
   };

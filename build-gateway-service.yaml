@@ -10,8 +10,68 @@ steps:
         'apps/api-gateway/Dockerfile',
         '.'
       ]
-    env:
-      - 'ENV_FILE=apps/api-gateway/.env'
-      
+
+  # Push API Gateway image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/api-gateway:latest']
+
+  # Deploy edge API Gateway to Cloud Run. No DB_* env belongs here.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      [
+        'run',
+        'deploy',
+        'api-gateway-service',
+        '--image','asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/api-gateway:latest',
+        '--region','asia-southeast1',
+        '--platform','managed',
+        '--use-http2',
+        '--min-instances=0',
+        '--max-instances=5',
+        '--memory=512Mi',
+        '--cpu=1',
+        '--allow-unauthenticated',
+        '--set-env-vars', 'NODE_ENV=${NODE_ENV}',
+        '--set-env-vars', 'HOST=${HOST}',
+        '--set-env-vars', 'PORT=${PORT}',
+        '--set-env-vars', 'TRUST_PROXY_HOPS=${TRUST_PROXY_HOPS}',
+        '--set-env-vars', 'CORS_ORIGIN=${CORS_ORIGIN}',
+        '--set-env-vars', 'GATEWAY_INTERNAL_SECRET=${GATEWAY_INTERNAL_SECRET}',
+        '--set-env-vars', 'GATEWAY_AUTH_HOST=${GATEWAY_AUTH_HOST}',
+        '--set-env-vars', 'GATEWAY_AUTH_PORT=${GATEWAY_AUTH_PORT}',
+        '--set-env-vars', 'GATEWAY_AUTH_PROTO_PATH=${GATEWAY_AUTH_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_FILESYSTEM_HOST=${GATEWAY_FILESYSTEM_HOST}',
+        '--set-env-vars', 'GATEWAY_FILESYSTEM_PORT=${GATEWAY_FILESYSTEM_PORT}',
+        '--set-env-vars', 'GATEWAY_FILESYSTEM_PROTO_PATH=${GATEWAY_FILESYSTEM_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_DOCUMENT_PROTO_PATH=${GATEWAY_DOCUMENT_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_CHAT_HOST=${GATEWAY_CHAT_HOST}',
+        '--set-env-vars', 'GATEWAY_CHAT_PORT=${GATEWAY_CHAT_PORT}',
+        '--set-env-vars', 'GATEWAY_CHAT_PROTO_PATH=${GATEWAY_CHAT_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_AI_HOST=${GATEWAY_AI_HOST}',
+        '--set-env-vars', 'GATEWAY_AI_PORT=${GATEWAY_AI_PORT}',
+        '--set-env-vars', 'GATEWAY_AI_PROTO_PATH=${GATEWAY_AI_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_NOTIFICATION_HOST=${GATEWAY_NOTIFICATION_HOST}',
+        '--set-env-vars', 'GATEWAY_NOTIFICATION_PORT=${GATEWAY_NOTIFICATION_PORT}',
+        '--set-env-vars', 'GATEWAY_NOTIFICATION_PROTO_PATH=${GATEWAY_NOTIFICATION_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_LEARNING_HOST=${GATEWAY_LEARNING_HOST}',
+        '--set-env-vars', 'GATEWAY_LEARNING_PORT=${GATEWAY_LEARNING_PORT}',
+        '--set-env-vars', 'GATEWAY_LEARNING_PROTO_PATH=${GATEWAY_LEARNING_PROTO_PATH}',
+        '--set-env-vars', 'GATEWAY_JWT_ACCESS_SECRET=${GATEWAY_JWT_ACCESS_SECRET}',
+        '--set-env-vars', 'GATEWAY_JWT_REFRESH_SECRET=${GATEWAY_JWT_REFRESH_SECRET}',
+        '--set-env-vars', 'REDIS_HOST=${REDIS_HOST}',
+        '--set-env-vars', 'REDIS_PORT=${REDIS_PORT}',
+        '--set-env-vars', 'REDIS_PASSWORD=${REDIS_PASSWORD}',
+        '--set-env-vars', 'REDIS_DB=${REDIS_DB}',
+        '--set-env-vars', 'KAFKA_HOST=${KAFKA_HOST}',
+        '--set-env-vars', 'KAFKA_PORT=${KAFKA_PORT}',
+        '--set-env-vars', 'KAFKA_CLIENT_ID=${KAFKA_CLIENT_ID}',
+        '--set-env-vars', 'KAFKA_GROUP_ID=${KAFKA_GROUP_ID}',
+        '--set-env-vars', 'KAFKA_SASL=${KAFKA_SASL}',
+        '--set-env-vars', 'KAFKA_SASL_USERNAME=${KAFKA_SASL_USERNAME}',
+        '--set-env-vars', 'KAFKA_SASL_PASSWORD=${KAFKA_SASL_PASSWORD}',
+        '--set-env-vars', 'KAFKA_SASL_MECHANISM=${KAFKA_SASL_MECHANISM}'
+      ]
+
 images:
   - 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/api-gateway:latest'

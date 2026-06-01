@@ -100,7 +100,7 @@ services:
       - "5000:5000" # host dùng localhost:5000
 
     env_file:
-      - apps/api-gateway/.env.docker
+      - apps/api-gateway/.env.docker.example
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -108,6 +108,8 @@ services:
       - chat
       - filesystem
       - notification
+      - ai
+      - learning
 
   # service auth microservice
   auth:
@@ -117,7 +119,7 @@ services:
     ports:
       - "5001:5001"
     env_file:
-      - apps/auth/.env.docker
+      - apps/auth/.env.docker.example
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -129,7 +131,7 @@ services:
     ports:
       - "5003:5003"
     env_file:
-      - apps/chat/.env.docker
+      - apps/chat/.env.docker.example
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -141,7 +143,7 @@ services:
     ports:
       - "5002:5002"
     env_file:
-      - apps/filesystem/.env.docker
+      - apps/filesystem/.env.docker.example
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -153,7 +155,7 @@ services:
     ports:
       - "5005:5005"
     env_file:
-      - apps/notification/.env.docker
+      - apps/notification/.env.docker.example
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -163,13 +165,54 @@ services:
       context: .
       dockerfile: apps/ai/Dockerfile
     ports:
+      - "5004:5004"
+    env_file:
+      - apps/ai/.env.docker.example
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # service learning microservice
+  learning:
+    build:
+      context: .
+      dockerfile: apps/learning/Dockerfile
+    ports:
+      - "5007:5007"
+    env_file:
+      - apps/learning/.env.docker.example
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # edge socket service (no Mongo env)
+  socket:
+    build:
+      context: .
+      dockerfile: apps/socket/Dockerfile
+    ports:
       - "5006:5006"
     env_file:
-      - apps/ai/.env.docker
+      - apps/socket/.env.docker.example
+    depends_on:
+      - redis
+      - api-gateway
+      - sfu
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # edge SFU service (no Redis/Mongo/Kafka env)
+  sfu:
+    build:
+      context: .
+      dockerfile: apps/sfu/Dockerfile
+    ports:
+      - "5008:5008"
+      - "40000-40099:40000-40099/udp"
+    env_file:
+      - apps/sfu/.env.docker.example
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
 volumes:
   kafka_data:
   # mongodb_data:
-  # redis_data:
+  redis_data:

@@ -7,34 +7,16 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Inject, Logger, OnModuleInit } from '@nestjs/common';
+import { Logger, OnModuleInit } from '@nestjs/common';
 import { Server } from 'socket.io';
-import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
-import type { ClientGrpc } from '@nestjs/microservices';
-import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
-import Utils from 'libs/helpers/src/utils';
 import { PresenceService } from '../ws/presence.service';
 import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
-
-export interface ChatGrpcService {
-  CreateNewMsg<T = any>(data: T): Observable<any>;
-  getRoom<T = any>(data: T): Observable<any>;
-  GetOneMsg<T = any>(data: T): Observable<any>;
-  MarkReadUpTo<T = any>(data: T): Observable<any>;
-  HandleReact<T = any>(data: T): Observable<any>;
-  HandlePinned<T = any>(data: T): Observable<any>;
-  HandleDeleteForUser<T = any>(data: T): Observable<any>;
-  HandleDelete<T = any>(data: T): Observable<any>;
-  RequestCall<T = any>(data: T): Observable<any>;
-  AcceptCall<T = any>(data: T): Observable<any>;
-  EndCall<T = any>(data: T): Observable<any>;
-  SendCandidate<T = any>(data: T): Observable<any>;
-}
+import { SocketGatewayClient } from '../gateway/gateway-client.service';
 
 @WebSocketGateway({
   cors: {
@@ -54,17 +36,15 @@ export class ChatGateway
   }
   private readonly logger = new Logger(ChatGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService!: ChatGrpcService;
+
   constructor(
-    @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly presence: PresenceService,
+    private readonly gatewayClient: SocketGatewayClient,
   ) {}
   onModuleInit() {
-    this.ChatGrpcService =
-      this.chatClient.getService<ChatGrpcService>('ChatService');
     // Bind /chat namespace as the canonical STATUS broadcast channel.
     // Other namespaces (/call, /doc) call PresenceService too but emit
     // events through here so the FE only has to subscribe in one place.
@@ -251,12 +231,11 @@ export class ChatGateway
 
     data.userId = user._id;
     try {
-      // Tạo message qua gRPC
       console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
+      const result = await this.gatewayClient.post<ChatGatewayResponse>(
+        '/internal/chat/messages',
         data,
-      )) as ChatGatewayResponse;
+      );
 
       console.log('🚀 ~ ChatGateway ~ onMessage ~ result:', result);
 
@@ -305,11 +284,10 @@ export class ChatGateway
     data.userId = user._id;
 
     try {
-      // Đánh dấu đã đọc qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
+      const result = await this.gatewayClient.post<ChatGatewayResponse>(
+        '/internal/chat/messages/read-up-to',
         data,
-      )) as ChatGatewayResponse;
+      );
       const msg = result.metadata.msg;
       const memberIds = result.metadata.members.map(
         (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
@@ -348,11 +326,10 @@ export class ChatGateway
     }
     data.userId = user._id;
     try {
-      // Tạo message qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandleReact.bind(this.ChatGrpcService),
+      const result = await this.gatewayClient.post<ChatGatewayResponse>(
+        '/internal/chat/messages/react',
         data,
-      )) as ChatGatewayResponse;
+      );
       const msg = result.metadata.msg;
       const memberIds = result.metadata.members.map(
         (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
@@ -393,11 +370,10 @@ export class ChatGateway
     data.userId = user._id;
 
     try {
-      // Tạo message qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandlePinned.bind(this.ChatGrpcService),
+      const result = await this.gatewayClient.post<ChatGatewayResponse>(
+        '/internal/chat/messages/pinned',
         data,
-      )) as ChatGatewayResponse;
+      );
       const msg = result.metadata.msg;
       const memberIds = result.metadata.members.map(
         (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
@@ -438,11 +414,10 @@ export class ChatGateway
     data.userId = user._id;
 
     try {
-      // Tạo message qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandleDeleteForUser.bind(this.ChatGrpcService),
+      const result = await this.gatewayClient.post<ChatGatewayDeleteResponse>(
+        '/internal/chat/messages/delete-for-user',
         data,
-      )) as ChatGatewayDeleteResponse;
+      );
 
       const metadata = result?.metadata ?? {};
       const memberIds = metadata.members.map((member: Record<string, any>) =>
@@ -490,11 +465,10 @@ export class ChatGateway
     data.userId = user._id;
 
     try {
-      // Gọi đúng hàm HandleDelete (recall) thay vì HandleDeleteForUser
-      const result = (await Utils.dispatchGrpcRequest(
-        this.ChatGrpcService.HandleDelete.bind(this.ChatGrpcService),
+      const result = await this.gatewayClient.post<ChatGatewayDeleteResponse>(
+        '/internal/chat/messages/recall',
         data,
-      )) as ChatGatewayDeleteResponse;
+      );
 
       const metadata = result?.metadata ?? {};
       const memberIds = metadata.members.map((member: Record<string, any>) =>

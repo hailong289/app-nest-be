@@ -7,19 +7,16 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Inject, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
-import type { ClientGrpc } from '@nestjs/microservices';
-import { SERVICES } from '@app/constants';
 import { socketEvent } from '@app/dto/enum.type';
-import { Observable } from 'rxjs';
-import Utils from 'libs/helpers/src/utils';
 import { PresenceService } from '../ws/presence.service';
 import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
+import { SocketGatewayClient } from '../gateway/gateway-client.service';
 
 interface DocumentMetadata {
   _id: string;
@@ -42,13 +39,6 @@ interface GrpcResponse {
   metadata?: DocumentMetadata | DocumentMetadata[];
 }
 
-interface DocumentService {
-  CreateDoc(data: any): Observable<any>;
-  GetDoc(data: any): Observable<any>;
-  UpdateDoc(data: any): Observable<any>;
-  DeleteDoc(data: any): Observable<any>;
-  ListDocs(data: any): Observable<any>;
-}
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: '/doc',
@@ -59,20 +49,14 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() io!: Server;
   private readonly logger = new Logger(DocGateway.name);
   private readonly key = REDISKEY;
-  private DocGrpcService!: DocumentService;
 
   constructor(
-    @Inject(SERVICES.FILESYSTEM) private readonly docClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
     private readonly presence: PresenceService,
+    private readonly gatewayClient: SocketGatewayClient,
   ) {}
-
-  onModuleInit() {
-    this.DocGrpcService =
-      this.docClient.getService<DocumentService>('DocumentService');
-  }
 
   // ========================================================
   // Connection Handling
@@ -275,12 +259,10 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const docRoom = `doc:${docId}`;
       await client.join(docRoom);
 
-      // Get document from service
-      const result = (await Utils.dispatchGrpcRequest(
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument
-        (this.DocGrpcService.GetDoc as any).bind(this.DocGrpcService),
-        { docId, userId: user._id },
-      )) as GrpcResponse;
+      const result = await this.gatewayClient.post<GrpcResponse>(
+        `/internal/filesystem/documents/${docId}/open`,
+        { userId: user._id },
+      );
 
       // Notify others in room
       client.to(docRoom).emit('user:joined', {
@@ -363,16 +345,14 @@ export class DocGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `[DOC-SAVE] User ${user.usr_fullname} saving snapshot for ${docId}. Size: ${yjsBuffer?.length ?? 0} bytes`,
       );
 
-      // Gọi Service để lưu vào DB (Logic nặng)
-      (await Utils.dispatchGrpcRequest(
-        this.DocGrpcService.UpdateDoc.bind(this.DocGrpcService),
+      await this.gatewayClient.post<GrpcResponse>(
+        `/internal/filesystem/documents/${docId}/update`,
         {
-          docId,
-          yjsSnapshot: yjsBuffer, // Truyền Buffer
+          yjsSnapshot: yjsBuffer ? Array.from(yjsBuffer) : undefined,
           plainText,
           userId: user._id,
         },
-      )) as GrpcResponse;
+      );
 
       // ⚠️ Tinh chỉnh Broadcast lại sau khi lưu:
       // Client đã có dữ liệu rồi (nhờ broadcast ở trên),

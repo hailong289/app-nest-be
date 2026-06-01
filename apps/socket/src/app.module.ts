@@ -15,10 +15,13 @@ import { ScheduleModule } from '@nestjs/schedule';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: path.resolve(
-        process.cwd(),
-        `apps/socket/.env.${process.env.NODE_ENV || 'development'}`,
-      ),
+      envFilePath: [
+        path.resolve(
+          process.cwd(),
+          `apps/socket/.env.${process.env.NODE_ENV || 'development'}`,
+        ),
+        path.resolve(process.cwd(), 'apps/socket/.env'),
+      ],
       load: [redisConfig, sfuConfig],
     }),
     JwtModule.register({}),

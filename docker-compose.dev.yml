@@ -27,7 +27,7 @@ services:
       dockerfile: apps/sfu/Dockerfile
     image: app-sfu:dev
     env_file:
-      - apps/sfu/.env.local
+      - apps/sfu/.env.docker.example
     environment:
       # Inside Docker bridge network, ANNOUNCED_IP can't be the auto-detected
       # public IP — browsers from outside Docker won't reach the container's
@@ -50,7 +50,7 @@ services:
       dockerfile: apps/socket/Dockerfile
     image: app-socket:dev
     env_file:
-      - apps/socket/.env.local
+      - apps/socket/.env.docker.example
     environment:
       # Override .env.local: inside the compose network, sfu is reachable by
       # service name "sfu", not localhost.

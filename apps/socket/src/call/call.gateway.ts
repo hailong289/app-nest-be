@@ -9,21 +9,15 @@ import {
 } from '@nestjs/websockets';
 import {
   BadRequestException,
-  Inject,
   Logger,
-  OnModuleInit,
 } from '@nestjs/common';
 import { Server } from 'socket.io';
-import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import type { CallStatus } from 'libs/types';
 import { REDISKEY, REDIS_TTL } from '@app/constants/RedisKey';
-import type { ClientGrpc } from '@nestjs/microservices';
-import { SERVICES } from '@app/constants';
 import { socketEvent } from 'libs/dto/src/enum.type';
-import Utils from 'libs/helpers/src/utils';
 import { SfuRpcClient, UnifiedSignalHandler } from '@app/sfu';
 import { PresenceService } from '../ws/presence.service';
 import { InjectQueue } from '@nestjs/bull';
@@ -33,26 +27,7 @@ import {
   type AutoMissJobData,
 } from './call-auto-miss.constants';
 import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
-
-export interface ChatGrpcService {
-  CreateNewMsg<T = any>(data: T): Observable<any>;
-  getRoom<T = any>(data: T): Observable<any>;
-  GetOneMsg<T = any>(data: T): Observable<any>;
-  MarkReadUpTo<T = any>(data: T): Observable<any>;
-  HandleReact<T = any>(data: T): Observable<any>;
-  HandlePinned<T = any>(data: T): Observable<any>;
-  HandleDeleteForUser<T = any>(data: T): Observable<any>;
-  HandleDelete<T = any>(data: T): Observable<any>;
-  RequestCall<T = any>(data: T): Observable<any>;
-  AcceptCall<T = any>(data: T): Observable<any>;
-  EndCall<T = any>(data: T): Observable<any>;
-  GetCallStatus<T = any>(data: T): Observable<any>;
-  SendCandidate<T = any>(data: T): Observable<any>;
-}
-
-export interface AiGrpcService {
-  TranscribeRealtime<T = any>(data: T): Observable<any>;
-}
+import { SocketGatewayClient } from '../gateway/gateway-client.service';
 
 @WebSocketGateway({
   cors: {
@@ -65,7 +40,7 @@ export interface AiGrpcService {
   allowEIO3: true, // Cho phép tương thích ngược với các client đời cũ (nếu có)
 })
 export class CallGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+  implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer() io!: Server;
   public get server(): Server {
@@ -73,11 +48,7 @@ export class CallGateway
   }
   private readonly logger = new Logger(CallGateway.name);
   private readonly key = REDISKEY;
-  private ChatGrpcService!: ChatGrpcService;
-  private AiGrpcService!: AiGrpcService;
   constructor(
-    @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
-    @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
@@ -90,11 +61,23 @@ export class CallGateway
     // deployments. Workers consume via `CallAutoMissProcessor`.
     @InjectQueue(CALL_AUTO_MISS_QUEUE)
     private readonly autoMissQueue: Queue<AutoMissJobData>,
+    private readonly gatewayClient: SocketGatewayClient,
   ) {}
-  onModuleInit() {
-    this.ChatGrpcService =
-      this.chatClient.getService<ChatGrpcService>('ChatService');
-    this.AiGrpcService = this.aiClient.getService<AiGrpcService>('AIService');
+
+  private chatPost<T = any>(
+    path: string,
+    body: Record<string, unknown>,
+    timeoutMs = 20_000,
+  ): Promise<T> {
+    return this.gatewayClient.post<T>(`/internal/chat/${path}`, body, timeoutMs);
+  }
+
+  private aiPost<T = any>(
+    path: string,
+    body: Record<string, unknown>,
+    timeoutMs = 60_000,
+  ): Promise<T> {
+    return this.gatewayClient.post<T>(`/internal/ai/${path}`, body, timeoutMs);
   }
 
   /**
@@ -126,13 +109,10 @@ export class CallGateway
     }
 
     try {
-      const status = (await Utils.dispatchGrpcRequest(
-        (d) => this.ChatGrpcService.GetCallStatus(d),
-        { callId: inCallId },
-      )) as {
+      const status = await this.chatPost<{
         statusCode: number;
         metadata?: { ended?: boolean; exists?: boolean };
-      };
+      }>('calls/status', { callId: inCallId });
 
       const ended =
         status?.statusCode === 200 &&
@@ -572,15 +552,15 @@ export class CallGateway
     // keep the call running for the people who DID pick up). Without
     // members in the broadcast, FE would treat every auto-miss as 1-on-1
     // and show "call will close" even when 3+ people are happily talking.
-    const result = (await Utils.dispatchGrpcRequest(
-      (d) => this.ChatGrpcService.EndCall(d),
+    const result = await this.chatPost<ChatGatewayCallResponse>(
+      'calls/end',
       {
         actionUserId: calleeId,
         roomId,
         callId,
         status: 'missed',
       },
-    )) as ChatGatewayCallResponse;
+    );
     const members = result?.metadata?.history?.members ?? [];
 
     await this.clearPendingInvite(calleeId, callId);
@@ -804,15 +784,15 @@ export class CallGateway
             //    the chat service compute member.status correctly
             //    (ended for leavers; ended_at when caller leaves or
             //    all members ended).
-            const endResult = (await Utils.dispatchGrpcRequest(
-              (d) => this.ChatGrpcService.EndCall(d),
+            const endResult = await this.chatPost<ChatGatewayCallResponse>(
+              'calls/end',
               {
                 actionUserId: userUlid,
                 roomId: endRoomId,
                 callId: activeCallId,
                 status: 'ended',
               },
-            )) as ChatGatewayCallResponse;
+            );
 
             // 2. Notify remaining members in the room.
             const members = endResult?.metadata?.history?.members ?? [];
@@ -972,11 +952,10 @@ export class CallGateway
         });
       }
 
-      // bắt đầu tạo lịch sử cuộc gọi
-      const result = (await Utils.dispatchGrpcRequest(
-        (d) => this.ChatGrpcService.RequestCall(d),
+      const result = await this.chatPost<ChatGatewayCallResponse>(
+        'calls/request',
         data,
-      )) as ChatGatewayCallResponse;
+      );
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -1242,16 +1221,15 @@ export class CallGateway
 
       // Người nhận tham gia socket room để nhận các sự kiện call:end, call:share-screen, v.v.
       await client.join(data.roomId);
-      // trả lời cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
-      const result = (await Utils.dispatchGrpcRequest(
-        (d) => this.ChatGrpcService.AcceptCall(d),
+      const result = await this.chatPost<ChatGatewayCallResponse>(
+        'calls/accept',
         {
           actionUserId: data.actionUserId,
           membersIds: data.membersIds,
           roomId: data.roomId,
           callId: data.callId,
         },
-      )) as ChatGatewayCallResponse;
+      );
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -1437,15 +1415,14 @@ export class CallGateway
         client.id,
       );
 
-      // Cập nhật trạng thái thành viên sang 'started' qua gRPC
-      const result = (await Utils.dispatchGrpcRequest(
-        (d) => this.ChatGrpcService.AcceptCall(d),
+      const result = await this.chatPost<ChatGatewayCallResponse>(
+        'calls/accept',
         {
           actionUserId: data.actionUserId,
           roomId: data.roomId,
           callId: data.callId,
         },
-      )) as ChatGatewayCallResponse;
+      );
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -1583,11 +1560,10 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-      // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
-      const result = (await Utils.dispatchGrpcRequest(
-        (d) => this.ChatGrpcService.EndCall(d),
+      const result = await this.chatPost<ChatGatewayCallResponse>(
+        'calls/end',
         data,
-      )) as ChatGatewayCallResponse;
+      );
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -1900,16 +1876,7 @@ export class CallGateway
         return { ok: false, error: 'Empty audio chunk' };
       }
 
-      const result = (await Utils.dispatchGrpcRequest(
-        (d) => this.AiGrpcService.TranscribeRealtime(d),
-        {
-          audioChunk: audioBuffer,
-          mimeType: data.mimeType || 'audio/webm',
-          language,
-          userId: user.usr_id,
-          speakerName: speaker,
-        },
-      )) as {
+      const result = await this.aiPost<{
         statusCode?: number;
         message?: string;
         reasonStatusCode?: string;
@@ -1919,7 +1886,16 @@ export class CallGateway
           speakerName?: string;
           isEmpty?: boolean;
         };
-      };
+      }>(
+        'transcribe-realtime',
+        {
+          audioChunk: data.audioChunk,
+          mimeType: data.mimeType || 'audio/webm',
+          language,
+          userId: user.usr_id,
+          speakerName: speaker,
+        },
+      );
 
       if (result.statusCode && result.statusCode !== 200) {
         const message =

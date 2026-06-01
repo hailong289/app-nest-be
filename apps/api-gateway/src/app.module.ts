@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import path from 'path';
 import { AuthMiddleware } from './middlewares/auth.middleware';
+import { InternalRequestMiddleware } from './middlewares/internal-request.middleware';
 import { RequestLoggerMiddleware } from './middlewares/request-logger.middleware';
 import { ConfigModule } from '@nestjs/config';
 import { GatewayAuthModule } from './auth/gateway-auth.module';
@@ -39,6 +40,10 @@ export class AppModule {
     // Request logger first → sees EVERY request (auth-protected or not)
     // and logs the final status code in res.on('finish').
     consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+
+    consumer
+      .apply(InternalRequestMiddleware)
+      .forRoutes({ path: 'internal/*path', method: RequestMethod.ALL });
 
     consumer.apply(AuthMiddleware).forRoutes(
       { path: 'auth/logout', method: RequestMethod.ALL },

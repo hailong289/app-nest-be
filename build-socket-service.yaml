@@ -1,0 +1,53 @@
+steps:
+  # Build Socket edge service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'build',
+        '-t',
+        'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/socket:latest',
+        '-f',
+        'apps/socket/Dockerfile',
+        '.'
+      ]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/socket:latest']
+
+  # Deploy Socket edge service. No DB_* env belongs here.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      [
+        'run',
+        'deploy',
+        'socket-service',
+        '--image','asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/socket:latest',
+        '--region','asia-southeast1',
+        '--platform','managed',
+        '--use-http2',
+        '--min-instances=0',
+        '--max-instances=5',
+        '--memory=512Mi',
+        '--cpu=1',
+        '--allow-unauthenticated',
+        '--set-env-vars', 'NODE_ENV=${NODE_ENV}',
+        '--set-env-vars', 'HOST=${HOST}',
+        '--set-env-vars', 'PORT=${PORT}',
+        '--set-env-vars', 'REDIS_HOST=${REDIS_HOST}',
+        '--set-env-vars', 'REDIS_PORT=${REDIS_PORT}',
+        '--set-env-vars', 'REDIS_PASSWORD=${REDIS_PASSWORD}',
+        '--set-env-vars', 'REDIS_DB=${REDIS_DB}',
+        '--set-env-vars', 'GATEWAY_JWT_ACCESS_SECRET=${GATEWAY_JWT_ACCESS_SECRET}',
+        '--set-env-vars', 'GATEWAY_JWT_REFRESH_SECRET=${GATEWAY_JWT_REFRESH_SECRET}',
+        '--set-env-vars', 'GATEWAY_INTERNAL_URL=${GATEWAY_INTERNAL_URL}',
+        '--set-env-vars', 'GATEWAY_INTERNAL_SECRET=${GATEWAY_INTERNAL_SECRET}',
+        '--set-env-vars', 'GATEWAY_SFU_HOST=${GATEWAY_SFU_HOST}',
+        '--set-env-vars', 'GATEWAY_SFU_PORT=${GATEWAY_SFU_PORT}',
+        '--set-env-vars', 'GATEWAY_SFU_TLS=${GATEWAY_SFU_TLS}',
+        '--set-env-vars', 'GATEWAY_SFU_PROTO_PATH=${GATEWAY_SFU_PROTO_PATH}',
+        '--set-env-vars', 'SFU_INTERNAL_SECRET=${SFU_INTERNAL_SECRET}'
+      ]
+
+images:
+  - 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/socket:latest'

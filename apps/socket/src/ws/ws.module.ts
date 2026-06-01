@@ -6,6 +6,7 @@ import { RedisService } from 'libs/db/src/redis/redis.service';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { JwtModule } from '@nestjs/jwt';
 import { PresenceService } from './presence.service';
+import { SocketGatewayClient } from '../gateway/gateway-client.service';
 
 /**
  * Lightweight shared module for the socket app: provides JWT guard +
@@ -19,13 +20,14 @@ import { PresenceService } from './presence.service';
 @Global()
 @Module({
   imports: [ConfigModule, RedisModule, JwtModule],
-  providers: [Logger, WsJwtGuard, PresenceService],
+  providers: [Logger, WsJwtGuard, PresenceService, SocketGatewayClient],
   exports: [
     RedisModule,
     WsJwtGuard,
     ConfigModule,
     JwtModule,
     PresenceService,
+    SocketGatewayClient,
   ],
 })
 export class WsSharedModule {}

@@ -6,6 +6,7 @@ import { SERVICES } from '@app/constants';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { GatewayAiController } from './gateway-ai.controller';
+import { GatewayInternalAiController } from './gateway-internal-ai.controller';
 import { GatewayService } from '../gateway/gateway.service';
 import { GrpcClientModule } from 'libs/grpc/grpc-client.module';
 import aiConfig from '../config/ai.config';
@@ -19,7 +20,7 @@ import aiConfig from '../config/ai.config';
       packages: ['ai'],
     }),
   ],
-  controllers: [GatewayAiController],
+  controllers: [GatewayAiController, GatewayInternalAiController],
   providers: [GatewayService],
 })
 export class GatewayAiModule {}

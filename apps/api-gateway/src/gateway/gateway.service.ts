@@ -71,6 +71,7 @@ export class GatewayService {
     client: ClientProxy | ClientKafka,
     pattern: string,
     data: Record<string, unknown> = {},
+    timeoutMs = 5000,
   ): Promise<{ success: boolean } | ReturnType<typeof Response.error>> {
     if (this.request?.headers) {
       data.headers = this.request.headers;
@@ -78,7 +79,7 @@ export class GatewayService {
     try {
       await firstValueFrom(
         client.emit(pattern, data).pipe(
-          timeout(5000),
+          timeout(timeoutMs),
           catchError((err: unknown) => {
             const errorMessage =
               err instanceof Error ? err.message : String(err);

@@ -607,7 +607,7 @@ export class AuthService implements OnModuleInit {
     });
 
     try {
-      await this.gatewayClient.post('/notifications/send-otp', {
+      await this.gatewayClient.post('/internal/notifications/send-otp', {
         email: normalizedEmail,
         otp: otpCode,
       });
@@ -865,7 +865,7 @@ export class AuthService implements OnModuleInit {
           userId: user.usr_id,
         });
         // Gửi OTP về email thông qua Notification Service
-        await this.gatewayClient.post('/notifications/send-otp', {
+        await this.gatewayClient.post('/internal/notifications/send-otp', {
           email: recipientEmail,
           otp: otpCode,
         });
@@ -880,7 +880,7 @@ export class AuthService implements OnModuleInit {
         expiresIn: '30m', // access token sống 30 phút
       });
       // Gửi token về email thông qua Notification Service
-      await this.gatewayClient.post('/notifications/forgot-password', {
+      await this.gatewayClient.post('/internal/notifications/forgot-password', {
         email: recipientEmail,
         token: accessToken,
       });

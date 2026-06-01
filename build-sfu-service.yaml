@@ -1,0 +1,46 @@
+steps:
+  # Build SFU media-control service
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'build',
+        '-t',
+        'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/sfu:latest',
+        '-f',
+        'apps/sfu/Dockerfile',
+        '.'
+      ]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/sfu:latest']
+
+  # Cloud Run can smoke-test the gRPC control plane, but production media
+  # should run on a VM/network with stable UDP port exposure.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      [
+        'run',
+        'deploy',
+        'sfu-service',
+        '--image','asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/sfu:latest',
+        '--region','asia-southeast1',
+        '--platform','managed',
+        '--use-http2',
+        '--min-instances=0',
+        '--max-instances=2',
+        '--memory=1Gi',
+        '--cpu=1',
+        '--allow-unauthenticated',
+        '--set-env-vars', 'NODE_ENV=${NODE_ENV}',
+        '--set-env-vars', 'HOST=${HOST}',
+        '--set-env-vars', 'PORT=${PORT}',
+        '--set-env-vars', 'SFU_INTERNAL_SECRET=${SFU_INTERNAL_SECRET}',
+        '--set-env-vars', 'MEDIASOUP_LISTEN_IP=${MEDIASOUP_LISTEN_IP}',
+        '--set-env-vars', 'MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP}',
+        '--set-env-vars', 'MEDIASOUP_RTC_MIN_PORT=${MEDIASOUP_RTC_MIN_PORT}',
+        '--set-env-vars', 'MEDIASOUP_RTC_MAX_PORT=${MEDIASOUP_RTC_MAX_PORT}'
+      ]
+
+images:
+  - 'asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/sfu:latest'

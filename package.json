@@ -66,7 +66,7 @@
     "check:db-ownership": "node scripts/check-db-ownership.mjs",
     "check:edge-no-mongo": "node scripts/check-db-ownership.mjs --edge-only",
     "check:service-db-env": "node scripts/check-db-ownership.mjs --env-only",
-    "check:no-direct-cross-service-grpc": "node scripts/check-db-ownership.mjs --grpc-only",
+    "check:no-direct-cross-service-grpc": "node scripts/check-db-ownership.mjs --grpc-only --strict-grpc",
     "ci:guardrail": "npm run check:db-ownership && npm run check:no-direct-cross-service-grpc && npm run build:all"
   },
   "dependencies": {

@@ -15,6 +15,16 @@ import { SERVICES } from '@app/constants/services';
 import { GatewayService } from '../gateway/gateway.service';
 
 interface ChatInternalGrpcService {
+  CreateNewMsg(data: Record<string, unknown>): Observable<unknown>;
+  MarkReadUpTo(data: Record<string, unknown>): Observable<unknown>;
+  HandleReact(data: Record<string, unknown>): Observable<unknown>;
+  HandlePinned(data: Record<string, unknown>): Observable<unknown>;
+  HandleDeleteForUser(data: Record<string, unknown>): Observable<unknown>;
+  HandleDelete(data: Record<string, unknown>): Observable<unknown>;
+  RequestCall(data: Record<string, unknown>): Observable<unknown>;
+  AcceptCall(data: Record<string, unknown>): Observable<unknown>;
+  EndCall(data: Record<string, unknown>): Observable<unknown>;
+  GetCallStatus(data: { callId: string }): Observable<unknown>;
   resolveRoomForUser(data: {
     roomId: string;
     userId?: string;
@@ -49,6 +59,156 @@ export class GatewayInternalChatController implements OnModuleInit {
   onModuleInit() {
     this.chatService =
       this.chatClient.getService<ChatInternalGrpcService>('ChatService');
+  }
+
+  @Post('messages')
+  async createMessage(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.CreateNewMsg.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('messages/read-up-to')
+  async markReadUpTo(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.MarkReadUpTo.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('messages/react')
+  async handleReact(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.HandleReact.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('messages/pinned')
+  async handlePinned(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.HandlePinned.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('messages/delete-for-user')
+  async handleDeleteForUser(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.HandleDeleteForUser.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('messages/recall')
+  async handleDelete(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.HandleDelete.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('calls/request')
+  async requestCall(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.RequestCall.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('calls/accept')
+  async acceptCall(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.AcceptCall.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('calls/end')
+  async endCall(
+    @Body() body: Record<string, unknown>,
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.EndCall.bind(this.chatService),
+      body,
+      20000,
+    );
+  }
+
+  @Post('calls/status')
+  async getCallStatus(
+    @Body() body: { callId: string },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['socket']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.chatService.GetCallStatus.bind(this.chatService),
+      body,
+      10000,
+    );
   }
 
   @Post('rooms/resolve')
