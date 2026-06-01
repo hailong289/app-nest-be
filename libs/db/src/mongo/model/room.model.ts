@@ -16,6 +16,7 @@ export type memberType = {
   joinedAt?: Date;
   name: string;
   id: string;
+  avatar?: string;
 };
 @Schema({ _id: false }) // subdoc không có _id
 export class Member {
@@ -34,6 +35,9 @@ export class Member {
 
   @Prop({ type: String, default: '' })
   name: string;
+
+  @Prop({ type: String, default: '' })
+  avatar: string;
 
   // id hiển thị (tuỳ UI), không bắt buộc lưu; giữ lại nếu bạn đang dùng:
   @Prop({ type: String, default: '' })

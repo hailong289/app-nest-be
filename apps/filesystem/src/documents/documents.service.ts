@@ -152,6 +152,29 @@ export class DocumentsService {
     return docs[0] ?? null;
   }
 
+  async hydrateDocumentsByIds(documentIds: string[], actorUserId?: string) {
+    const ids = Array.from(
+      new Set(
+        (documentIds || []).filter(
+          (id): id is string =>
+            typeof id === 'string' && Types.ObjectId.isValid(id),
+        ),
+      ),
+    );
+    if (ids.length === 0) {
+      return Response.success({ items: [] }, 'Hydrate documents successful');
+    }
+
+    const docs = await this.docsModel
+      .find({
+        _id: { $in: ids.map((id) => this.utils.convertToObjectIdMongoose(id)) },
+      })
+      .lean();
+    const items = await this.hydrateDocuments(docs, actorUserId, false);
+
+    return Response.success({ items }, 'Hydrate documents successful');
+  }
+
   private async hydrateDocuments(
     docs: any[],
     actorUserId?: string,

@@ -101,6 +101,9 @@ interface AuthGrpcService {
     userAgent?: string | null;
     location?: DeviceContext['location'];
   }): Observable<unknown>;
+  // Internal methods for chat service
+  getUsersBatch(data: { userIds: string[] }): Observable<unknown>;
+  resolveBusinessIds(data: { usrIds: string[] }): Observable<unknown>;
 }
 
 @Controller('auth')
@@ -439,6 +442,104 @@ export class GatewayAuthController {
         ...body,
         userId: req.user?._id,
       },
+    );
+  }
+
+  // =====================================================
+  // Internal endpoints — for use by other services only.
+  // Protected by x-internal-service header.
+  // =====================================================
+
+  /**
+   * Batch-get user summaries by Mongo _id array.
+   * POST /auth/internal/users/batch
+   * Body: { userIds: string[] }  (Mongo ObjectId strings)
+   */
+  @Post('internal/users/batch')
+  async internalGetUsersBatch(
+    @Body() body: { userIds: string[] },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const service = (req as any).headers?.['x-internal-service'];
+    if (
+      service !== 'chat' &&
+      service !== 'notification' &&
+      service !== 'filesystem' &&
+      service !== 'learning'
+    ) {
+      return { statusCode: 401, message: 'Unauthorized internal request' };
+    }
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      (data) => this.authService.getUsersBatch(data),
+      { userIds: body.userIds ?? [] },
+    )) as { statusCode?: number; metadata?: { items?: unknown[] } };
+    // Normalize response: chat expects metadata.users
+    if (result?.statusCode === 200 && result.metadata?.items) {
+      return { ...result, metadata: { users: result.metadata.items } };
+    }
+    return result;
+  }
+
+  /**
+   * Resolve user Mongo _id + summary from business usr_id array.
+   * POST /auth/internal/users/resolve-business-ids
+   * Body: { usrIds: string[] }
+   */
+  @Post('internal/users/resolve-business-ids')
+  async internalResolveBusinessIds(
+    @Body() body: { usrIds: string[] },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const service = (req as any).headers?.['x-internal-service'];
+    if (
+      service !== 'chat' &&
+      service !== 'notification' &&
+      service !== 'filesystem' &&
+      service !== 'learning'
+    ) {
+      return { statusCode: 401, message: 'Unauthorized internal request' };
+    }
+    const result = (await this.gatewayService.dispatchGrpcRequest(
+      (data) => this.authService.resolveBusinessIds(data),
+      { usrIds: body.usrIds ?? [] },
+    )) as { statusCode?: number; metadata?: { items?: unknown[] } };
+    if (result?.statusCode === 200 && result.metadata?.items) {
+      return { ...result, metadata: { users: result.metadata.items } };
+    }
+    return result;
+  }
+
+  /**
+   * Search users by keyword — for social search feature.
+   * POST /auth/internal/users/search
+   * Body: { keyword, page, limit, excludeUsrId? }
+   */
+  @Post('internal/users/search')
+  async internalSearchUsers(
+    @Body()
+    body: {
+      keyword?: string;
+      page?: number;
+      limit?: number;
+      excludeUsrId?: string;
+      excludeUserIds?: string[];
+    },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const service = (req as any).headers?.['x-internal-service'];
+    if (service !== 'chat') {
+      return { statusCode: 401, message: 'Unauthorized internal request' };
+    }
+    const searchDto = {
+      keyword: body.keyword ?? '',
+      page: body.page ?? 1,
+      limit: body.limit ?? 20,
+      excludeUsrId: body.excludeUsrId,
+      excludeUserIds: body.excludeUserIds ?? [],
+    };
+    return await this.gatewayService.dispatchGrpcRequest(
+      (data) => this.authService.searchUser(data as SearchUserDto),
+      searchDto,
     );
   }
 }

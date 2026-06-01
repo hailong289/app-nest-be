@@ -10,6 +10,7 @@ service FileSystemService {
     rpc UploadSingleFileForUser(InputUploadSingleFileForUser)returns (UploadSingleFileForUserResponse);
     rpc UploadMultipleFilesForUser(InputUploadMultipleFilesForUser) returns (UploadMultipleFilesForUserResponse);
     rpc GetAttachments(GetAttachmentsRequest) returns (GetAttachmentsResponse);
+    rpc HydrateAttachments(HydrateAttachmentsRequest) returns (HydrateAttachmentsResponse);
     rpc ResolveAttachmentForAi(ResolveAttachmentForAiRequest) returns (ResolveAttachmentForAiResponse);
     rpc SaveAttachmentTranscript(SaveAttachmentTranscriptRequest) returns (SaveAttachmentTranscriptResponse);
 }
@@ -148,6 +149,21 @@ message GetAttachmentsResponse {
     int32 statusCode = 2;
     string reasonStatusCode = 3;
     repeated UploadSingleFileForUserCore metadata = 4;
+}
+
+message HydrateAttachmentsRequest {
+    repeated string attachmentIds = 1;
+}
+
+message HydrateAttachmentsMetadata {
+    repeated UploadSingleFileForUserCore items = 1;
+}
+
+message HydrateAttachmentsResponse {
+    string message = 1;
+    int32 statusCode = 2;
+    string reasonStatusCode = 3;
+    HydrateAttachmentsMetadata metadata = 4;
 }
 
 message ResolveAttachmentForAiRequest {

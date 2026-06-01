@@ -162,6 +162,23 @@ export class FilesystemController {
     }
   }
 
+  @GrpcMethod('FileSystemService', 'HydrateAttachments')
+  async hydrateAttachments(@Payload() data: { attachmentIds: string[] }) {
+    try {
+      return await this.filesystemService.hydrateAttachments(
+        data.attachmentIds || [],
+      );
+    } catch (error) {
+      console.error('❌ Hydrate attachments error:', error);
+      return Response.error(
+        'Lấy metadata file thất bại',
+        400,
+        'ERROR_FILESYSTEM',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+    }
+  }
+
   @GrpcMethod('FileSystemService', 'ResolveAttachmentForAi')
   async resolveAttachmentForAi(
     @Payload()

@@ -29,6 +29,7 @@ interface SaveAttachmentTranscriptRequest {
 }
 
 interface FileSystemService {
+  HydrateAttachments(data: { attachmentIds: string[] }): Observable<unknown>;
   ResolveAttachmentForAi(
     data: ResolveAttachmentForAiRequest,
   ): Observable<unknown>;
@@ -37,9 +38,17 @@ interface FileSystemService {
   ): Observable<unknown>;
 }
 
+interface DocumentService {
+  HydrateDocuments(data: {
+    documentIds: string[];
+    actorUserId?: string;
+  }): Observable<unknown>;
+}
+
 @Controller('internal/filesystem')
 export class GatewayInternalFilesystemController implements OnModuleInit {
   private filesystemService: FileSystemService;
+  private documentService: DocumentService;
 
   constructor(
     @Inject(SERVICES.FILESYSTEM) private readonly filesystemClient: ClientGrpc,
@@ -50,6 +59,41 @@ export class GatewayInternalFilesystemController implements OnModuleInit {
   onModuleInit() {
     this.filesystemService =
       this.filesystemClient.getService<FileSystemService>('FileSystemService');
+    this.documentService =
+      this.filesystemClient.getService<DocumentService>('DocumentService');
+  }
+
+  @Post('attachments/hydrate')
+  async hydrateAttachments(
+    @Body() body: { attachmentIds: string[] },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['chat']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.filesystemService.HydrateAttachments.bind(this.filesystemService),
+      { attachmentIds: body.attachmentIds || [] },
+      30000,
+    );
+  }
+
+  @Post('documents/hydrate')
+  async hydrateDocuments(
+    @Body() body: { documentIds: string[]; actorUserId?: string },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['chat']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.documentService.HydrateDocuments.bind(this.documentService),
+      {
+        documentIds: body.documentIds || [],
+        actorUserId: body.actorUserId || '',
+      },
+      30000,
+    );
   }
 
   @Post('attachments/resolve-for-ai')
@@ -58,7 +102,7 @@ export class GatewayInternalFilesystemController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertAiInternalRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret, ['ai']);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.filesystemService.ResolveAttachmentForAi.bind(
@@ -77,7 +121,7 @@ export class GatewayInternalFilesystemController implements OnModuleInit {
     @Headers('x-internal-service') internalService?: string,
     @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    this.assertAiInternalRequest(internalService, internalSecret);
+    this.assertInternalRequest(internalService, internalSecret, ['ai']);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.filesystemService.SaveAttachmentTranscript.bind(
@@ -91,11 +135,12 @@ export class GatewayInternalFilesystemController implements OnModuleInit {
     );
   }
 
-  private assertAiInternalRequest(
+  private assertInternalRequest(
     internalService?: string,
     internalSecret?: string,
+    allowedServices: string[] = ['ai'],
   ) {
-    if (internalService !== 'ai') {
+    if (!internalService || !allowedServices.includes(internalService)) {
       throw new UnauthorizedException('Invalid internal service');
     }
 

@@ -33,9 +33,6 @@ import {
   friendshipModel,
   callHistoryModel,
   CallHistory,
-  Attachment,
-  User,
-  Document,
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -51,7 +48,7 @@ import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
-import { ConfigService } from '@nestjs/config';
+import { GatewayClientService } from '../gateway-client/gateway-client.service';
 
 /**
  * Shape of a Room served from RoomCacheRepository: a plain (lean) object that
@@ -85,19 +82,13 @@ export class HandleChatService {
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(callHistoryModel.name)
     private readonly callHistoryModel: Model<CallHistory>,
-    @InjectModel(Attachment.name)
-    private readonly attachmentModel: Model<Attachment>,
-    @InjectModel(Document.name)
-    private readonly documentModel: Model<Document>,
     @Inject(SERVICES.AI)
     private readonly aiClient: ClientKafka,
     @Inject(SERVICES.FILESYSTEM)
     private readonly fileClient: ClientKafka,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
-    private readonly configService: ConfigService,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
 
   /**
@@ -132,31 +123,9 @@ export class HandleChatService {
     id?: string,
   ) {
     if (!id) return null;
-
-    const baseUrl = (
-      this.configService.get<string>('GATEWAY_URL') || 'http://localhost:5000'
-    ).replace(/\/+$/, '');
-    const headers: Record<string, string> = {
-      'x-internal-service': 'chat',
-    };
-    const internalSecret =
-      this.configService.get<string>('GATEWAY_INTERNAL_SECRET') || '';
-    if (internalSecret) {
-      headers['x-internal-secret'] = internalSecret;
-    }
-
-    const path = '/internal/learning/cards/hydrate';
-    const gatewayPath = baseUrl.endsWith('/api') ? path : `/api${path}`;
-    const result = await Utils.callApiGateway(
-      `${baseUrl}${gatewayPath}`,
-      'POST',
-      { items: [{ type, id }] },
-      headers,
-      15_000,
-    );
-    if (result?.statusCode && result.statusCode !== 200) return null;
-
-    const item = result?.metadata?.items?.[0];
+    const [item] = await this.gatewayClient.hydrateLearningCards([
+      { type, id },
+    ]);
     return item?.found ? (item.metadata as Record<string, unknown>) : null;
   }
 
@@ -233,7 +202,19 @@ export class HandleChatService {
       ? this.utils.convertToObjectIdMongoose(id)
       : new Types.ObjectId();
 
-    const [quizCard, deckCard, todoProjectCard] = await Promise.all([
+    const attachmentIds = Array.isArray(attachments)
+      ? Array.from(new Set(attachments.filter(Boolean)))
+      : [];
+
+    const [
+      attachmentSnapshots,
+      documentSnapshots,
+      quizCard,
+      deckCard,
+      todoProjectCard,
+    ] = await Promise.all([
+      this.gatewayClient.hydrateAttachments(attachmentIds),
+      documentId ? this.gatewayClient.hydrateDocuments([documentId]) : [],
       this.hydrateLearningCard('quiz', quizId),
       this.hydrateLearningCard('flashcard_deck', desk_id),
       this.hydrateLearningCard('todo_project', todoProjectId),
@@ -254,15 +235,21 @@ export class HandleChatService {
     if (todoProjectId && !todoProjectMongoId) {
       throw new NotFoundException('Dự án không tồn tại');
     }
+    if (attachmentIds.length > 0 && attachmentSnapshots.length === 0) {
+      throw new NotFoundException('Tệp đính kèm không tồn tại');
+    }
+    if (documentId && documentSnapshots.length === 0) {
+      throw new NotFoundException('Tài liệu không tồn tại');
+    }
 
     const updatePayload = {
       msg_roomId: finInfo._id,
       msg_sender: this.utils.convertToObjectIdMongoose(userId),
       msg_content: content || '',
       reply_to: replyTo ? this.utils.convertToObjectIdMongoose(replyTo) : null,
-      attachment_ids: Array.isArray(attachments)
-        ? attachments.map((i) => this.utils.convertToObjectIdMongoose(i))
-        : [],
+      attachment_ids: attachmentIds.map((i) =>
+        this.utils.convertToObjectIdMongoose(i),
+      ),
       msg_type: type,
       document_id: documentId
         ? this.utils.convertToObjectIdMongoose(documentId)
@@ -1045,10 +1032,19 @@ export class HandleChatService {
         throw new NotFoundException('Phòng gọi không tồn tại');
       }
 
-      const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
-      if (!actionUser) {
+      // Resolve action user via gateway/cache (usr_id is business id)
+      const actionUserList =
+        await this.gatewayClient.resolveUsersByBusinessIds([actionUserId]);
+      const actionUserRaw = actionUserList?.[0];
+      if (!actionUserRaw) {
         throw new NotFoundException('Người bắt đầu cuộc gọi không tồn tại');
       }
+      const actionUser = {
+        _id: new Types.ObjectId(actionUserRaw._id),
+        usr_id: actionUserRaw.usr_id,
+        usr_fullname: actionUserRaw.usr_fullname,
+        usr_avatar: actionUserRaw.usr_avatar,
+      };
 
       const msg = await this.messageModel.create({
         msg_roomId: room._id,
@@ -1063,13 +1059,12 @@ export class HandleChatService {
         throw new BadRequestException('Không tạo được tin nhắn cuộc gọi');
       }
 
-      const members = await this.userModel.find({
-        usr_id: {
-          $in: membersIds.map((m) => m.toString()),
-        },
-      });
+      // Resolve all call members via gateway
+      const membersList = await this.gatewayClient.resolveUsersByBusinessIds(
+        membersIds.map((m) => m.toString()),
+      );
 
-      const membersData = members.map((m) => ({
+      const membersData = (membersList || []).map((m) => ({
         user_id: m._id,
         id: m.usr_id,
         fullname: m.usr_fullname,
@@ -1103,7 +1098,9 @@ export class HandleChatService {
             event_type: 'call.started',
             room_id: room._id,
             actor_id: actionUser._id,
-            targets: members.map((m) => m._id),
+            targets: membersData.map((m) =>
+              this.utils.convertToObjectIdMongoose(m.user_id),
+            ),
             placeholder: `${actionUser.usr_fullname} đã bắt đầu cuộc gọi ${
               callType === 'video' ? 'video' : 'thoại'
             } nhóm`,
@@ -1146,12 +1143,19 @@ export class HandleChatService {
   // trả lời cuộc gọi
   async acceptCall({ actionUserId, roomId, callId }: AcceptCallDto) {
     try {
-      const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
-
-      if (!actionUser) {
+      // Resolve action user via gateway/cache
+      const actionUserList =
+        await this.gatewayClient.resolveUsersByBusinessIds([actionUserId]);
+      const actionUserRaw = actionUserList?.[0];
+      if (!actionUserRaw) {
         throw new NotFoundException('Người dùng không tồn tại');
       }
-
+      const actionUser = {
+        _id: new Types.ObjectId(actionUserRaw._id),
+        usr_id: actionUserRaw.usr_id,
+        usr_fullname: actionUserRaw.usr_fullname,
+        usr_avatar: actionUserRaw.usr_avatar,
+      };
       // roomId may be the custom room_id string OR the MongoDB _id (ObjectId string)
       // from buildMessageDetailPipeline which projects roomId as msg_roomId (ObjectId)
       const room = await this.roomModel.findOne({
@@ -1255,11 +1259,19 @@ export class HandleChatService {
   // kết thúc cuộc gọi
   async endCall({ actionUserId, roomId, status, callId }: EndCallDto) {
     try {
-      const actionUser = await this.userModel.findOne({ usr_id: actionUserId });
-      if (!actionUser) {
+      // Resolve action user via gateway/cache
+      const actionUserList =
+        await this.gatewayClient.resolveUsersByBusinessIds([actionUserId]);
+      const actionUserRaw = actionUserList?.[0];
+      if (!actionUserRaw) {
         throw new NotFoundException('Người dùng không tồn tại');
       }
-
+      const actionUser = {
+        _id: new Types.ObjectId(actionUserRaw._id),
+        usr_id: actionUserRaw.usr_id,
+        usr_fullname: actionUserRaw.usr_fullname,
+        usr_avatar: actionUserRaw.usr_avatar,
+      };
       // roomId may be custom room_id string OR MongoDB _id (ObjectId string)
       const room = await this.roomModel.findOne({
         $or: [

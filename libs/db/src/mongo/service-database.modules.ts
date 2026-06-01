@@ -23,6 +23,7 @@ import {
   roomsUsersStateModel,
   userModel,
 } from './model';
+
 import { flashcardProgressModel } from './model/flashcard.model';
 import todoProjectModel from './model/todo-project.model';
 import todoModel from './model/todo.model';
@@ -53,16 +54,15 @@ export class AuthDatabaseModule {}
       messageReactionsModel,
       friendshipModel,
       callHistoryModel,
-      // Legacy cross-service reads (Sprint 5): replace auth lookups with API
-      // gateway -> auth and filesystem lookups with API gateway -> filesystem.
-      userModel,
-      attachmentModel,
-      documentModel,
+      // Sprint 5: userModel, attachmentModel, documentModel removed.
+      // Chat only owns its own collections. Data from other services
+      // is fetched via API Gateway (GatewayClientService).
     ]),
   ],
   exports: [MongooseModule],
 })
 export class ChatDatabaseModule {}
+
 
 @Global()
 @Module({

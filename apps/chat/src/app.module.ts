@@ -14,6 +14,7 @@ import {
 } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
+import gatewayConfig from './config/gateway.config';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
         process.cwd(),
         `apps/chat/.env.${process.env.NODE_ENV || 'development'}`,
       ),
-      load: [redisConfig, mongoConfig, kafkaConfig],
+      load: [redisConfig, mongoConfig, kafkaConfig, gatewayConfig],
     }),
     KafkaAdminModule,
     ChatDatabaseModule,

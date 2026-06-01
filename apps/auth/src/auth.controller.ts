@@ -209,6 +209,6 @@ export class AuthController {
 
   @GrpcMethod('AuthService', 'GetUsersBatch')
   async getUsersBatch(data: GetUsersBatchGrpcPayload) {
-    return await this.authService.getUsersBatch(data.userIds);
+    return await this.authService.getUsersBatch(data.userIds, data.search);
   }
 }

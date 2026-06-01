@@ -1,62 +1,72 @@
 import { KafkaEvent, SendFriendRequestDto } from '@app/dto';
 import Utils from '@app/helpers/utils';
-import { BadGatewayException, Inject, Injectable } from '@nestjs/common';
+import { BadGatewayException, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import friendshipModel, {
   Friendship,
 } from 'libs/db/src/mongo/model/friendship.model';
-import userModel, { User } from 'libs/db/src/mongo/model/user.model';
 import { Response } from 'libs/helpers/response';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
   getFriendsAggregate,
   getFriendsBaseAggregate,
   getFriendsRequestAggregate,
-  searchUsersAggregate,
   getBlockedFriendsAggregate,
 } from './aggregates/getFriends';
 import { getFriendSuggestionsAggregate } from './aggregates/getFriendSuggestions';
-import roomModel, { Room } from 'libs/db/src/mongo/model/room.model';
 import { SERVICES } from '@app/constants';
 import { ClientKafka } from '@nestjs/microservices';
+import {
+  GatewayClientService,
+  type UserSummary,
+} from '../gateway-client/gateway-client.service';
 
 @Injectable()
 export class SocialService {
+  private readonly log = new Logger(SocialService.name);
+
   constructor(
-    @InjectModel(userModel.name) private readonly userModel: Model<User>,
     @InjectModel(friendshipModel.name)
     private readonly friendshipModel: Model<Friendship>,
-    @InjectModel(roomModel.name) private readonly roomModel: Model<Room>,
     private readonly roomService: RoomsService,
     @Inject(SERVICES.NOTIFICATION)
     private readonly notificationClient: ClientKafka,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
-  // creeate friendship
 
   // Friend requests
-  async sendFriendRequest(data: SendFriendRequestDto) {
-    const user = await this.userModel.findOne({
-      _id: new Types.ObjectId(data.frpUserId1),
-    });
 
-    if (!user) {
+  /**
+   * Gửi lời mời kết bạn.
+   * frpUserId1 = Mongo _id của sender (từ req.user._id).
+   * frpUserId2 = usr_id của receiver (business id — gateway resolve sang _id để gửi notification).
+   */
+  async sendFriendRequest(data: SendFriendRequestDto) {
+    // frpUserId1 là Mongo _id của sender (đã pass đúng từ gateway)
+    const senderMongoId = data.frpUserId1;
+
+    // Lấy sender summary qua gateway để lấy usr_id + display info
+    const senderSummary = await this.gatewayClient.getUserSummary(senderMongoId);
+    if (!senderSummary) {
       return Response.error('Người dùng không tồn tại', 400);
     }
 
-    const receiver = await this.userModel.findOne({ usr_id: data.frpUserId2 }); // id tự động tạo bởi system
-    if (!receiver) {
+    // frpUserId2 là usr_id của receiver → resolve sang Mongo _id + summary
+    const receiverSummaries = await this.gatewayClient.resolveUsersByBusinessIds([data.frpUserId2]);
+    const receiverSummary = receiverSummaries[0];
+    if (!receiverSummary) {
       return Response.error('Người nhận không tồn tại', 400);
     }
-    if (user.usr_id == receiver.usr_id) {
-      throw new BadGatewayException(
-        'Bạn không thể gửi lời kết bạn cho chính mình',
-      );
+
+    if (senderSummary.usr_id === receiverSummary.usr_id) {
+      throw new BadGatewayException('Bạn không thể gửi lời kết bạn cho chính mình');
     }
+
     const existingFriendship = await this.friendshipModel.findOne({
-      frp_userId1: user.usr_id,
-      frp_userId2: receiver.usr_id,
+      frp_userId1: senderSummary.usr_id,
+      frp_userId2: receiverSummary.usr_id,
       frp_status: 'PENDING',
     });
 
@@ -64,21 +74,14 @@ export class SocialService {
       return Response.error('Bạn đã gửi lời mời kết bạn cho người này', 400);
     }
 
-    // const friendship = await this.friendshipModel.create({
-    //   frp_userId1: user.usr_id,
-    //   frp_userId2: receiver.usr_id,
-    //   frp_actionUserId: user.usr_id,
-    //   frp_status: 'PENDING',
-    //   frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
-    // });
     const friendship = await this.friendshipModel.findOneAndUpdate(
       {
-        frp_id: Utils.pairRoomId(user.usr_id, receiver.usr_id),
+        frp_id: Utils.pairRoomId(senderSummary.usr_id, receiverSummary.usr_id),
       },
       {
-        frp_userId1: user.usr_id,
-        frp_userId2: receiver.usr_id,
-        frp_actionUserId: user.usr_id,
+        frp_userId1: senderSummary.usr_id,
+        frp_userId2: receiverSummary.usr_id,
+        frp_actionUserId: senderSummary.usr_id,
         frp_status: 'PENDING',
       },
       {
@@ -86,61 +89,79 @@ export class SocialService {
         upsert: true,
       },
     );
+
+    // Notification dùng Mongo _id (không dùng fcmToken trực tiếp)
     void Utils.dispatchEventKafka(
       this.notificationClient,
       KafkaEvent.PUSH_NOTIFICATION_USERS,
       {
-        userIds: [receiver._id.toString()],
-        title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
+        userIds: [receiverSummary._id],   // Mongo _id
+        title: `${senderSummary.usr_fullname} đã gửi lời mời kết bạn`,
         message: 'Bạn có một lời mời kết bạn mới',
         saveToDb: true,
         data: {
-          userId: receiver._id.toString(),
-          userBusinessId: receiver.usr_id,
-          senderId: user._id.toString(),
-          senderBusinessId: user.usr_id,
-          senderName: user.usr_fullname,
-          senderAvatar: user.usr_avatar,
+          userId: receiverSummary._id,
+          userBusinessId: receiverSummary.usr_id,
+          senderId: senderSummary._id,           // Mongo _id
+          senderBusinessId: senderSummary.usr_id,
+          senderName: senderSummary.usr_fullname,
+          senderAvatar: senderSummary.usr_avatar,
           push_type: 'friend_request',
         },
       },
     );
+
     return Response.success(friendship, 'Gửi lời mời kết bạn thành công');
   }
 
   async getFriendRequests(
-    userId: string,
+    usrId: string,   // business usr_id
     page: number,
     limit: number,
     type: string,
   ) {
+    // Query Friendships (chat DB) trước
     const friendRequests = await this.friendshipModel.aggregate([
-      ...getFriendsRequestAggregate(userId, type),
-      { $sort: { 'friendship.updatedAt': -1 } },
+      ...getFriendsRequestAggregate(usrId, type),
+      { $sort: { updatedAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
     ]);
 
-    const total: { total: number }[] = await this.friendshipModel.aggregate([
-      ...getFriendsRequestAggregate(userId, type),
+    const totalAgg: { total: number }[] = await this.friendshipModel.aggregate([
+      ...getFriendsRequestAggregate(usrId, type),
       { $count: 'total' },
     ]);
 
+    // Collect friend usr_ids để hydrate
+    const friendUsrIds: string[] = friendRequests.map(
+      (r: Record<string, any>) => r.friendUsrId as string,
+    );
+    let userMap: Map<string, UserSummary> = new Map();
+    if (friendUsrIds.length > 0) {
+      const users = await this.gatewayClient.resolveUsersByBusinessIds(friendUsrIds);
+      userMap = new Map(users.map((u) => [u.usr_id, u]));
+    }
+
     const data = friendRequests.map((request: Record<string, any>) => {
+      const user = userMap.get(request.friendUsrId as string);
       return {
-        ...Utils.unprefix(request, 'usr_'),
-        friendship: Utils.unprefix(request.friendship, 'frp_'),
+        _id: user?._id ?? '',
+        id: user?.usr_id ?? request.friendUsrId,
+        fullname: user?.usr_fullname ?? '',
+        avatar: user?.usr_avatar ?? '',
+        email: user?.usr_email ?? '',
+        friendship: Utils.unprefix(request, 'frp_'),
       };
     });
-    console.log('🚀 ~ SocialService ~ data:', data);
 
     return Response.success(
       {
         friendRequests: data,
-        total: total[0]?.total || 0,
-        totalPage: Math.ceil(total[0]?.total || 0 / limit),
-        page: page,
-        limit: limit,
+        total: totalAgg[0]?.total || 0,
+        totalPage: Math.ceil((totalAgg[0]?.total || 0) / limit),
+        page,
+        limit,
       },
       'Lấy danh sách lời mời kết bạn thành công',
     );
@@ -150,17 +171,20 @@ export class SocialService {
     usr_id,
     senderId,
   }: {
-    usr_id: string;
-    senderId: string;
+    usr_id: string;   // usr_id của người nhận (current user)
+    senderId: string; // usr_id của người gửi
   }) {
-    const user1 = await this.userModel.findOne({ usr_id: usr_id });
-    const user2 = await this.userModel.findOne({ usr_id: senderId });
-    if (!user1) {
-      return Response.error('Người dùng gửi không tồn tại', 400);
-    }
-    if (!user2) {
-      return Response.error('Người dùng nhận không tồn tại', 400);
-    }
+    // Resolve cả 2 user qua gateway để lấy Mongo _id + display info
+    const [acceptorList, senderList] = await Promise.all([
+      this.gatewayClient.resolveUsersByBusinessIds([usr_id]),
+      this.gatewayClient.resolveUsersByBusinessIds([senderId]),
+    ]);
+    const acceptor = acceptorList[0];
+    const sender = senderList[0];
+
+    if (!acceptor) return Response.error('Người dùng gửi không tồn tại', 400);
+    if (!sender) return Response.error('Người dùng nhận không tồn tại', 400);
+
     const friendship = await this.friendshipModel.findOne({
       frp_id: Utils.pairRoomId(usr_id, senderId),
       frp_actionUserId: senderId,
@@ -173,25 +197,28 @@ export class SocialService {
       frp_status: 'ACCEPTED',
       frp_actionUserId: usr_id,
     });
+
+    // Notification với Mongo _id
     void Utils.dispatchEventKafka(
       this.notificationClient,
       KafkaEvent.PUSH_NOTIFICATION_USERS,
       {
-        userIds: [user2._id.toString()],
-        title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
+        userIds: [sender._id],   // Mongo _id
+        title: `${acceptor.usr_fullname} đã chấp nhận lời mời kết bạn`,
         message: 'Bạn đã được kết bạn với người dùng',
         saveToDb: true,
         data: {
-          userId: user1._id.toString(),
-          userBusinessId: user1.usr_id,
-          senderId: user2._id.toString(),
-          senderBusinessId: user2.usr_id,
-          senderName: user2.usr_fullname,
-          senderAvatar: user2.usr_avatar,
+          userId: acceptor._id,
+          userBusinessId: acceptor.usr_id,
+          senderId: sender._id,
+          senderBusinessId: sender.usr_id,
+          senderName: sender.usr_fullname,
+          senderAvatar: sender.usr_avatar,
           push_type: 'friend_request',
         },
       },
     );
+
     const result: {
       frpId: string;
       frpStatus: string;
@@ -205,46 +232,37 @@ export class SocialService {
       acceptedAt: new Date(),
       room: null,
     };
-    // tạo phòng chat
+
+    // Tạo phòng chat private — userId là Mongo _id của acceptor
     const payload = {
-      userId: user1._id.toString(),
-      name: `Phòng chat ${Utils.pairRoomId(user1.usr_id, user2.usr_id)}`,
-      avatar: '', // Add missing avatar property
+      userId: acceptor._id,
+      name: `Phòng chat ${Utils.pairRoomId(acceptor.usr_id, sender.usr_id)}`,
+      avatar: '',
       type: 'private',
-      memberIds: [user2.usr_id],
+      memberIds: [sender.usr_id], // roomService.create resolve memberIds qua gateway
     } as CreateRoomDto;
+
     try {
-      const room = (await this.roomService.create(
-        payload,
-      )) as ChatGatewayResponse;
+      const room = (await this.roomService.create(payload)) as ChatGatewayResponse;
       if (room.statusCode !== 200) {
         await friendship.updateOne({
           frp_status: 'PENDING',
           frp_actionUserId: senderId,
         });
-        return Response.error(
-          room.message,
-          room.statusCode,
-          room.reasonStatusCode,
-          'ERROR_CREATE_ROOM',
-        );
+        return Response.error(room.message, room.statusCode, room.reasonStatusCode, 'ERROR_CREATE_ROOM');
       }
-      if (room && room.metadata) {
+      if (room?.metadata) {
         result.room = room.metadata;
       }
     } catch (error) {
-      console.error('🔥 Error creating room:', error);
-      // rollback lời mời kết bạn
+      this.log.error('🔥 Error creating room:', error);
       await friendship.updateOne({
         frp_status: 'PENDING',
         frp_actionUserId: senderId,
       });
-      return Response.error(
-        'Có lỗi xảy ra khi kết bạn',
-        400,
-        'ERROR_CREATE_ROOM',
-      );
+      return Response.error('Có lỗi xảy ra khi kết bạn', 400, 'ERROR_CREATE_ROOM');
     }
+
     return Response.success(result, 'Chấp nhận lời mời kết bạn thành công');
   }
 
@@ -255,18 +273,16 @@ export class SocialService {
     usr_id: string;
     senderId: string;
   }) {
-    console.log(
-      '🚀 ~ SocialService ~ rejectFriendRequest ~ senderId:',
-      senderId,
-    );
-    const user1 = await this.userModel.findOne({ usr_id: usr_id });
-    const user2 = await this.userModel.findOne({ usr_id: senderId });
-    if (!user1) {
-      return Response.error('Người dùng gửi không tồn tại1', 400);
-    }
-    if (!user2) {
-      return Response.error('Người dùng nhận không tồn tại2', 400);
-    }
+    const [rejectorList, senderList] = await Promise.all([
+      this.gatewayClient.resolveUsersByBusinessIds([usr_id]),
+      this.gatewayClient.resolveUsersByBusinessIds([senderId]),
+    ]);
+    const rejector = rejectorList[0];
+    const sender = senderList[0];
+
+    if (!rejector) return Response.error('Người dùng gửi không tồn tại1', 400);
+    if (!sender) return Response.error('Người dùng nhận không tồn tại2', 400);
+
     const friendship = await this.friendshipModel.findOne({
       frp_id: Utils.pairRoomId(usr_id, senderId),
       frp_status: 'PENDING',
@@ -278,35 +294,31 @@ export class SocialService {
       frp_status: 'REJECTED',
       frp_actionUserId: usr_id,
     });
+
     void Utils.dispatchEventKafka(
       this.notificationClient,
       KafkaEvent.PUSH_NOTIFICATION_USERS,
       {
-        userIds: [user2._id.toString()],
-        title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
+        userIds: [sender._id],  // Mongo _id
+        title: `${rejector.usr_fullname} đã từ chối lời mời kết bạn`,
         message: 'Bạn đã bị từ chối kết bạn với người dùng',
         saveToDb: true,
         data: {
-          userId: user1._id.toString(),
-          userBusinessId: user1.usr_id,
-          senderId: user1._id.toString(),
-          senderBusinessId: user1.usr_id,
-          senderName: user1.usr_fullname,
-          senderAvatar: user1.usr_avatar,
+          userId: rejector._id,
+          userBusinessId: rejector.usr_id,
+          senderId: rejector._id,
+          senderBusinessId: rejector.usr_id,
+          senderName: rejector.usr_fullname,
+          senderAvatar: rejector.usr_avatar,
           push_type: 'friend_rejected',
         },
       },
-    ).then((response) => {
-      if (response.statusCode !== 200) {
-        console.error('🔥 Có lỗi xảy ra khi gửi notification:', response);
-      } else {
-        console.log('🔥 Gửi notification thành công:', response);
-      }
-    });
+    );
+
     return Response.success(
       {
         frpId: friendship.frp_id,
-        frpStatus: 'accepted',
+        frpStatus: 'REJECTED',
         friendshipId: 'friend_' + Date.now(),
         rejectedAt: new Date(),
       },
@@ -315,41 +327,47 @@ export class SocialService {
   }
 
   /**
-   * Friend-of-friend suggestions for `userId`. Returns up to `limit`
-   * candidates ranked by mutual-friend count, descending. Self / existing
-   * friends / blocked / pending / rejected relationships are excluded.
-   *
-   * The pipeline is non-trivial — see
-   * `aggregates/getFriendSuggestions.ts` for the per-stage rationale.
-   * Caller is the gRPC controller which wraps this in a Response envelope.
+   * Friend suggestions: tính từ Friendships graph (chat DB), hydrate profiles qua gateway.
    */
-  async getFriendSuggestions(userId: string, limit = 10) {
-    if (!userId) {
+  async getFriendSuggestions(usrId: string, limit = 10) {
+    if (!usrId) {
       return Response.success({ suggestions: [], total: 0 }, 'Empty');
     }
+
     type SuggestionRow = {
-      _id: string;
-      id: string;
-      fullname: string;
-      avatar: string;
-      email: string;
+      _id: string;       // candidate usr_id
       mutualFriendsCount: number;
-      mutualSamples: string[];
+      mutualVia: string[];
     };
-    const suggestions: SuggestionRow[] = await this.userModel.aggregate(
-      getFriendSuggestionsAggregate(userId, limit),
+
+    // Pipeline chỉ dùng Friendships (chat-owned), không $lookup Users
+    const suggestions: SuggestionRow[] = await this.friendshipModel.aggregate(
+      getFriendSuggestionsAggregate(usrId, limit),
     );
+
+    if (!suggestions.length) {
+      return Response.success({ suggestions: [], total: 0 }, 'Lấy gợi ý kết bạn thành công');
+    }
+
+    // Hydrate user summaries qua gateway
+    const candidateUsrIds = suggestions.map((s) => s._id);
+    const users = await this.gatewayClient.resolveUsersByBusinessIds(candidateUsrIds);
+    const userMap = new Map(users.map((u) => [u.usr_id, u]));
+
     return Response.success(
       {
-        suggestions: suggestions.map((s) => ({
-          _id: s._id ?? '',
-          id: s.id ?? '',
-          fullname: s.fullname ?? '',
-          avatar: s.avatar ?? '',
-          email: s.email ?? '',
-          mutualFriendsCount: s.mutualFriendsCount ?? 0,
-          mutualSamples: Array.isArray(s.mutualSamples) ? s.mutualSamples : [],
-        })),
+        suggestions: suggestions.map((s) => {
+          const user = userMap.get(s._id);
+          return {
+            _id: user?._id ?? '',
+            id: s._id,
+            fullname: user?.usr_fullname ?? '',
+            avatar: user?.usr_avatar ?? '',
+            email: user?.usr_email ?? '',
+            mutualFriendsCount: s.mutualFriendsCount ?? 0,
+            mutualSamples: [],
+          };
+        }),
         total: suggestions.length,
       },
       'Lấy gợi ý kết bạn thành công',
@@ -357,36 +375,66 @@ export class SocialService {
   }
 
   async getFriends(
-    userId: string,
+    usrId: string,
     page: number,
     limit: number,
     search: string,
   ) {
+    let allowedFriendUsrIds: string[] | undefined;
+    const keyword = search?.trim();
+    if (keyword) {
+      const searched = await this.gatewayClient.searchUsers(
+        keyword,
+        1,
+        100,
+        usrId,
+      );
+      allowedFriendUsrIds = searched.users.map((user) => user.usr_id);
+      if (allowedFriendUsrIds.length === 0) {
+        return Response.success(
+          { friends: [], total: 0, totalPage: 0, page, limit },
+          'Lấy danh sách bạn bè thành công',
+        );
+      }
+    }
+
+    // Query Friendships (chat DB) trước — aggregate không $lookup Users nữa
     const friends = await this.friendshipModel.aggregate(
-      getFriendsAggregate(userId, page, limit, search),
+      getFriendsAggregate(usrId, page, limit, search, allowedFriendUsrIds),
     );
 
     const sumTotal: { total: number }[] = await this.friendshipModel.aggregate([
-      ...getFriendsBaseAggregate(userId, search),
-      {
-        $count: 'total',
-      },
+      ...getFriendsBaseAggregate(usrId, search, allowedFriendUsrIds),
+      { $count: 'total' },
     ]);
 
+    // Hydrate user summaries từ gateway
+    const friendUsrIds: string[] = friends.map((f: Record<string, any>) => f.friendUsrId as string);
+    let userMap: Map<string, UserSummary> = new Map();
+    if (friendUsrIds.length > 0) {
+      const users = await this.gatewayClient.resolveUsersByBusinessIds(friendUsrIds);
+      userMap = new Map(users.map((u) => [u.usr_id, u]));
+    }
+
     const data = (friends || []).map((friend: Record<string, any>) => {
+      const user = userMap.get(friend.friendUsrId as string);
       return {
-        ...Utils.unprefix(friend, 'usr_'),
-        friendship: Utils.unprefix(friend.friendship, 'frp_'),
+        _id: user?._id ?? '',
+        id: user?.usr_id ?? friend.friendUsrId,
+        fullname: user?.usr_fullname ?? '',
+        avatar: user?.usr_avatar ?? '',
+        email: user?.usr_email ?? '',
+        friendship: Utils.unprefix(friend, 'frp_'),
       };
     });
 
     return Response.success(
       {
-        friends: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
+        friends: data || [],
         total: sumTotal[0]?.total || 0,
         totalPage: Math.ceil((sumTotal[0]?.total || 0) / limit),
-        page: page,
-        limit: limit,
+        page,
+        limit,
       },
       'Lấy danh sách bạn bè thành công',
     );
@@ -396,91 +444,103 @@ export class SocialService {
     search: string,
     page: number,
     limit: number,
-    userId: string,
+    usrId: string,  // business usr_id của current user
   ) {
-    const users = await this.userModel.aggregate([
-      ...searchUsersAggregate(search, page, limit, userId),
-      { $sort: { createdAt: -1 } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
-      {
-        $project: {
-          usr_id: 1,
-          usr_fullname: 1,
-          usr_email: 1,
-          usr_phone: 1,
-          usr_gender: 1,
-          usr_dateOfBirth: 1,
-          usr_avatar: 1,
-          usr_status: 1,
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      },
-    ]);
+    // Search qua auth gateway
+    const gatewayResult = await this.gatewayClient.searchUsers(search, page, limit, usrId);
+    const users = gatewayResult.users;
 
-    const totalAgg: { total: number }[] = await this.userModel.aggregate([
-      ...searchUsersAggregate(search, page, limit, userId),
-      { $count: 'total' },
-    ]);
+    if (!users.length) {
+      return Response.success(
+        { users: [], total: 0, totalPage: 0, page, limit },
+        'Danh sách người dùng được tìm kiếm',
+      );
+    }
 
-    const data = users.map((user) => Utils.unprefix(user, 'usr_'));
+    // Enrich friendship status từ Friendships (chat DB)
+    const candidateUsrIds = users.map((u) => u.usr_id);
+    const friendships = await this.friendshipModel.find({
+      $or: [
+        { frp_userId1: usrId, frp_userId2: { $in: candidateUsrIds } },
+        { frp_userId2: usrId, frp_userId1: { $in: candidateUsrIds } },
+      ],
+    }).lean();
+
+    const friendshipMap = new Map<string, { status: string }>();
+    for (const f of friendships) {
+      const otherId = f.frp_userId1 === usrId ? f.frp_userId2 : f.frp_userId1;
+      friendshipMap.set(otherId, { status: f.frp_status });
+    }
+
+    const data = users.map((u) => ({
+      _id: u._id,
+      id: u.usr_id,
+      fullname: u.usr_fullname,
+      avatar: u.usr_avatar,
+      email: u.usr_email,
+      friendship: friendshipMap.get(u.usr_id) ?? null,
+    }));
+
     return Response.success(
       {
         users: data,
-        total: totalAgg[0]?.total || 0,
-        totalPage: Math.ceil(totalAgg[0]?.total || 0 / limit),
-        page: page,
-        limit: limit,
+        total: gatewayResult.total,
+        totalPage: gatewayResult.totalPage,
+        page,
+        limit,
       },
       'Danh sách người dùng được tìm kiếm',
     );
   }
 
-  async removeFriend(friendId: string, actionUserId: string) {
-    const friend = await this.userModel.findOne({ usr_id: friendId });
-    if (!friend) {
+  async removeFriend(friendId: string, actionUsrId: string) {
+    // friendId là usr_id của người cần xóa
+    const resolved = await this.gatewayClient.resolveUsersByBusinessIds([
+      friendId,
+      actionUsrId,
+    ]);
+    if (resolved.length < 2) {
       return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
+
     const friendship = await this.friendshipModel.findOne({
       $or: [
-        { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
-        { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
+        { frp_userId1: friendId, frp_userId2: actionUsrId },
+        { frp_userId1: actionUsrId, frp_userId2: friendId },
       ],
       frp_status: 'ACCEPTED',
     });
     if (!friendship) {
-      return Response.error(
-        'Bạn đã xóa kết bạn với người dùng này',
-        400,
-        'DATA_NOT_FOUND',
-      );
+      return Response.error('Bạn đã xóa kết bạn với người dùng này', 400, 'DATA_NOT_FOUND');
     }
     await friendship.deleteOne();
-    const pairRoomId1 = Utils.pairRoomId(friend.usr_id, actionUserId);
-    const pairRoomId2 = Utils.pairRoomId(actionUserId, friend.usr_id);
-    // xóa phòng chat
-    await this.roomModel.deleteOne({
-      $or: [{ room_id: pairRoomId1 }, { room_id: pairRoomId2 }],
-    });
+
+    // Xóa phòng chat private
+    const pairRoomId = Utils.pairRoomId(friendId, actionUsrId);
+    await this.roomService.deletePrivateRoomByPairId(pairRoomId);
+
     return Response.success(friendship, 'Xóa bạn thành công');
   }
 
-  async blockFriend(friendId: string, actionUserId: string) {
-    const friend = await this.userModel.findOne({ usr_id: friendId });
-    if (!friend) {
+  async blockFriend(friendId: string, actionUsrId: string) {
+    const resolved = await this.gatewayClient.resolveUsersByBusinessIds([
+      friendId,
+      actionUsrId,
+    ]);
+    if (resolved.length < 2) {
       return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
+
     const friendship = await this.friendshipModel.findOneAndUpdate(
       {
         $or: [
-          { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
-          { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
+          { frp_userId1: friendId, frp_userId2: actionUsrId },
+          { frp_userId1: actionUsrId, frp_userId2: friendId },
         ],
       },
       {
         frp_status: 'BLOCKED',
-        frp_actionUserId: actionUserId,
+        frp_actionUserId: actionUsrId,
       },
       {
         new: true,
@@ -488,32 +548,31 @@ export class SocialService {
       },
     );
     if (!friendship) {
-      return Response.error(
-        'Bạn đã chặn người dùng này',
-        400,
-        'DATA_NOT_FOUND',
-      );
+      return Response.error('Bạn đã chặn người dùng này', 400, 'DATA_NOT_FOUND');
     }
     return Response.success(friendship, 'Chặn bạn thành công');
   }
 
-  async openBlockedFriend(friendId: string, actionUserId: string) {
-    const friend = await this.userModel.findOne({ usr_id: friendId });
-    if (!friend) {
+  async openBlockedFriend(friendId: string, actionUsrId: string) {
+    const resolved = await this.gatewayClient.resolveUsersByBusinessIds([
+      friendId,
+      actionUsrId,
+    ]);
+    if (resolved.length < 2) {
       return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
+
     const friendship = await this.friendshipModel.findOneAndDelete({
       $or: [
-        { frp_userId1: friend.usr_id, frp_userId2: actionUserId },
-        { frp_userId1: actionUserId, frp_userId2: friend.usr_id },
+        { frp_userId1: friendId, frp_userId2: actionUsrId },
+        { frp_userId1: actionUsrId, frp_userId2: friendId },
       ],
       frp_status: 'BLOCKED',
-      frp_actionUserId: actionUserId,
+      frp_actionUserId: actionUsrId,
     });
     if (!friendship) {
       return Response.error('Bạn đã mở chặn bạn bè này', 400, 'DATA_NOT_FOUND');
     }
-
     return Response.success(friendship, 'Mở chặn thành công');
   }
 
@@ -523,58 +582,79 @@ export class SocialService {
     limit: number = 10,
     search: string = '',
   ) {
-    const searchMatch = search
-      ? {
-          $or: [
-            { usr_fullname: { $regex: search, $options: 'i' } },
-            { usr_email: { $regex: search, $options: 'i' } },
-            { usr_phone: { $regex: search, $options: 'i' } },
-          ],
-        }
-      : {};
-    const blockedFriends = await this.friendshipModel.aggregate([
+    const blocked = await this.friendshipModel.aggregate([
       ...getBlockedFriendsAggregate(userId),
-      { $match: searchMatch },
-      { $sort: { 'friendship.updatedAt': -1 } },
+      { $sort: { updatedAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
     ]);
 
     const totalAgg: { total: number }[] = await this.friendshipModel.aggregate([
       ...getBlockedFriendsAggregate(userId),
-      { $match: searchMatch },
       { $count: 'total' },
     ]);
-    const data = blockedFriends.map((friend: Record<string, any>) => {
+
+    // Hydrate user summaries
+    const friendUsrIds: string[] = blocked.map((f: Record<string, any>) => f.friendUsrId as string);
+    let userMap: Map<string, UserSummary> = new Map();
+    if (friendUsrIds.length > 0) {
+      const users = await this.gatewayClient.resolveUsersByBusinessIds(friendUsrIds);
+      userMap = new Map(users.map((u) => [u.usr_id, u]));
+    }
+
+    let data = (blocked || []).map((friend: Record<string, any>) => {
+      const user = userMap.get(friend.friendUsrId as string);
       return {
-        ...Utils.unprefix(friend, 'usr_'),
-        friendship: Utils.unprefix(friend.friendship, 'frp_'),
+        _id: user?._id ?? '',
+        id: user?.usr_id ?? friend.friendUsrId,
+        fullname: user?.usr_fullname ?? '',
+        avatar: user?.usr_avatar ?? '',
+        email: user?.usr_email ?? '',
+        friendship: Utils.unprefix(friend, 'frp_'),
       };
     });
 
+    // Client-side search filter (since gateway doesn't know about friendship context)
+    if (search) {
+      const lc = search.toLowerCase();
+      data = data.filter(
+        (d) =>
+          d.fullname.toLowerCase().includes(lc) ||
+          (d.email ?? '').toLowerCase().includes(lc),
+      );
+    }
+
     return Response.success(
       {
-        blockedUsers: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
+        blockedUsers: data || [],
         total: totalAgg[0]?.total || 0,
         totalPage: Math.ceil((totalAgg[0]?.total || 0) / limit),
-        page: page,
-        limit: limit,
+        page,
+        limit,
       },
       'Lấy danh sách người dùng đã chặn thành công',
     );
   }
 
-  async getFriendByUserId(userId: string) {
-    const friend = await this.userModel.findOne({ usr_id: userId });
-    if (!friend) {
+  async getFriendByUserId(usrId: string) {
+    const users = await this.gatewayClient.resolveUsersByBusinessIds([usrId]);
+    const user = users[0];
+    if (!user) {
       return Response.error('Người dùng không tồn tại', 400, 'USER_NOT_FOUND');
     }
     return Response.success(
-      Utils.unprefix(friend, 'usr_'),
+      {
+        _id: user._id,
+        id: user.usr_id,
+        fullname: user.usr_fullname,
+        avatar: user.usr_avatar,
+        email: user.usr_email,
+      },
       'Lấy thông tin bạn thành công',
     );
   }
 }
+
 interface ChatGatewayResponse<T = any> {
   data: T;
   message: string;
@@ -584,6 +664,5 @@ interface ChatGatewayResponse<T = any> {
     msgId: string;
     members: Array<Record<string, any>>;
     roomId: string;
-    // Có thể bổ sung các trường khác nếu cần
   };
 }

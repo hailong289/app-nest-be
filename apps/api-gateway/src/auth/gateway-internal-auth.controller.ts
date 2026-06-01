@@ -20,6 +20,13 @@ interface AuthGrpcService {
     userIds: string[];
     search?: string;
   }): Observable<unknown>;
+  searchUser(data: {
+    keyword?: string;
+    page?: number;
+    limit?: number;
+    excludeUsrId?: string;
+    excludeUserIds?: string[];
+  }): Observable<unknown>;
 }
 
 @Controller('internal/auth')
@@ -73,6 +80,7 @@ export class GatewayInternalAuthController implements OnModuleInit {
       'notification',
       'filesystem',
       'learning',
+      'chat',
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(
@@ -92,11 +100,40 @@ export class GatewayInternalAuthController implements OnModuleInit {
       'filesystem',
       'notification',
       'learning',
+      'chat',
     ]);
 
     return this.gatewayService.dispatchGrpcRequest(
       this.authService.getUsersBatch.bind(this.authService),
       { userIds: body.userIds || [], search: body.search || '' },
+      30000,
+    );
+  }
+
+  @Post('users/search')
+  async searchUsers(
+    @Body()
+    body: {
+      keyword?: string;
+      page?: number;
+      limit?: number;
+      excludeUsrId?: string;
+      excludeUserIds?: string[];
+    },
+    @Headers('x-internal-service') internalService?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ) {
+    this.assertInternalRequest(internalService, internalSecret, ['chat']);
+
+    return this.gatewayService.dispatchGrpcRequest(
+      this.authService.searchUser.bind(this.authService),
+      {
+        keyword: body.keyword || '',
+        page: Number(body.page || 1),
+        limit: Number(body.limit || 20),
+        excludeUsrId: body.excludeUsrId || '',
+        excludeUserIds: body.excludeUserIds || [],
+      },
       30000,
     );
   }

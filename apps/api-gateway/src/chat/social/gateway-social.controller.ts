@@ -252,7 +252,7 @@ export class GatewaySocialController {
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.GetBlockedFriends.bind(this.socialService),
       {
-        userId: req.user._id,
+        userId: req.user.usr_id,
         page: page || 1,
         limit: limit || 10,
         search: search || '',
@@ -261,10 +261,10 @@ export class GatewaySocialController {
   }
 
   @Get('friends/:userId')
-  async getFriendByUserId(@Req() req: AuthenticatedRequest) {
+  async getFriendByUserId(@Param('userId') userId: string) {
     return this.gatewayService.dispatchGrpcRequest(
       this.socialService.GetFriendByUserId.bind(this.socialService),
-      { userId: req.user._id },
+      { userId },
     );
   }
 

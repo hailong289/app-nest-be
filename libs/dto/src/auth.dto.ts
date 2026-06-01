@@ -236,6 +236,12 @@ export class SearchUserDto {
 
   @IsOptional()
   limit: number;
+
+  @IsOptional()
+  excludeUsrId?: string;
+
+  @IsOptional()
+  excludeUserIds?: string[];
 }
 
 // Type cho User data sau khi loại bỏ sensitive fields

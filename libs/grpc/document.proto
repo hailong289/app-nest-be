@@ -5,6 +5,7 @@ package document;
 service DocumentService {
   rpc CreateDoc(CreateDocRequest) returns (DocumentResponse);
   rpc GetDoc(GetDocRequest) returns (DocumentResponse);
+  rpc HydrateDocuments(HydrateDocumentsRequest) returns (DocumentHydrateResponse);
   rpc UpdateDoc(UpdateDocRequest) returns (DocumentResponse);
   rpc DeleteDoc(DeleteDocRequest) returns (DocumentResponse);
   rpc ListDocs(ListDocsRequest) returns (DocumentListResponse);
@@ -63,6 +64,11 @@ message CreateDocRequest {
 message GetDocRequest {
   string docId  = 1;
   string userId = 2;
+}
+
+message HydrateDocumentsRequest {
+  repeated string documentIds = 1;
+  string actorUserId = 2;
 }
 
 message UpdateDocRequest {
@@ -124,4 +130,15 @@ message DocumentListResponse {
   int32                     statusCode       = 2;
   string                    reasonStatusCode = 3;
   repeated DocumentMetadata metadata         = 4;
+}
+
+message DocumentHydrateMetadata {
+  repeated DocumentMetadata items = 1;
+}
+
+message DocumentHydrateResponse {
+  string                  message          = 1;
+  int32                   statusCode       = 2;
+  string                  reasonStatusCode = 3;
+  DocumentHydrateMetadata metadata         = 4;
 }

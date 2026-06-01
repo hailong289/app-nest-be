@@ -271,6 +271,22 @@ export class AuthService implements OnModuleInit {
     );
   }
 
+  private toUserSummary(user: Record<string, any>) {
+    return {
+      _id: user._id.toString(),
+      userId: user._id.toString(),
+      usr_id: user.usr_id,
+      id: user.usr_id,
+      name: user.usr_fullname,
+      fullname: user.usr_fullname,
+      email: user.usr_email,
+      phone: user.usr_phone,
+      avatar: user.usr_avatar,
+      status: user.usr_status,
+      slug: user.usr_slug,
+    };
+  }
+
   async resolveBusinessIds(usrIds: string[]) {
     const uniqueUsrIds = Array.from(
       new Set(
@@ -283,22 +299,24 @@ export class AuthService implements OnModuleInit {
 
     const users = await this.userModel
       .find({ usr_id: { $in: uniqueUsrIds } })
-      .select('_id usr_id')
+      .select(
+        '_id usr_id usr_fullname usr_email usr_phone usr_avatar usr_status usr_slug',
+      )
       .lean()
       .exec();
 
     return Response.success(
       {
         items: users.map((user) => ({
+          ...this.toUserSummary(user),
           usrId: user.usr_id,
-          userId: user._id.toString(),
         })),
       },
       'Resolve business ids thành công',
     );
   }
 
-  async getUsersBatch(userIds: string[]) {
+  async getUsersBatch(userIds: string[], search = '') {
     const uniqueUserIds = Array.from(
       new Set(
         (userIds || [])
@@ -320,10 +338,22 @@ export class AuthService implements OnModuleInit {
       );
     }
 
+    const query: Record<string, any> = {
+      _id: { $in: uniqueUserIds.map((userId) => new Types.ObjectId(userId)) },
+    };
+    const keyword = search.trim();
+    if (keyword) {
+      const regex = new RegExp(keyword, 'i');
+      query.$or = [
+        { usr_fullname: regex },
+        { usr_email: regex },
+        { usr_phone: regex },
+        { usr_id: regex },
+      ];
+    }
+
     const users = await this.userModel
-      .find({
-        _id: { $in: uniqueUserIds.map((userId) => new Types.ObjectId(userId)) },
-      })
+      .find(query)
       .select(
         '_id usr_id usr_fullname usr_email usr_phone usr_avatar usr_status usr_slug',
       )
@@ -332,21 +362,69 @@ export class AuthService implements OnModuleInit {
 
     return Response.success(
       {
-        items: users.map((user) => ({
-          _id: user._id.toString(),
-          userId: user._id.toString(),
-          usr_id: user.usr_id,
-          id: user.usr_id,
-          name: user.usr_fullname,
-          fullname: user.usr_fullname,
-          email: user.usr_email,
-          phone: user.usr_phone,
-          avatar: user.usr_avatar,
-          status: user.usr_status,
-          slug: user.usr_slug,
-        })),
+        items: users.map((user) => this.toUserSummary(user)),
       },
       'Lấy thông tin user thành công',
+    );
+  }
+
+  async searchUser(searchDto: SearchUserDto) {
+    const {
+      keyword = '',
+      page = 1,
+      limit = 100,
+      excludeUsrId,
+      excludeUserIds,
+    } = searchDto;
+    const safePage = Number(page) > 0 ? Number(page) : 1;
+    const safeLimit = Number(limit) > 0 ? Number(limit) : 100;
+    const skip = (safePage - 1) * safeLimit;
+    const regex = new RegExp(keyword, 'i');
+    const query: Record<string, any> = {
+      $or: [
+        { usr_fullname: regex },
+        { usr_email: regex },
+        { usr_phone: regex },
+        { usr_id: regex },
+      ],
+    };
+
+    const excludedObjectIds = Array.from(
+      new Set(
+        (excludeUserIds || [])
+          .filter((id): id is string => typeof id === 'string')
+          .filter((id) => Types.ObjectId.isValid(id)),
+      ),
+    );
+    if (excludedObjectIds.length > 0) {
+      query._id = {
+        $nin: excludedObjectIds.map((id) => new Types.ObjectId(id)),
+      };
+    }
+    if (excludeUsrId) {
+      query.usr_id = { $ne: excludeUsrId };
+    }
+
+    const [users, total] = await Promise.all([
+      this.userModel
+        .find(query)
+        .skip(skip)
+        .limit(safeLimit)
+        .select('-usr_password -usr_salt -__v')
+        .lean()
+        .exec(),
+      this.userModel.countDocuments(query),
+    ]);
+
+    return Response.success(
+      {
+        users: users.map((user) => this.toUserSummary(user)),
+        total,
+        totalPage: Math.ceil(total / safeLimit),
+        page: safePage,
+        limit: safeLimit,
+      },
+      'Tìm kiếm thành công',
     );
   }
 
@@ -1127,29 +1205,5 @@ export class AuthService implements OnModuleInit {
         `Lỗi refresh token: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-  }
-
-  async searchUser(searchDto: SearchUserDto) {
-    const { keyword, page = 1, limit = 100 } = searchDto;
-    const skip = (page - 1) * limit;
-    const regex = new RegExp(keyword, 'i');
-
-    const users = await this.userModel
-      .find({
-        $or: [
-          { usr_fullname: regex },
-          { usr_email: regex },
-          { usr_phone: regex },
-        ],
-      })
-      .skip(skip)
-      .limit(limit)
-      .select('-usr_password -usr_salt -__v')
-      .lean()
-      .exec();
-
-    const mappedUsers = users.map((user) => Utils.unprefix(user, 'usr_'));
-
-    return Response.success(mappedUsers, 'Tìm kiếm thành công');
   }
 }

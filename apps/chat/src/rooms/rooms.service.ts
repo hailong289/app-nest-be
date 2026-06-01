@@ -34,9 +34,7 @@ import {
   Message,
   Room,
   RoomEvent,
-  User,
   RoomsUsersState,
-  UserCacheRepository,
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
 import { RoomCacheRepository } from './room-cache.repository';
@@ -48,6 +46,7 @@ import {
   ROOM_MEMBERSHIP_SYNC_QUEUE,
   type RoomMembershipSyncJobData,
 } from './room-membership-sync.constants';
+import { GatewayClientService } from '../gateway-client/gateway-client.service';
 
 @Injectable()
 export class RoomsService {
@@ -56,7 +55,6 @@ export class RoomsService {
   private readonly log = new Logger();
   constructor(
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(RoomEvent.name) private readonly roomEvent: Model<RoomEvent>,
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
     private readonly redis: RedisService,
@@ -65,8 +63,8 @@ export class RoomsService {
     private readonly emitter: RemoteSocketEmitter,
     @InjectQueue(ROOM_MEMBERSHIP_SYNC_QUEUE)
     private readonly membershipSyncQueue: Queue<RoomMembershipSyncJobData>,
-    private readonly userCache: UserCacheRepository,
     private readonly roomCache: RoomCacheRepository,
+    private readonly gatewayClient: GatewayClientService,
   ) {}
 
   async onModuleInit() {
@@ -242,77 +240,37 @@ export class RoomsService {
     const pipeline: PipelineStage[] = [
       /** 1) Chỉ các phòng mà tôi là member */
       { $match: { 'room_members.user_id': uid } },
-      /** 1.1) Lấy usr_id của user hiện tại */
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'room_members.user_id', // nhưng lọc đúng user hiện tại
-          foreignField: '_id',
-          pipeline: [
-            { $match: { _id: uid } },
-            { $project: { _id: 1, usr_id: 1 } },
-          ],
-          as: 'currentUserInfo',
-        },
-      },
-      { $set: { currentUserInfo: { $first: '$currentUserInfo' } } },
-
-      /** 2) Map info user vào room_members (1 lookup) */
-      {
-        $lookup: {
-          from: 'Users',
-          localField: 'room_members.user_id',
-          foreignField: '_id',
-          pipeline: [{ $project: { _id: 1, usr_fullname: 1, usr_avatar: 1 } }],
-          as: 'membersInfo',
-        },
-      },
+      /** 1.1) Lấy usr_id của user hiện tại từ snapshot room_members */
       {
         $addFields: {
+          currentMember: {
+            $first: {
+              $filter: {
+                input: '$room_members',
+                as: 'm',
+                cond: { $eq: ['$$m.user_id', uid] },
+              },
+            },
+          },
           members: {
             $map: {
               input: '$room_members',
               as: 'm',
-              in: {
-                $let: {
-                  vars: {
-                    u: {
-                      $first: {
-                        $filter: {
-                          input: '$membersInfo',
-                          as: 'u',
-                          cond: { $eq: ['$$u._id', '$$m.user_id'] },
-                        },
-                      },
-                    },
-                  },
-                  in: {
-                    $mergeObjects: [
-                      '$$m', // giữ nguyên toàn bộ dữ liệu gốc của member
-                      {
-                        avatar: '$$u.usr_avatar', // chỉ cập nhật/ghi đè field avatar
-                        name: {
-                          $cond: [
-                            {
-                              $or: [
-                                { $not: ['$$m.name'] },
-                                { $eq: ['$$m.name', ''] },
-                              ],
-                            },
-                            '$$u.usr_fullname',
-                            '$$m.name',
-                          ],
-                        },
-                      },
-                    ],
-                  },
-                },
-              },
+              in: '$$m',
             },
           },
         },
       },
-      { $unset: 'membersInfo' },
+      {
+        $set: {
+          currentUserInfo: {
+            _id: '$currentMember.user_id',
+            usr_id: '$currentMember.id',
+            usr_fullname: '$currentMember.name',
+            usr_avatar: '$currentMember.avatar',
+          },
+        },
+      },
 
       /** 3) RoomsState (theo ObjectId) */
       {
@@ -427,24 +385,28 @@ export class RoomsService {
       },
       { $set: { last_message_doc: { $first: '$last_message_doc' } } },
       {
-        $lookup: {
-          from: 'Users',
-          let: {
-            sid: {
-              $ifNull: [
-                '$state.last_message_snapshot.sender_id',
-                '$last_message_doc.msg_sender',
-              ],
-            },
+        $addFields: {
+          lastMessageSenderId: {
+            $ifNull: [
+              '$state.last_message_snapshot.sender_id',
+              '$last_message_doc.msg_sender',
+            ],
           },
-          pipeline: [
-            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
-            { $project: { _id: 1, usr_id: 1, usr_fullname: 1, usr_avatar: 1 } },
-          ],
-          as: 'last_message_sender',
         },
       },
-      { $set: { last_message_sender: { $first: '$last_message_sender' } } },
+      {
+        $addFields: {
+          last_message_sender: {
+            $first: {
+              $filter: {
+                input: '$members',
+                as: 'm',
+                cond: { $eq: ['$$m.user_id', '$lastMessageSenderId'] },
+              },
+            },
+          },
+        },
+      },
 
       /** 5) RoomsUsersState của tôi */
       {
@@ -555,8 +517,6 @@ export class RoomsService {
        * projection cuối lấy `my_state.unread_count` (fallback 0 nếu user chưa
        * có RoomsUsersState cho phòng đó).
        */
-      { $unset: ['_lastMsgTs', '_lastMsgSender'] },
-
       /** 10) Avatar & tên hiển thị (private fallback) */
       {
         $addFields: {
@@ -628,6 +588,7 @@ export class RoomsService {
           },
         },
       },
+      { $unset: ['_lastMsgTs', '_lastMsgSender', 'lastMessageSenderId'] },
       { $sort: { _lastTs: -1 } },
       /** 11.1) Pinned messages của room */
       {
@@ -870,12 +831,12 @@ export class RoomsService {
                   ],
                 },
                 sender: {
-                  _id: '$last_message_sender._id',
-                  id: '$last_message_sender.usr_id',
-                  name: '$last_message_sender.usr_fullname',
-                  avatar: '$last_message_sender.usr_avatar',
+                  _id: '$last_message_sender.user_id',
+                  id: '$last_message_sender.id',
+                  name: '$last_message_sender.name',
+                  avatar: '$last_message_sender.avatar',
                 },
-                isMine: { $eq: ['$last_message_sender._id', uid] },
+                isMine: { $eq: ['$last_message_sender.user_id', uid] },
               },
               {
                 id: null,
@@ -916,12 +877,16 @@ export class RoomsService {
 
   public async getUserInfo(
     userId: string,
-  ): Promise<(User & { _id: Types.ObjectId }) | null> {
-    const user = await this.userCache.getById(userId);
-    // Giữ nguyên hợp đồng cũ: chỉ trả user đang 'active'.
-    if (!user || user.usr_status !== 'active') return null;
-    // lean() luôn trả về doc có _id tại runtime; cast để callers dùng được ._id.
-    return user as User & { _id: Types.ObjectId };
+  ): Promise<{ _id: Types.ObjectId; usr_id: string; usr_fullname: string; usr_avatar: string; usr_status: string } | null> {
+    const summary = await this.gatewayClient.getUserSummary(userId);
+    if (!summary || summary.usr_status !== 'active') return null;
+    return {
+      _id: new Types.ObjectId(summary._id),
+      usr_id: summary.usr_id,
+      usr_fullname: summary.usr_fullname,
+      usr_avatar: summary.usr_avatar,
+      usr_status: summary.usr_status ?? 'active',
+    };
   }
   async create(payload: CreateRoomDto) {
     // create array save log
@@ -937,43 +902,37 @@ export class RoomsService {
     if (!userId) {
       throw new BadRequestException('không tìm thấy người dùng');
     }
-    // lấy thông tin người tạo phòng
-    const getInforUserCreateRoom = await this.userModel
-      .findOne({
-        _id: this.utils.convertToObjectIdMongoose(userId),
-      })
-      .select({
-        _id: 1,
-        usr_id: 1,
-        usr_fullname: 1,
-      })
-      .exec();
-    if (!getInforUserCreateRoom) {
+    // lấy thông tin người tạo phòng qua gateway
+    const creatorSummary = await this.gatewayClient.getUserSummary(userId);
+    if (!creatorSummary) {
       throw new BadRequestException('không tìm thấy người dùng');
     }
+    const getInforUserCreateRoom = {
+      _id: new Types.ObjectId(creatorSummary._id),
+      usr_id: creatorSummary.usr_id,
+      usr_fullname: creatorSummary.usr_fullname,
+      usr_avatar: creatorSummary.usr_avatar,
+    };
     // them thong tin nguoi tao
     members.push({
       user_id: getInforUserCreateRoom._id,
       id: getInforUserCreateRoom.usr_id,
       role: (type === 'private' ? 'owner' : 'admin') as memberType['role'],
-      name: '',
+      name: getInforUserCreateRoom.usr_fullname || '',
+      avatar: getInforUserCreateRoom.usr_avatar || '',
       // joinedAt: new Date(),
     });
 
-    // kiem tra thong tin thanh vien
-    const checkMemberIdsRaw = await this.userModel
-      .find({
-        usr_id: {
-          $in: memberIds,
-        },
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_id: 1,
-        usr_fullname: 1,
-      })
-      .exec();
+    // kiem tra thong tin thanh vien qua gateway
+    const memberSummaries = await this.gatewayClient.resolveUsersByBusinessIds(memberIds);
+    const checkMemberIdsRaw = memberSummaries
+      .filter((u) => u.usr_status === 'active' || u.usr_status === undefined)
+      .map((u) => ({
+        _id: new Types.ObjectId(u._id),
+        usr_id: u.usr_id,
+        usr_fullname: u.usr_fullname || '',
+        usr_avatar: u.usr_avatar || '',
+      }));
 
     // Lọc creator ra khỏi danh sách member: FE đôi khi vô tình truyền cả
     // usr_id của chính creator trong `memberIds`. Trước đây code không lọc
@@ -1001,6 +960,7 @@ export class RoomsService {
         id: member.usr_id,
         role: (type === 'channel' ? 'guest' : 'member') as memberType['role'],
         name: member.usr_fullname || '',
+        avatar: member.usr_avatar || '',
         joinedAt: new Date(),
       });
     }
@@ -1699,22 +1659,18 @@ export class RoomsService {
     }
 
     const roomMember = roomInfo.room_members;
-    // lấy thông tin user
-    const users = await this.userModel
-      .find({
-        usr_id: { $in: memberIds },
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_fullname: 1,
-        usr_id: 1,
-      })
-      .exec();
+    // Lấy thông tin user mới qua gateway
+    const memberSummaries = await this.gatewayClient.resolveUsersByBusinessIds(memberIds);
+    const users = memberSummaries
+      .filter((u) => u.usr_status === 'active' || !u.usr_status)
+      .map((u) => ({
+        _id: new Types.ObjectId(u._id),
+        usr_id: u.usr_id,
+        usr_fullname: u.usr_fullname || '',
+        usr_avatar: u.usr_avatar || '',
+      }));
 
-    // Lọc bỏ những user đã ở trong nhóm (idempotent — trước đây mỗi
-    // updateOne tự lọc bằng `'room_members.id': { $ne }`; giờ gộp 1 update
-    // nên phải lọc ở code).
+    // Lọc bỏ những user đã ở trong nhóm (idempotent)
     const existingIds = new Set(roomMember.map((m) => m.id));
     const newUsers = users.filter((u) => !existingIds.has(u.usr_id));
 
@@ -1729,6 +1685,7 @@ export class RoomsService {
       user_id: u._id,
       id: u.usr_id,
       name: u.usr_fullname,
+      avatar: u.usr_avatar,
       role: 'member' as memberType['role'],
       joinedAt: new Date(),
     }));
@@ -1736,14 +1693,9 @@ export class RoomsService {
 
     const newMemberObjIds = newUsers.map((u) => u._id.toString());
 
-    // Lấy tên người thực hiện hành động để dựng 1 system message duy nhất
-    // ("X đã thêm N người vào nhóm") thay vì spam N message.
-    const actor = await this.userModel
-      .findById(this.utils.convertToObjectIdMongoose(userId), {
-        usr_fullname: 1,
-      })
-      .lean<{ usr_fullname?: string }>();
-    const actorName = actor?.usr_fullname || '';
+    // Lấy tên người thực hiện hành động qua gateway
+    const actorSummary = await this.gatewayClient.getUserSummary(userId);
+    const actorName = actorSummary?.usr_fullname || '';
 
     // 1) Gộp N updateOne lên cùng doc thành 1 update với $each — đây là
     //    nguyên nhân chính gây WiredTiger lock contention khi N≈1000.
@@ -1810,8 +1762,9 @@ export class RoomsService {
         addeddAt: Date.now(),
         members_count: newUsers.length,
         added_users: newUsers.map((u) => ({
-          userId: u._id,
+          userId: u._id.toString(),
           name: u.usr_fullname,
+          avatar: u.usr_avatar,
         })),
       },
     });
@@ -2199,10 +2152,8 @@ export class RoomsService {
     if (!checkEixsting) {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
-    // get info user
-    const userInfo = await this.userModel.findById(
-      this.utils.convertToObjectIdMongoose(userId),
-    );
+    // get info user qua gateway/cache
+    const userInfo = await this.getUserInfo(userId);
     if (!userInfo) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
@@ -2239,10 +2190,8 @@ export class RoomsService {
     if (!checkEixsting) {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
-    // get info user
-    const userInfo = await this.userModel.findById(
-      this.utils.convertToObjectIdMongoose(userId),
-    );
+    // get info user qua gateway/cache
+    const userInfo = await this.getUserInfo(userId);
     if (!userInfo) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
@@ -2278,10 +2227,8 @@ export class RoomsService {
     if (!checkEixsting) {
       throw new NotFoundException('bạn dã thoát nhóm');
     }
-    // get info user
-    const userInfo = await this.userModel.findById(
-      this.utils.convertToObjectIdMongoose(userId),
-    );
+    // get info user qua gateway/cache
+    const userInfo = await this.getUserInfo(userId);
     if (!userInfo) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
@@ -2307,5 +2254,37 @@ export class RoomsService {
       userId,
       roomId,
     });
+  }
+
+  /**
+   * Delete a private room by its pair-room-id (e.g. "usr1|usr2").
+   * Called by SocialService.removeFriend() to clean up the chat room.
+   */
+  async deletePrivateRoomByPairId(pairRoomId: string): Promise<void> {
+    try {
+      const room = await this.roomModel.findOneAndDelete({
+        room_id: pairRoomId,
+        room_type: 'private',
+      });
+      if (room) {
+        await this.roomCache.invalidate(room);
+        // Clean up Redis membership keys
+        const members = room.room_members || [];
+        await Promise.allSettled(
+          members.map((m) =>
+            Promise.all([
+              this.redis.sRem(this.key.ROOM_MEMBERS(pairRoomId), m.user_id.toString()),
+              this.redis.sRem(this.key.USER_ROOMS(m.user_id.toString()), pairRoomId),
+            ]),
+          ),
+        );
+      }
+    } catch (err) {
+      this.log.warn(
+        `[DELETE_PRIVATE_ROOM] Failed for pairId=${pairRoomId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 }

@@ -99,6 +99,25 @@ export class DocumentsController {
     }
   }
 
+  @GrpcMethod('DocumentService', 'HydrateDocuments')
+  async hydrateDocuments(request: {
+    documentIds: string[];
+    actorUserId?: string;
+  }): Promise<ServiceResponse> {
+    try {
+      return await this.documentsService.hydrateDocumentsByIds(
+        request.documentIds || [],
+        request.actorUserId,
+      );
+    } catch (error) {
+      throw new RpcException({
+        code: 2,
+        message:
+          error instanceof Error ? error.message : 'Lỗi hydrate tài liệu',
+      });
+    }
+  }
+
   /**
    * =====================================================
    * Update Document - gRPC Method

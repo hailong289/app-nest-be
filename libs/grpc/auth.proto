@@ -259,6 +259,16 @@ message ResolveBusinessIdsRequest {
 message BusinessUserMapping {
   string usrId = 1;
   string userId = 2;
+  string _id = 3;
+  string usr_id = 4;
+  string id = 5;
+  string name = 6;
+  string fullname = 7;
+  string email = 8;
+  string avatar = 9;
+  string status = 10;
+  string slug = 11;
+  string phone = 12;
 }
 
 message ResolveBusinessIdsMetadata {
@@ -410,11 +420,21 @@ message SearchUserRequest {
   string keyword = 1;
   int32  page    = 2;
   int32  limit   = 3;
+  string excludeUsrId = 4;
+  repeated string excludeUserIds = 5;
+}
+
+message SearchUserMetadata {
+  repeated UserSummary users = 1;
+  int32 total = 2;
+  int32 totalPage = 3;
+  int32 page = 4;
+  int32 limit = 5;
 }
 
 message SearchUserResponse {
-  string        message          = 1;
-  int32         statusCode       = 2;
-  string        reasonStatusCode = 3;
-  repeated User metadata         = 4;
+  string             message          = 1;
+  int32              statusCode       = 2;
+  string             reasonStatusCode = 3;
+  SearchUserMetadata metadata         = 4;
 }

@@ -317,6 +317,46 @@ export class FilesystemService {
     return Response.success(mapped, 'Get attachments successful');
   }
 
+  async hydrateAttachments(attachmentIds: string[]) {
+    const ids = Array.from(
+      new Set(
+        (attachmentIds || []).filter(
+          (id): id is string =>
+            typeof id === 'string' && Types.ObjectId.isValid(id),
+        ),
+      ),
+    );
+    if (ids.length === 0) {
+      return Response.success({ items: [] }, 'Hydrate attachments successful');
+    }
+
+    const attachments = await this.attachmentModel
+      .find({
+        _id: { $in: ids.map((id) => this.utils.convertToObjectIdMongoose(id)) },
+      })
+      .lean();
+
+    return Response.success(
+      {
+        items: attachments.map((att) => ({
+          _id: att._id.toString(),
+          url: att.url,
+          kind: att.kind,
+          name: att.name,
+          mimeType: att.mimeType,
+          size: att.size,
+          status: att.status,
+          width: att.width,
+          height: att.height,
+          duration: att.duration,
+          createdAt: att.createdAt,
+          updatedAt: att.updatedAt,
+        })),
+      },
+      'Hydrate attachments successful',
+    );
+  }
+
   async resolveAttachmentForAi(data: {
     attachmentId: string;
     messageId?: string;
