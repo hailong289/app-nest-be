@@ -1,17 +1,17 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-export enum DocVisibilityEnum {
-  private = 'private',
-  room = 'room',
-  public = 'public',
-}
-export enum sharedWithRoleEnum {
-  viewer = 'viewer',
-  editer = 'editer',
-}
-export type DocVisibility = 'private' | 'room' | 'public';
+import {
+  DocVisibilityEnum,
+  sharedWithRoleEnum,
+  type DocVisibility,
+  type sharedWithRoleType,
+} from 'libs/types';
+
+export { DocVisibilityEnum, sharedWithRoleEnum };
+export type { DocVisibility, sharedWithRoleType } from 'libs/types';
+
 export type DocumentDocuments = HydratedDocument<Document>;
-export type sharedWithRoleType = 'viewer' | 'editor';
+
 /**
  * Document = tài liệu + wiki + ghi chú dài + nội dung collaborative (Yjs)
  */

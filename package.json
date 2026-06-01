@@ -64,7 +64,10 @@
     "kafka:create-topics": "ts-node -r tsconfig-paths/register libs/scripts/create-topics.ts",
     "kill:all:ports": "ts-node -r tsconfig-paths/register killport.sh",
     "check:db-ownership": "node scripts/check-db-ownership.mjs",
-    "check:edge-no-mongo": "node scripts/check-db-ownership.mjs --edge-only"
+    "check:edge-no-mongo": "node scripts/check-db-ownership.mjs --edge-only",
+    "check:service-db-env": "node scripts/check-db-ownership.mjs --env-only",
+    "check:no-direct-cross-service-grpc": "node scripts/check-db-ownership.mjs --grpc-only",
+    "ci:guardrail": "npm run check:db-ownership && npm run check:no-direct-cross-service-grpc && npm run build:all"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.890.0",

@@ -14,7 +14,7 @@ import redisConfig from 'libs/db/src/config/redis.config';
 import { kafkaConfig } from 'libs/kafka';
 import { GatewayAiModule } from './ai/gateway-ai.module';
 import { GatewayLearningModule } from './learning/gateway-learning.module';
-import { RedisModule } from 'libs/db/src';
+import { RedisModule } from 'libs/db/src/redis/redis.module';
 
 @Module({
   imports: [
@@ -75,4 +75,3 @@ export class AppModule {
     );
   }
 }
-

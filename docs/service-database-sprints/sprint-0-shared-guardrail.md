@@ -76,8 +76,8 @@ Files can xu ly trong sprint nay:
   - `NotificationDatabaseModule`
 - `MongodbModule` legacy van ton tai va register gan nhu tat ca model; can giu tam thoi neu con app dung, nhung phai cam app moi import.
 - `libs/db/src/index.ts` van export `MongodbModule` va `export * from './mongo/model'`, lam app rat de import model ngoai domain.
-- `apps/auth/src/app.module.ts` da import `AuthDatabaseModule` nhung van register them `MongooseModule.forFeature([userModel, otpModel, keysModel])`.
-- `apps/ai/src/app.module.ts` da import `AiDatabaseModule` nhung van register them `MongooseModule.forFeature()` voi AI model va legacy cross-service model.
+- `apps/auth/src/app.module.ts` da import `AuthDatabaseModule` va duplicate root `MongooseModule.forFeature([userModel, otpModel, keysModel])` da duoc go bo.
+- `apps/ai/src/app.module.ts` da import `AiDatabaseModule` va duplicate root `MongooseModule.forFeature()` da duoc go bo; legacy model chi con nam trong `AiDatabaseModule`.
 - Mot so module con van register model truc tiep bang `MongooseModule.forFeature()`; can phan loai cai nao la owned, cai nao la legacy cross-service.
 - `service-database.modules.ts` con legacy cross-service registrations:
   - chat: `userModel`, `keysModel`, `attachmentModel`, `documentModel`, `quizModel`, `todoProjectModel`.
@@ -85,7 +85,7 @@ Files can xu ly trong sprint nay:
   - ai: `userModel`, `messagesModel`, `attachmentModel`, `documentModel`.
   - learning: `userModel`, `messagesModel`.
   - notification: `keysModel`.
-- `api-gateway` va `socket` khong nen import Mongo model, nhung hien co `apps/api-gateway/src/learning/todo/gateway-todo.controller.ts` import type tu `libs/db/src/mongo/model/todo.model`.
+- `api-gateway` va `socket` khong nen import Mongo model. `gateway-todo.controller.ts` da dung `libs/types` cho `TodoStatus`/`TodoPriority`; edge import qua barrel DB da duoc chuyen sang Redis/Bull subpath.
 - DTO/shared type co mot so import tu Mongo model, vi du `libs/dto/src/room.dto.ts` import `EventRoomType` tu room-events model. Can chuyen type shared sang `libs/dto`/`libs/types` de app khong phu thuoc Mongoose.
 - Auth proto/response co ca `_id` va `id`; can document ro `User._id` la Mongo ObjectId, `User.id` la parsed `usr_id`.
 - `apps/api-gateway/src/middlewares/auth.middleware.ts` gan JWT payload vao `req.user`; `payload._id` la actor Mongo `_id` can forward den service owner.
@@ -95,17 +95,17 @@ Files can xu ly trong sprint nay:
 
 ## Ownership Matrix
 
-| Service | Database | Owned collections/models | Edge/infra |
-| --- | --- | --- | --- |
-| `auth` | `appchat_auth` | `Users`, `Keys`, `Otps` | No |
-| `chat` | `appchat_chat` | `Rooms`, `RoomEvents`, `RoomsState`, `RoomsUsersState`, `Messages`, `MessageReads`, `MessageHides`, `MessageReactions`, `Friendships`, `CallHistories` | No |
-| `filesystem` | `appchat_filesystem` | `Attachments`, `Documents` | No |
-| `ai` | `appchat_ai` | `AIEmbedding`, `AIUsageLogs` | No |
-| `learning` | `appchat_learning` | `Quizzes`, `Flashcards`, `FlashcardDecks`, `FlashcardProgresses`, `Todos`, `TodoProjects` | No |
-| `notification` | `appchat_notification` | `Notifications` | No |
-| `api-gateway` | none | none | Yes |
-| `socket` | none | none | Yes |
-| `sfu` | none | none | Yes |
+| Service        | Database               | Owned collections/models                                                                                                                               | Edge/infra |
+| -------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| `auth`         | `appchat_auth`         | `Users`, `Keys`, `Otps`                                                                                                                                | No         |
+| `chat`         | `appchat_chat`         | `Rooms`, `RoomEvents`, `RoomsState`, `RoomsUsersState`, `Messages`, `MessageReads`, `MessageHides`, `MessageReactions`, `Friendships`, `CallHistories` | No         |
+| `filesystem`   | `appchat_filesystem`   | `Attachments`, `Documents`                                                                                                                             | No         |
+| `ai`           | `appchat_ai`           | `AIEmbedding`, `AIUsageLogs`                                                                                                                           | No         |
+| `learning`     | `appchat_learning`     | `Quizzes`, `Flashcards`, `FlashcardDecks`, `FlashcardProgresses`, `Todos`, `TodoProjects`                                                              | No         |
+| `notification` | `appchat_notification` | `Notifications`                                                                                                                                        | No         |
+| `api-gateway`  | none                   | none                                                                                                                                                   | Yes        |
+| `socket`       | none                   | none                                                                                                                                                   | Yes        |
+| `sfu`          | none                   | none                                                                                                                                                   | Yes        |
 
 Note: `Otps` thuoc auth vi la state xac thuc identity. Notification chi deliver email/SMS/push, khong so huu OTP. Token thiet bi/Firebase token tiep tuc thuoc auth `Keys`; notification chi doc qua Redis hoac API gateway den auth.
 
@@ -194,16 +194,16 @@ ID note: auth `Users._id` la Mongo ObjectId, `Users.usr_id` la business id. Publ
 
 Tao bang trong docs hoac JSON/script config de theo doi tung legacy dependency:
 
-| Service | Legacy model | File/module hien tai | Sprint go bo | Replacement |
-| --- | --- | --- | --- | --- |
-| `chat` | `User`, `Key` | `ChatDatabaseModule`, `RoomsModule`, `SocialModule`, services | Sprint 5 | API gateway -> auth |
-| `chat` | `Attachment`, `Document` | `ChatDatabaseModule`, `HandleChatService`, message pipeline | Sprint 5 | API gateway -> filesystem |
-| `chat` | `Quiz`, `TodoProject` | `ChatDatabaseModule`, `HandleChatService`, message pipeline | Sprint 5 | API gateway -> learning |
-| `filesystem` | `User`, `Room`, `Message` | `FilesystemDatabaseModule`, `DocumentsModule`, services | Sprint 3 | API gateway -> auth/chat |
-| `ai` | `User`, `Message`, `Attachment`, `Document` | `AiDatabaseModule`, `AIService`, `EmbeddingService` | Sprint 1 | Kafka payload/snapshot, API gateway -> owner if runtime lookup needed |
-| `learning` | `User`, `Message` | `LearningDatabaseModule`, `LearningModule`, services | Sprint 4 | API gateway -> auth/chat |
-| `notification` | `Key` | `NotificationDatabaseModule`, `FirebaseService` | Sprint 2 | Redis first, API gateway -> auth fallback |
-| `api-gateway` | `TodoStatus`, `TodoPriority` type from Mongo model | `gateway-todo.controller.ts` | Sprint 7 | DTO/shared type |
+| Service        | Legacy model                                       | File/module hien tai                                          | Sprint go bo     | Replacement                                                           |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------- |
+| `chat`         | `User`, `Key`                                      | `ChatDatabaseModule`, `RoomsModule`, `SocialModule`, services | Sprint 5         | API gateway -> auth                                                   |
+| `chat`         | `Attachment`, `Document`                           | `ChatDatabaseModule`, `HandleChatService`, message pipeline   | Sprint 5         | API gateway -> filesystem                                             |
+| `chat`         | `Quiz`, `TodoProject`                              | `ChatDatabaseModule`, `HandleChatService`, message pipeline   | Sprint 5         | API gateway -> learning                                               |
+| `filesystem`   | `User`, `Room`, `Message`                          | `FilesystemDatabaseModule`, `DocumentsModule`, services       | Sprint 3         | API gateway -> auth/chat                                              |
+| `ai`           | `User`, `Message`, `Attachment`, `Document`        | `AiDatabaseModule`, `AIService`, `EmbeddingService`           | Sprint 1         | Kafka payload/snapshot, API gateway -> owner if runtime lookup needed |
+| `learning`     | `User`, `Message`                                  | `LearningDatabaseModule`, `LearningModule`, services          | Sprint 4         | API gateway -> auth/chat                                              |
+| `notification` | `Key`                                              | `NotificationDatabaseModule`, `FirebaseService`               | Sprint 2         | Redis first, API gateway -> auth fallback                             |
+| `api-gateway`  | `TodoStatus`, `TodoPriority` type from Mongo model | `gateway-todo.controller.ts`                                  | Done in Sprint 0 | `libs/types`                                                          |
 
 Legacy ledger ID rule:
 

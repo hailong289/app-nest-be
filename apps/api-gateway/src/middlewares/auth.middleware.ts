@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response, NextFunction } from 'express';
 import { Response as ResponseHelper } from 'libs/helpers/response';
-import { RedisService } from 'libs/db/src';
+import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
 
 @Injectable()
@@ -73,9 +73,7 @@ export class AuthMiddleware implements NestMiddleware {
 
     // --- CASE 2: XỬ LÝ ACCESS TOKEN ---
     if (!token && authHeader) {
-      token = (
-        Array.isArray(authHeader) ? authHeader[0] : authHeader
-      )
+      token = (Array.isArray(authHeader) ? authHeader[0] : authHeader)
         .replace('Bearer ', '')
         .trim();
       secretKey =

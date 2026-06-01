@@ -7,7 +7,7 @@ import { CallGateway } from './call.gateway';
 import { SfuRpcModule } from '@app/sfu';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { SharedBullModule } from 'libs/db/src';
+import { SharedBullModule } from 'libs/db/src/bull/bull.module';
 import { CALL_AUTO_MISS_QUEUE } from './call-auto-miss.constants';
 import { CallAutoMissProcessor } from './call-auto-miss.processor';
 
@@ -90,4 +90,4 @@ import { CallAutoMissProcessor } from './call-auto-miss.processor';
   providers: [CallGateway, CallAutoMissProcessor],
   exports: [CallGateway],
 })
-export class CallWebSocketModule { }
+export class CallWebSocketModule {}

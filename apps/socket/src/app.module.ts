@@ -8,7 +8,7 @@ import redisConfig from 'libs/db/src/config/redis.config';
 import sfuConfig from './config/sfu.config';
 import path from 'path';
 import { JwtModule } from '@nestjs/jwt';
-import { SharedBullModule } from 'libs/db/src';
+import { SharedBullModule } from 'libs/db/src/bull/bull.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({

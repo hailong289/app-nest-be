@@ -17,7 +17,8 @@ import { Server } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CallHistory, CallStatus, RedisService, Room } from 'libs/db/src';
+import { RedisService } from 'libs/db/src/redis/redis.service';
+import type { CallStatus } from 'libs/types';
 import { REDISKEY, REDIS_TTL } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
@@ -2042,14 +2043,35 @@ export class CallGateway
   }
 }
 
+interface SocketCallMember {
+  id: string;
+  status?: string;
+  [key: string]: any;
+}
+
+interface SocketCallHistory {
+  call_id: string;
+  started_at?: string | Date;
+  call_mode?: string;
+  message_id?: string | { toString(): string };
+  members: SocketCallMember[];
+  [key: string]: any;
+}
+
+interface SocketRoom {
+  room_id: string;
+  room_members: SocketCallMember[];
+  [key: string]: any;
+}
+
 interface ChatGatewayCallResponse<T = any> {
   data: T;
   message: string;
   statusCode: number;
   reasonStatusCode: string;
   metadata: {
-    history: CallHistory;
-    room: Room;
+    history: SocketCallHistory;
+    room: SocketRoom;
     callType: string;
     callMode?: string;
     msg: Record<string, any>;

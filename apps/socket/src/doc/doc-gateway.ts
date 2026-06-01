@@ -11,7 +11,7 @@ import { Inject, Logger } from '@nestjs/common';
 import { Server } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { RedisService } from 'libs/db/src';
+import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';

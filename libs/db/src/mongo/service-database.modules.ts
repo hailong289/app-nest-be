@@ -53,7 +53,9 @@ export class AuthDatabaseModule {}
       messageReactionsModel,
       friendshipModel,
       callHistoryModel,
-      // Legacy cross-service reads. Remove these after replacing with APIs/events.
+      // Legacy cross-service reads (Sprint 5): replace auth lookups with API
+      // gateway -> auth, filesystem lookups with API gateway -> filesystem,
+      // and learning card lookups with API gateway -> learning.
       userModel,
       keysModel,
       attachmentModel,
@@ -73,7 +75,8 @@ export class ChatDatabaseModule {}
     MongooseModule.forFeature([
       attachmentModel,
       documentModel,
-      // Legacy cross-service reads. Remove these after replacing with APIs/events.
+      // Legacy cross-service reads (Sprint 3): replace user/room/message reads
+      // with API gateway -> auth/chat contracts before DB cutover.
       userModel,
       roomModel,
       messagesModel,
@@ -90,7 +93,8 @@ export class FilesystemDatabaseModule {}
     MongooseModule.forFeature([
       aIEmbeddingModel,
       aIUsageLogModel,
-      // Legacy cross-service reads. Remove these after replacing with Kafka snapshots.
+      // Legacy cross-service reads (Sprint 1): replace with Kafka payloads or
+      // API gateway -> owner lookups for on-demand compatibility paths.
       userModel,
       messagesModel,
       attachmentModel,
@@ -112,7 +116,8 @@ export class AiDatabaseModule {}
       flashcardProgressModel,
       todoModel,
       todoProjectModel,
-      // Legacy cross-service reads. Remove these after replacing with APIs/events.
+      // Legacy cross-service reads (Sprint 4): replace with API gateway ->
+      // auth/chat and keep ObjectId/business-id conversion in auth.
       userModel,
       messagesModel,
     ]),
@@ -127,7 +132,8 @@ export class LearningDatabaseModule {}
     MongoConnectionModule,
     MongooseModule.forFeature([
       notificationModel,
-      // Legacy cross-service reads. Replace with NotificationDevices projection.
+      // Legacy cross-service reads (Sprint 2): replace Keys lookup with Redis
+      // first and API gateway -> auth fallback. Do not add notification token collections.
       keysModel,
     ]),
   ],

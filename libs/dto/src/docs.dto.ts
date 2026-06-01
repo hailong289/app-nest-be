@@ -1,4 +1,4 @@
-import { DocVisibility, sharedWithRoleType } from 'libs/db/src';
+import type { DocVisibility, sharedWithRoleType } from 'libs/types';
 
 export class sharedWithType {
   userId: string;

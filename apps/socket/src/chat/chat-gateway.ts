@@ -12,7 +12,7 @@ import { Server } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CallHistory, RedisService } from 'libs/db/src';
+import { RedisService } from 'libs/db/src/redis/redis.service';
 import { REDISKEY } from '@app/constants/RedisKey';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
@@ -738,7 +738,7 @@ interface ChatGatewayResponse<T = any> {
     members: Array<Record<string, any>>;
     roomId: string;
     msg: Record<string, any>;
-    call_history?: CallHistory;
+    call_history?: Record<string, any>;
     // Có thể bổ sung các trường khác nếu cần
   };
 }

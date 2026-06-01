@@ -127,7 +127,7 @@ Files can xu ly trong sprint nay:
 ## Current Findings
 
 - `api-gateway` khong import Mongo connection/module, dung `RedisModule`, `JwtModule`, gRPC clients va Kafka client.
-- `api-gateway/src/learning/todo/gateway-todo.controller.ts` dang import type `TodoStatus`, `TodoPriority` tu `libs/db/src/mongo/model/todo.model`. Day van la DB model dependency o edge layer, can chuyen sang DTO/shared type khong phu thuoc Mongoose.
+- `api-gateway/src/learning/todo/gateway-todo.controller.ts` da chuyen `TodoStatus`, `TodoPriority` sang `libs/types`, khong con phu thuoc Mongo model cho type nay.
 - `api-gateway` config tung service tu `apps/api-gateway/.env.development` khi `NODE_ENV/GATEWAY_*_NODE_ENV=local`; can dong bo voi `.env.example` va deploy env.
 - `api-gateway/.env.development` dang co `PORT=5001`, trong khi `.env.example` dung `PORT=5000`; can chot port gateway nhat quan.
 - `api-gateway` chua co internal endpoint matrix day du cho cac sprint 1-6; can them/standardize route internal.
@@ -138,7 +138,7 @@ Files can xu ly trong sprint nay:
 - `WsJwtGuard` gan `client.userId = payload._id`; day la Mongo `_id` cho internal service calls.
 - `PresenceService` dang dung `usr_id` cho online/status FE-facing; giu behavior nay nhung document ro khong duoc dung presence `id` thay Mongo `_id` khi goi service owner.
 - `socket/.env` hien trong repo co dau hieu bi lech domain (`PROTO_URL=libs/grpc/ai.proto`, `GOOGLE_*`), can don lai dung socket env.
-- `socket/.env.example` chua liet ke day du API gateway internal URL/secret va SFU RPC config; khong nen them direct gRPC host/proto den chat/filesystem/ai/notification/auth neu rule la di qua gateway.
+- `socket/.env.example` da co API gateway internal URL/secret va SFU RPC config; tiep tuc khong them direct gRPC host/proto den chat/filesystem/ai/notification/auth.
 - `sfu` khong import Mongo/Redis/Kafka, dung in-memory mediasoup va gRPC protected bang `SFU_INTERNAL_SECRET`, dung huong.
 - `docker-compose.dev.yml` reference `apps/sfu/.env.local` va `apps/socket/.env.local`, nhung repo scan chua thay cac file nay; can tao template/example hoac sua compose dung `.env.example`/`.env.development` phu hop.
 - `docker-compose.yml` reference nhieu `.env.docker` chua thay trong repo scan; can chuan hoa file template hoac update compose docs.

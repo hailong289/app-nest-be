@@ -1,20 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import type { MsgType } from 'libs/types';
 
 export type MessageDocument = HydratedDocument<Message>;
-export type MsgType =
-  | 'text'
-  | 'image'
-  | 'file'
-  | 'system'
-  | 'video'
-  | 'audio'
-  | 'gif'
-  | 'document'
-  | 'quiz'
-  | 'flashcard'
-  | 'todo_project'
-  | 'call';
+export type { MsgType } from 'libs/types';
 
 @Schema({ timestamps: true, collection: 'Messages' })
 export class Message {

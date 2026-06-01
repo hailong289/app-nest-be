@@ -6,7 +6,7 @@ Current status: Phase 0 scaffold has started. `MongoConnectionModule` and servic
 
 ## Goal
 
-Tach MongoDB hien tai thanh mo hinh moi service so huu mot database rieng. Service chi doc/ghi database cua minh; moi truy cap du lieu ngoai domain phai di qua gRPC, Kafka event, Redis cache/projection, hoac snapshot da duoc dong bo.
+Tach MongoDB hien tai thanh mo hinh moi service so huu mot database rieng. Service chi doc/ghi database cua minh; moi truy cap du lieu ngoai domain phai di qua API gateway den service owner, Kafka event, Redis cache hop le, hoac snapshot da duoc dong bo. App service khong goi direct gRPC den service khac de hydrate data; ngoai le hop le la API gateway forward den owner services va socket chi goi SFU RPC cho media plane.
 
 ## Current Source Map
 
@@ -22,7 +22,7 @@ Repo da la NestJS monorepo voi cac application:
 - `socket`: realtime gateway, Redis/Bull/gRPC clients, khong nen so huu MongoDB.
 - `sfu`: media control plane, khong nen so huu MongoDB.
 
-Hien tai tat ca service Mongo dang dung chung `libs/db/src/mongo/mongodb.module.ts`. Module nay:
+Truoc Phase 0, tat ca service Mongo dung chung `libs/db/src/mongo/mongodb.module.ts`. Module legacy nay van ton tai de rollback/build compat, nhung app khong duoc import moi. Module nay:
 
 - `@Global()` va `MongooseModule.forRootAsync(...)` dung `DB_NAME` chung.
 - `MongooseModule.forFeature([...])` dang dang ky gan nhu tat ca schema vao cung mot module.
@@ -32,17 +32,17 @@ Day la diem can cat dau tien, vi neu de `MongodbModule` global nhu hien tai thi 
 
 ## Target Database Ownership
 
-| Service | Database de xuat | Collection/model so huu |
-| --- | --- | --- |
-| `auth` | `appchat_auth` | `Users`, `Keys`, `Otps` |
-| `chat` | `appchat_chat` | `Rooms`, `RoomEvents`, `RoomsState`, `RoomsUsersState`, `Messages`, `MessageReads`, `MessageHides`, `MessageReactions`, `Friendships`, `CallHistories` |
-| `filesystem` | `appchat_filesystem` | `Attachments`, `Documents` |
-| `ai` | `appchat_ai` | `AIEmbedding`, `AIUsageLogs`, them projection/snapshot neu can cho RAG |
-| `learning` | `appchat_learning` | `Quizzes`, `Flashcards`, `FlashcardDecks`, `FlashcardProgresses`, `Todos`, `TodoProjects` |
-| `notification` | `appchat_notification` | `Notifications` |
-| `api-gateway` | none | Khong MongoDB |
-| `socket` | none | Khong MongoDB, chi Redis/Bull va gRPC clients |
-| `sfu` | none | Khong MongoDB |
+| Service        | Database de xuat       | Collection/model so huu                                                                                                                                |
+| -------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `auth`         | `appchat_auth`         | `Users`, `Keys`, `Otps`                                                                                                                                |
+| `chat`         | `appchat_chat`         | `Rooms`, `RoomEvents`, `RoomsState`, `RoomsUsersState`, `Messages`, `MessageReads`, `MessageHides`, `MessageReactions`, `Friendships`, `CallHistories` |
+| `filesystem`   | `appchat_filesystem`   | `Attachments`, `Documents`                                                                                                                             |
+| `ai`           | `appchat_ai`           | `AIEmbedding`, `AIUsageLogs`                                                                                                                           |
+| `learning`     | `appchat_learning`     | `Quizzes`, `Flashcards`, `FlashcardDecks`, `FlashcardProgresses`, `Todos`, `TodoProjects`                                                              |
+| `notification` | `appchat_notification` | `Notifications`                                                                                                                                        |
+| `api-gateway`  | none                   | Khong MongoDB                                                                                                                                          |
+| `socket`       | none                   | Khong MongoDB, chi Redis/Bull va gRPC clients                                                                                                          |
+| `sfu`          | none                   | Khong MongoDB                                                                                                                                          |
 
 Database co the nam chung mot Mongo cluster luc dau, nhung moi service phai co `DB_NAME` rieng trong env cua chinh service do. Tach cluster vat ly co the lam sau khi da cat xong dependency code.
 
@@ -50,16 +50,41 @@ Database co the nam chung mot Mongo cluster luc dau, nhung moi service phai co `
 
 Nhung coupling nay phai duoc thay bang API/event/projection truoc khi doi `DB_NAME` rieng:
 
-| Service dang doc/ghi | Model ngoai domain | Thay bang |
-| --- | --- | --- |
-| `chat` | `User`, `Key` | `auth.GetUser`, `auth.SearchUser`, user summary cache, push token event sang notification |
-| `chat` | `Attachment`, `Document` | `filesystem` gRPC/Kafka, message chi giu `attachment_ids`/`document_id` va snapshot can render |
-| `chat` | `Quiz`, `TodoProject` | `learning` gRPC/Kafka, message chi giu foreign id va card snapshot |
-| `filesystem` | `User`, `Room`, `Message` | `auth.GetUser`, `chat.GetRoom`, `chat.AttachFileToMessage` hoac event `file.attached` |
-| `filesystem` | cap nhat `Message.attachment_ids` | chat phai so huu mutation nay; filesystem phat event hoac goi gRPC sang chat |
-| `ai` | `Message`, `Attachment`, `Document` | nguon du lieu gui payload/snapshot qua Kafka embedding events; AI khong query DB cua chat/filesystem |
-| `learning` | `User`, `Message` | `auth.GetUser`, `chat.GetOneMsg/GetMsgFromRoom`, hoac room/member projection |
-| `notification` | `Key` de lay FCM token | auth publish session/device token events; notification dung Redis projection, fallback qua API gateway -> auth. Khong them `NotificationDevices`/`PushTokens` vao DB rieng. |
+| Service dang doc/ghi | Model ngoai domain                  | Thay bang                                                                                                                                                                   |
+| -------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chat`               | `User`, `Key`                       | API gateway -> auth (`users/batch`, `users/search`, `users/resolve-business-ids`, `users/fcm-tokens`)                                                                       |
+| `chat`               | `Attachment`, `Document`            | API gateway -> filesystem, message chi giu `attachment_ids`/`document_id` va snapshot can render                                                                            |
+| `chat`               | `Quiz`, `TodoProject`               | API gateway -> learning, message chi giu foreign id va card snapshot                                                                                                        |
+| `filesystem`         | `User`, `Room`, `Message`           | API gateway -> auth/chat; chat so huu mutation message attachment hoac consume event `file.attached`                                                                        |
+| `filesystem`         | cap nhat `Message.attachment_ids`   | chat phai so huu mutation nay; filesystem phat event hoac call API gateway -> chat                                                                                          |
+| `ai`                 | `Message`, `Attachment`, `Document` | nguon du lieu gui payload/snapshot qua Kafka embedding events; AI khong query DB cua chat/filesystem                                                                        |
+| `learning`           | `User`, `Message`                   | API gateway -> auth/chat (`users/batch`, `resolve-business-ids`, `GetOneMsg/GetMsgFromRoom`)                                                                                |
+| `notification`       | `Key` de lay FCM token              | auth publish session/device token events; notification dung Redis projection, fallback qua API gateway -> auth. Khong them `NotificationDevices`/`PushTokens` vao DB rieng. |
+
+## Shared ID Contract
+
+- `_id` la MongoDB ObjectId cua document user trong auth `Users`.
+- `usr_id` la business id cua user, luu tren `Users.usr_id`.
+- `id` trong public response sau parse/unprefix la alias cua `usr_id`, khong phai Mongo `_id`.
+- Auth la service duy nhat resolve qua lai giua Mongo `_id` va `usr_id`.
+- Internal field `userId`/`userIds` mac dinh la Mongo `_id`/`_id[]`; field `usrId`/`usrIds` moi la business id.
+- Service/gateway/socket chi co parsed `id` hoac `usr_id` ma can ghi ObjectId phai call API gateway -> auth `POST /internal/auth/users/resolve-business-ids`.
+- Gateway protected context dung `req.user._id`; socket protected context dung `client.userId = payload._id`. Presence/public payload co the dung `usr_id` nhung khong dung thay ObjectId cho domain write.
+
+## Legacy Coupling Ledger
+
+| Service        | Legacy model                                | File/module hien tai                                          | Sprint go bo     | Replacement                                                                                       |
+| -------------- | ------------------------------------------- | ------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `chat`         | `User`, `Key`                               | `ChatDatabaseModule`, `RoomsModule`, `SocialModule`, services | Sprint 5         | API gateway -> auth; `userIds`/FCM token lookup dung Mongo `_id`, `usrIds` chi cho resolve/search |
+| `chat`         | `Attachment`, `Document`                    | `ChatDatabaseModule`, `HandleChatService`, message pipeline   | Sprint 5         | API gateway -> filesystem                                                                         |
+| `chat`         | `Quiz`, `TodoProject`                       | `ChatDatabaseModule`, `HandleChatService`, message pipeline   | Sprint 5         | API gateway -> learning                                                                           |
+| `filesystem`   | `User`, `Room`, `Message`                   | `FilesystemDatabaseModule`, `DocumentsModule`, services       | Sprint 3         | API gateway -> auth/chat                                                                          |
+| `ai`           | `User`, `Message`, `Attachment`, `Document` | `AiDatabaseModule`, `AIService`, `EmbeddingService`           | Sprint 1         | Kafka payload/snapshot; API gateway -> owner only for runtime lookup                              |
+| `learning`     | `User`, `Message`                           | `LearningDatabaseModule`, `LearningModule`, services          | Sprint 4         | API gateway -> auth/chat                                                                          |
+| `notification` | `Key`                                       | `NotificationDatabaseModule`, `FirebaseService`               | Sprint 2         | Redis first, API gateway -> auth fallback                                                         |
+| `api-gateway`  | Mongo model types                           | `gateway-todo.controller.ts` history                          | Done in Sprint 0 | `libs/types`/DTO shared types                                                                     |
+
+Legacy ledger ID rule: auth replacements must document which endpoints take Mongo `_id` (`users/batch`, `users/fcm-tokens`) and which take `usr_id` (`resolve-business-ids`). `Keys.tkn_userId`, Redis `USER_FCM_TOKENS(userId)`, and notification `userIds` use Mongo `_id`. Chat `Friendships` may keep existing `usr_id` fields, but room/message/read/reaction/notification ObjectId writes must resolve to Mongo `_id` first.
 
 ## Migration Order
 
@@ -76,16 +101,16 @@ Nhung coupling nay phai duoc thay bang API/event/projection truoc khi doi `DB_NA
 AI la ung vien tach truoc vi data so huu chinh la `AIEmbedding` va `AIUsageLogs`; cac data chat/file/doc nen di qua Kafka event.
 
 1. Doi env `apps/ai` thanh `DB_NAME=appchat_ai`.
-2. AI chi register `AIEmbedding`, `AIUsageLogs`, va projection neu can.
+2. AI chi register `AIEmbedding`, `AIUsageLogs`.
 3. Cac event `ai.createChatMessageEmbedding`, `ai.createDocumentEmbedding`, `ai.processFileEmbedding` phai mang du payload can embedding, khong de AI query `Messages`, `Attachments`, `Documents`.
-4. Neu can RAG theo room/document, AI luu snapshot toi thieu: `sourceService`, `sourceId`, `contextId`, `text`, `metadata`, `updatedAt`.
+4. Neu can RAG theo room/document, AI luu snapshot toi thieu tren model hien co (`AIEmbedding`) hoac de API gateway/caller hydrate tu owner service; khong tao collection moi trong sprint nay.
 
 ### Phase 2 - Tach Notification
 
 1. Doi env `apps/notification` thanh `DB_NAME=appchat_notification`.
-2. Notification chi register `Notification` va `NotificationDevice`.
+2. Notification chi register `Notification`.
 3. Auth publish event khi login/register/refresh/logout/update FCM token.
-4. Notification dung projection token de push, khong query `Keys`.
+4. Notification dung Redis token cache de push, Redis miss thi fallback qua API gateway -> auth, khong query `Keys` va khong tao `NotificationDevices`/`PushTokens`.
 
 ### Phase 3 - Tach Filesystem
 
@@ -110,7 +135,7 @@ Chat co nhieu luong can user/file/learning nen tach sau khi cac service kia da c
 
 1. Doi env `apps/chat` thanh `DB_NAME=appchat_chat`.
 2. Chat chi register room/message/social/call models.
-3. Social search/friend suggestion khong aggregate truc tiep `Users`; dung Auth search API hoac user projection trong chat.
+3. Social search/friend suggestion khong aggregate truc tiep `Users`; dung API gateway -> auth search/resolve API.
 4. Message render co the dung snapshot da luu, cache, hoac call service theo batch. Khong dung Mongo `populate`/`$lookup` sang DB khac.
 
 ### Phase 6 - Tach Auth cuoi cung
@@ -161,13 +186,13 @@ Cho moi service:
 - Khong `populate`/`$lookup` cross-service.
 - Foreign id duoc luu nhu id tham chieu, khong coi la relation DB.
 - Can render nhanh thi luu denormalized snapshot, cap nhat bang event.
-- Can tinh dung thoi gian thuc thi thi goi gRPC service owner.
+- Can tinh dung thoi gian thuc thi thi goi API gateway den service owner.
 - Test smoke: startup, create/read/update/delete path chinh, Kafka consumer path, gRPC path.
 
 ## First Concrete Coding Tasks
 
 1. Done: tao `MongoConnectionModule` va cac service database module, sau do thay app modules import module rieng.
 2. Doi `apps/ai` truoc de khong inject `Message`, `Attachment`, `Document` truc tiep; event embedding phai du payload.
-3. Them `NotificationDevice` projection va Auth publish event FCM token.
+3. Thay notification `Keys` lookup bang Redis first va API gateway -> auth fallback; khong them token collection moi.
 4. Sua filesystem upload flow de chat la service duy nhat update `Messages`.
 5. Them lint rule hoac script CI: fail neu `apps/*` import model ngoai ownership matrix.

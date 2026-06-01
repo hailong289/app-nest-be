@@ -59,7 +59,7 @@ Files can xu ly trong sprint nay:
 
 ## Current Coupling To Remove
 
-- `AuthDatabaseModule` da dung dung 3 model owned, nhung `apps/auth/src/app.module.ts` van import them `MongooseModule.forFeature([userModel, otpModel, keysModel])`; can don ve 1 noi dang ky de tach DB ro rang.
+- `AuthDatabaseModule` da dung dung 3 model owned va `apps/auth/src/app.module.ts` da go duplicate `MongooseModule.forFeature([userModel, otpModel, keysModel])`; model registration con mot noi trong DB module.
 - `apps/auth/src/app.module.ts` dang load `apps/auth/.env.development`, trong repo hien co `.env` va `.env.example`; can dong bo env file de DB split khong bi sai runtime.
 - `AuthService` dang call notification qua `${GATEWAY_URL}/api/notifications/send-otp` va `/forgot-password`; day la dung huong gateway nhung can chuan hoa thanh gateway client noi bo co timeout/header/secret.
 - `AuthService` dang sync FCM token tu `Keys` sang Redis `USER_FCM_TOKENS` luc start; notification sprint can Redis-first va fallback qua gateway/auth, nen auth phai expose contract lay token theo user.
@@ -72,7 +72,7 @@ Files can xu ly trong sprint nay:
   - learning: `userModel`.
   - ai: `userModel`.
   - notification: `keysModel`.
-  Auth sprint phai cung cap API/gateway contract de cac sprint do go coupling, khong copy `Users`/`Keys` sang DB cua service khac.
+    Auth sprint phai cung cap API/gateway contract de cac sprint do go coupling, khong copy `Users`/`Keys` sang DB cua service khac.
 - JWT middleware/socket gateways dang verify token bang Redis blacklist `REFRESH_TOKEN(userId, jti)`. DB `Keys.tkn_jit` la durable blacklist trong auth DB; cac app khac khong duoc doc `Keys` truc tiep.
 
 ## Target Flow

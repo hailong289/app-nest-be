@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { GatewayService } from '../gateway/gateway.service';
 import { GatewayController } from './gateway.controller';
-import { RedisModule } from 'libs/db/src';
+import { RedisModule } from 'libs/db/src/redis/redis.module';
 
 @Global()
 @Module({

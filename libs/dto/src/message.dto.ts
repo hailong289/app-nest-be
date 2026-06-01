@@ -1,4 +1,4 @@
-import { CallType, MsgType } from 'libs/db/src';
+import type { CallType, MsgType } from 'libs/types';
 
 // Message DTOs
 export class MessageDto {

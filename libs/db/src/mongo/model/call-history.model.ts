@@ -1,25 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import Utils from '@app/helpers/utils';
+import type { CallStatus, CallType, MemberStatus } from 'libs/types';
 
 export type CallHistoryDocument = HydratedDocument<CallHistory>;
-
-export type CallType = 'video' | 'audio';
-export type CallStatus =
-  | 'initiated'
-  | 'started' // Cuộc gọi đã bắt đầu
-  | 'ended'; // Cuộc gọi đã kết thúc
-
-export type MemberStatus =
-  | 'initiated'
-  | 'pending' // người nhận đã nhận cuộc gọi
-  | 'started'
-  | 'cancelled' // người gọi đã hủy cuộc gọi
-  | 'rejected' // người nhận đã từ chối cuộc gọi
-  | 'missed' // người nhận đã bỏ qua cuộc gọi
-  | 'ended' // người nhận hoặc người gọi đã kết thúc cuộc gọi
-  | 'joined'
-  | 'accepted';
+export type { CallStatus, CallType, MemberStatus } from 'libs/types';
 
 @Schema({ _id: false })
 export class Member {
