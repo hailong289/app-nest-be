@@ -36,8 +36,10 @@ import {
   RoomEvent,
   User,
   RoomsUsersState,
+  UserCacheRepository,
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
+import { RoomCacheRepository } from './room-cache.repository';
 import { socketEvent } from 'libs/dto/src/enum.type';
 import { buildMessageDetailPipeline } from '../handle-chat/Pipeline/getMsg';
 import { InjectQueue } from '@nestjs/bull';
@@ -63,6 +65,8 @@ export class RoomsService {
     private readonly emitter: RemoteSocketEmitter,
     @InjectQueue(ROOM_MEMBERSHIP_SYNC_QUEUE)
     private readonly membershipSyncQueue: Queue<RoomMembershipSyncJobData>,
+    private readonly userCache: UserCacheRepository,
+    private readonly roomCache: RoomCacheRepository,
   ) {}
 
   async onModuleInit() {
@@ -542,92 +546,16 @@ export class RoomsService {
         },
       },
 
-      /** 9) unread_count_calc: baseTs = max(last_read_at, clear_before_ts) */
-      {
-        $addFields: {
-          _baseTs: {
-            $switch: {
-              branches: [
-                {
-                  case: {
-                    $and: [
-                      { $ifNull: ['$my_state.last_read_at', false] },
-                      { $ifNull: ['$my_state.clear_before_ts', false] },
-                      {
-                        $gt: [
-                          '$my_state.last_read_at',
-                          '$my_state.clear_before_ts',
-                        ],
-                      },
-                    ],
-                  },
-                  then: '$my_state.last_read_at',
-                },
-                {
-                  case: {
-                    $and: [
-                      { $ifNull: ['$my_state.last_read_at', false] },
-                      { $ifNull: ['$my_state.clear_before_ts', false] },
-                      {
-                        $lte: [
-                          '$my_state.last_read_at',
-                          '$my_state.clear_before_ts',
-                        ],
-                      },
-                    ],
-                  },
-                  then: '$my_state.clear_before_ts',
-                },
-              ],
-              default: {
-                $ifNull: [
-                  '$my_state.last_read_at',
-                  '$my_state.clear_before_ts',
-                ],
-              },
-            },
-          },
-        },
-      },
-      {
-        $lookup: {
-          from: 'Messages',
-          let: { rid: '$_id', uid: uid, baseTs: '$_baseTs' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$msg_roomId', '$$rid'] },
-                    { $ne: ['$msg_sender', '$$uid'] },
-                    {
-                      $or: [
-                        { $eq: ['$deletedAt', null] },
-                        { $not: ['$deletedAt'] },
-                      ],
-                    },
-                    {
-                      $cond: [
-                        { $ifNull: ['$$baseTs', false] },
-                        { $gt: ['$createdAt', '$$baseTs'] },
-                        true,
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-            { $count: 'cnt' },
-          ],
-          as: 'unread',
-        },
-      },
-      {
-        $set: {
-          unread_count_calc: { $ifNull: [{ $first: '$unread.cnt' }, 0] },
-        },
-      },
-      { $unset: ['unread', '_baseTs', '_lastMsgTs', '_lastMsgSender'] },
+      /**
+       * 9) unread_count: dùng trực tiếp `my_state.unread_count` (đã được
+       * handle-chat duy trì qua recomputeUnreadForUserRoom trên mỗi
+       * message/read). Trước đây stage này $lookup Messages + $count cho
+       * TỪNG phòng để tính `unread_count_calc` — chạy trên toàn bộ phòng của
+       * user trước khi paginate, là một trong các stage tốn kém nhất. Bỏ đi:
+       * projection cuối lấy `my_state.unread_count` (fallback 0 nếu user chưa
+       * có RoomsUsersState cho phòng đó).
+       */
+      { $unset: ['_lastMsgTs', '_lastMsgSender'] },
 
       /** 10) Avatar & tên hiển thị (private fallback) */
       {
@@ -966,7 +894,7 @@ export class RoomsService {
 
           is_read: 1,
           unread_count: {
-            $ifNull: ['$my_state.unread_count', '$unread_count_calc'],
+            $ifNull: ['$my_state.unread_count', 0],
           },
           my_state: 1,
           last_read_id: {
@@ -986,20 +914,14 @@ export class RoomsService {
     return pipeline;
   }
 
-  public async getUserInfo(userId: string) {
-    const user = await this.userModel
-      .findOne({
-        _id: this.utils.convertToObjectIdMongoose(userId),
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_fullname: 1,
-        usr_id: 1,
-      })
-      .exec();
-
-    return user;
+  public async getUserInfo(
+    userId: string,
+  ): Promise<(User & { _id: Types.ObjectId }) | null> {
+    const user = await this.userCache.getById(userId);
+    // Giữ nguyên hợp đồng cũ: chỉ trả user đang 'active'.
+    if (!user || user.usr_status !== 'active') return null;
+    // lean() luôn trả về doc có _id tại runtime; cast để callers dùng được ._id.
+    return user as User & { _id: Types.ObjectId };
   }
   async create(payload: CreateRoomDto) {
     // create array save log
@@ -1178,6 +1100,9 @@ export class RoomsService {
       }
     }
 
+    // Invalidate two-tier room cache so reads (handle-chat) don't serve stale data.
+    await this.roomCache.invalidate(newRoom);
+
     // 4) Một event "tạo nhóm" duy nhất thay vì N event "Y đã được thêm".
     //    Trước đây fan-out N writeLogRoom (mỗi cái ~5 mongo ops) là nguyên
     //    nhân gốc gây timeout 20s. Về UX: room mới chỉ nên có 1 system
@@ -1334,6 +1259,10 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
 
@@ -1359,6 +1288,10 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const candidates = members
@@ -1374,6 +1307,10 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const promoteTarget = candidates[0];
@@ -1389,6 +1326,7 @@ export class RoomsService {
 
       await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
       await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+      await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
       // ghi log trong tinh nhắn
       await this.writeLogRoom({
         event_type: 'member.left',
@@ -1510,6 +1448,7 @@ export class RoomsService {
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
+    await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
     return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
@@ -1610,6 +1549,8 @@ export class RoomsService {
         );
       }),
     ]);
+
+    await this.roomCache.invalidate(roomInfo);
 
     // Đẩy USER_ROOMS sAdd về Bull queue, worker xử lý chunk 50/lần. Tránh
     // nuốt connection pool khi add 1000 member 1 phát.
@@ -1751,6 +1692,7 @@ export class RoomsService {
       { new: true },
     );
     if (!roominfo) throw new NotFoundException('không tìm thấy phòng');
+    await this.roomCache.invalidate(roominfo);
     const userinfor = roominfo.room_members.find(
       (i) => i.user_id.toString() === userId,
     );
@@ -1805,6 +1747,8 @@ export class RoomsService {
     );
     if (!userinfo)
       throw new BadRequestException('không tìm thấy thông tin thành viên');
+
+    await this.roomCache.invalidate(room);
 
     await this.writeLogRoom({
       event_type: 'member.change.name',
@@ -1923,6 +1867,8 @@ export class RoomsService {
     if (!roomUpdate) {
       throw new BadRequestException('Không thể cập nhật nick name');
     }
+
+    await this.roomCache.invalidate(roomUpdate);
     // ghi log
     //
 
@@ -2003,6 +1949,8 @@ export class RoomsService {
     if (!roomUpdate) {
       throw new BadRequestException('Không thể cập nhật quyền');
     }
+
+    await this.roomCache.invalidate(roomUpdate);
     // ghi log
     await this.writeLogRoom({
       event_type: 'member.change.role',

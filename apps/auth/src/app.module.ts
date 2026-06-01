@@ -10,6 +10,8 @@ import {
   mongoConfig,
   redisConfig,
   RedisModule,
+  CacheModule,
+  UserCacheRepository,
 } from 'libs/db/src';
 
 @Module({
@@ -24,9 +26,10 @@ import {
     // Do NOT add a duplicate MongooseModule.forFeature() here — models are already available
     // to all injected services through AuthDatabaseModule's global scope.
     AuthDatabaseModule,
+    CacheModule,
     JwtModule.register({}),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, UserCacheRepository],
 })
 export class AppModule {}

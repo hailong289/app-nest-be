@@ -37,7 +37,14 @@ export class Friendship {
   frp_status: friendship;
 }
 
+export const FriendshipSchema = SchemaFactory.createForClass(Friendship);
+
+FriendshipSchema.index({ frp_status: 1, frp_userId1: 1 });
+FriendshipSchema.index({ frp_status: 1, frp_userId2: 1 });
+FriendshipSchema.index({ frp_status: 1, frp_userId2: 1, frp_userId1: 1 });
+FriendshipSchema.index({ frp_status: 1, frp_actionUserId: 1 });
+
 export default {
   name: modelName,
-  schema: SchemaFactory.createForClass(Friendship),
+  schema: FriendshipSchema,
 };

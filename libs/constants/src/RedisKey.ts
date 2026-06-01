@@ -323,6 +323,9 @@ export const REDIS_TTL = {
   // truly forgotten zombies (browser frozen for a day, etc.) without
   // requiring an extra heartbeat ping from the FE.
   CALL_ACTIVE: 8 * 3600, // 8 hours — refreshed on every meaningful call event
+  // Document cache (room/user) — read-heavy, ít thay đổi. L2 (Redis) giữ
+  // bản full doc; L1 (RAM) có TTL ngắn riêng. Pub/sub invalidate khi đổi.
+  CACHE_ENTITY: 1800, // 30 phút
 } as const;
 
 /**

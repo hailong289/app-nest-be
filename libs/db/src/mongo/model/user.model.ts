@@ -78,6 +78,8 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
+UserSchema.index({ usr_id: 1 });
+
 export default {
   name: 'User',
   schema: UserSchema,

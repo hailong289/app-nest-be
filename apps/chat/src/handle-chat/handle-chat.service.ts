@@ -39,6 +39,7 @@ import {
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
+import { RoomCacheRepository } from '../rooms/room-cache.repository';
 import {
   buildMessageCorePipeline,
   buildMessageDetailPipeline,
@@ -51,6 +52,14 @@ import { SERVICES } from '@app/constants';
 import { KafkaEvent, notifyType } from '@app/dto/enum.type';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
 import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
+
+/**
+ * Shape of a Room served from RoomCacheRepository: a plain (lean) object that
+ * always carries `_id` at runtime even though the Room class doesn't declare
+ * it. The read-only call sites only touch `_id`, `room_members`, `room_type`
+ * and `room_id`, so this lean view is sufficient.
+ */
+type CachedRoom = Room & { _id: Types.ObjectId };
 
 @Injectable()
 export class HandleChatService {
@@ -65,6 +74,7 @@ export class HandleChatService {
     @InjectModel(RoomsState.name)
     private readonly RoomsStateModel: Model<RoomsState>,
     private readonly roomService: RoomsService,
+    private readonly roomCache: RoomCacheRepository,
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
     @InjectModel(MessageReaction.name)
@@ -146,11 +156,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -373,10 +382,36 @@ export class HandleChatService {
           },
         },
       ),
-      ...userMongoIds.map(
-        async (i) =>
-          await this.recomputeUnreadForUserRoom(i, finInfo._id.toString()),
-      ),
+      // Bump unread for every other member with ONE round-trip instead of
+      // running a heavy per-member aggregate (recomputeUnreadForUserRoom)
+      // for each — that fan-out was the main Mongo-CPU hotspot on send.
+      // upsert so a member without a state row yet still gets counted.
+      // Exact recompute (which excludes hidden messages) runs lazily on
+      // hide/delete, not on every message.
+      ...(userMongoIds.length > 0
+        ? [
+            this.RoomsUsersState.bulkWrite(
+              userMongoIds.map((i) => ({
+                updateOne: {
+                  filter: {
+                    room_id: finInfo._id,
+                    user_id: this.utils.convertToObjectIdMongoose(i),
+                  },
+                  update: {
+                    $inc: { unread_count: 1 },
+                    // bulkWrite skips Mongoose's setDefaultsOnInsert, so set
+                    // the defaults other code relies on explicitly — notably
+                    // `muted`: the push-notification target query filters
+                    // `{ muted: false }` and would exclude a row that lacks
+                    // the field entirely.
+                    $setOnInsert: { muted: false, pinned: false },
+                  },
+                  upsert: true,
+                },
+              })),
+            ),
+          ]
+        : []),
     ]);
 
     return Response.success(
@@ -498,11 +533,10 @@ export class HandleChatService {
       this.messageModel.findById(
         this.utils.convertToObjectIdMongoose(lastMessageId),
       ),
-      this.roomModel.findOne({
-        room_id: {
-          $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-        },
-      }),
+      this.roomCache.getByPairOrRoomId(
+        roomId,
+        this.utils.pairRoomId(userInfo.usr_id, roomId),
+      ) as Promise<CachedRoom | null>,
     ]);
 
     if (!roomInfro) {
@@ -533,18 +567,15 @@ export class HandleChatService {
         {
           last_read_msg_id: messgeInfo._id,
           last_read_at: readAt,
+          // Reader has caught up to "now" → unread resets to 0. Previously
+          // this fanned out an exact recompute for EVERY room member (N heavy
+          // aggregates per read), but one user reading never changes another
+          // user's unread — pure waste. New messages re-increment via
+          // createMessage's $inc.
+          unread_count: 0,
         },
       ),
     ]);
-
-    await Promise.all(
-      roomInfro.room_members.map((i) =>
-        this.recomputeUnreadForUserRoom(
-          i.user_id.toString(),
-          roomInfro._id.toString(),
-        ),
-      ),
-    );
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(messgeInfo._id.toString()),
     );
@@ -587,11 +618,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const roomInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const roomInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!roomInfo) {
       throw new NotAcceptableException('Phòng không tồn taij');
     }
@@ -641,11 +671,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -734,11 +763,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -764,6 +792,9 @@ export class HandleChatService {
         new: true,
       }),
     ]);
+    // The pin write mutated the room row (room_ghim). Drop the cached copy so
+    // the next read reflects the updated pinned-messages list.
+    await this.roomCache.invalidate(finInfo);
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
@@ -799,11 +830,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
@@ -819,6 +849,11 @@ export class HandleChatService {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
+    // Hiding a message can change THIS user's unread (a hidden unread message
+    // no longer counts). Recompute exactly for the hiding user only — hide is
+    // a rare action, and it reconciles the $inc-based counter which does not
+    // subtract hidden messages.
+    await this.recomputeUnreadForUserRoom(userId, finInfo._id.toString());
     // update many
     const findMsg = await this.messageModel
       .find({
@@ -857,11 +892,10 @@ export class HandleChatService {
     }
 
     // get info room
-    const finInfo = await this.roomModel.findOne({
-      room_id: {
-        $in: [roomId, this.utils.pairRoomId(userInfo.usr_id, roomId)],
-      },
-    });
+    const finInfo = (await this.roomCache.getByPairOrRoomId(
+      roomId,
+      this.utils.pairRoomId(userInfo.usr_id, roomId),
+    )) as CachedRoom | null;
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
