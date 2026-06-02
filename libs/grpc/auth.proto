@@ -265,9 +265,10 @@ message ResolveBusinessIdsRequest {
 
 message BusinessUserMapping {
   string usrId = 1;
-  string userId = 2;
+  string usr_id = 2;
   string _id = 3;
-  string usr_id = 4;
+  // Keep snake_case source id under `id`; avoid duplicate `usrId` after
+  // proto-loader camelCase mapping (`usr_id` -> `usrId`).
   string id = 5;
   string name = 6;
   string fullname = 7;

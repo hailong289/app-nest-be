@@ -65,7 +65,7 @@ export class GatewayClientService {
 
   private normalizeUser(raw: any): UserSummary | null {
     const mongoId = raw?._id ?? raw?.userId;
-    const usrId = raw?.usr_id ?? raw?.usrId ?? raw?.id;
+    const usrId = raw?.id;
     if (!mongoId || !usrId) return null;
 
     return {
