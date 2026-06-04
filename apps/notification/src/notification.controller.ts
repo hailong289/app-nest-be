@@ -176,7 +176,9 @@ export class NotificationController {
   }
 
   @GrpcMethod('NotificationService', 'GetNotifications')
-  async getNotifications(@Payload() data: { userId: string }) {
+  async getNotifications(
+    @Payload() data: { userId: string; limit?: number; offset?: number },
+  ) {
     return await this.notificationService.getNotifications(data);
   }
 

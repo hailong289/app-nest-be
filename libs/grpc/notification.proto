@@ -30,6 +30,8 @@ message PushNotificationTestResponse {
 // GetNotifications
 message GetNotificationsRequest {
   string userId = 1;
+  int32 limit = 2;
+  int32 offset = 3;
 }
 
 message GetNotificationsResponse {
@@ -41,6 +43,8 @@ message GetNotificationsResponse {
 
 message GetNotificationsMetadata {
   repeated Notification notifications = 1;
+  int32 total = 2;
+  int32 unreadCount = 3;
 }
 
 // MarkNotificationAsRead
