@@ -10,6 +10,7 @@ import {
   Req,
   Param,
   Res,
+  Query,
 } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import type { ClientGrpc } from '@nestjs/microservices';
@@ -167,10 +168,24 @@ export class GatewayNotificationController implements OnModuleInit {
   }
 
   @Get()
-  async getNotifications(@Req() req: AuthenticatedRequest) {
+  async getNotifications(
+    @Req() req: AuthenticatedRequest,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    const rawLimit = Number(limit);
+    const rawOffset = Number(offset);
     return await this.gatewayService.dispatchGrpcRequest(
       this.notificationGrpc.GetNotifications.bind(this.notificationGrpc),
-      { userId: req.user?._id },
+      {
+        userId: req.user?._id,
+        limit: Math.min(
+          Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50,
+          100,
+        ),
+        offset:
+          Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0,
+      },
     );
   }
 
