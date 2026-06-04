@@ -84,26 +84,6 @@ export const getFriendsAggregate = (
   { $limit: limit },
 ];
 
-/** Single round-trip: paginated friends + total count. */
-export const getFriendsFacetAggregate = (
-  userId: string,
-  page: number,
-  limit: number,
-  search: string,
-): PipelineStage[] => [
-  ...getFriendsBaseAggregate(userId, search),
-  {
-    $facet: {
-      data: [
-        { $sort: { 'friendship.updatedAt': -1 } },
-        { $skip: (page - 1) * limit },
-        { $limit: limit },
-      ],
-      total: [{ $count: 'total' }],
-    },
-  },
-];
-
 export const getFriendsRequestAggregate = (
   userId: string,
   type: string = 'received',

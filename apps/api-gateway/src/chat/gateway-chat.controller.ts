@@ -160,17 +160,12 @@ export class GatewayChatController {
     @Query()
     options: Partial<OptionsType> = {},
   ) {
-    const rawLimit = Number(options.limit);
-    const cappedLimit = Math.min(
-      Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 20,
-      50,
-    );
     const safeOptions: OptionsType = {
       q: '',
+      limit: 1000,
       offset: 0,
       type: 'all',
       ...options,
-      limit: cappedLimit,
     };
     const data: GetRoomType = {
       userId: req.user?._id,
@@ -317,15 +312,10 @@ export class GatewayChatController {
       msgId?: string;
     },
   ) {
-    const rawMsgLimit = Number(query.limit);
     const data = {
       userId: req.user?._id,
       roomId,
       ...query,
-      limit: Math.min(
-        Number.isFinite(rawMsgLimit) && rawMsgLimit > 0 ? rawMsgLimit : 100,
-        100,
-      ),
     };
     return await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.getMsgFromRoom.bind(this.RoomGrpcService),
