@@ -626,53 +626,31 @@ export class HandleChatService {
       throw new NotAcceptableException('Phòng không tồn taij');
     }
 
-    const cappedLimit = Math.min(Math.max(Number(limit) || 100, 1), 100);
-    const isDelta = type === 'new';
-
-    const myRoomState = await this.RoomsUsersState.findOne({
-      room_id: roomInfo._id,
-      user_id: userInfo._id,
-    })
-      .select('clear_before_ts')
-      .lean();
-
+    // Build comparison filter based on pagination type
     const compare: Record<string, any> = {};
     if (type && msgId && Types.ObjectId.isValid(msgId)) {
       const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
       if (type === 'new') {
+        // Load tin nhắn mới hơn msgId (để load real-time updates)
         compare._id = { $gt: msgObjectId };
       } else if (type === 'old') {
+        // Load tin nhắn cũ hơn msgId (để pagination lùi về quá khứ)
         compare._id = { $lt: msgObjectId };
       }
     }
-    if (myRoomState?.clear_before_ts) {
-      compare.createdAt = { $gt: myRoomState.clear_before_ts };
-    }
 
-    const baseMatch = {
-      msg_roomId: roomInfo._id,
-      ...compare,
-    };
-
-    const pageIds = await this.messageModel.aggregate<{ _id: Types.ObjectId }>([
-      { $match: baseMatch },
-      { $sort: { createdAt: -1 } },
-      { $limit: cappedLimit },
-      { $project: { _id: 1 } },
-    ]);
-
-    if (pageIds.length === 0) {
-      return Response.success([], 'Tin nhắn mới thành công');
-    }
-
-    const pipeLine = buildMessageCorePipeline(userId, {
-      mode: isDelta ? 'delta' : 'full',
-      omitRoomClear: true,
-    });
+    const pipeLine = buildMessageCorePipeline(userId);
     const result = await this.messageModel.aggregate([
-      { $match: { _id: { $in: pageIds.map((m) => m._id) } } },
+      {
+        $match: {
+          msg_roomId: roomInfo._id,
+          ...compare,
+        },
+      },
       ...pipeLine,
-      { $sort: { createdAt: 1 } },
+      { $sort: { createdAt: -1 } }, // Sắp xếp giảm dần (mới nhất lên đầu)
+      { $limit: Number(limit) }, // Giới hạn số lượng
+      { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
     // Stringify each message's room_event.payload so it survives gRPC.
     const serialized = (result as Record<string, any>[]).map((m) =>

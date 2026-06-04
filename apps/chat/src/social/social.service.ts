@@ -12,7 +12,8 @@ import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { CreateRoomDto } from '@app/dto/room.dto';
 import {
-  getFriendsFacetAggregate,
+  getFriendsAggregate,
+  getFriendsBaseAggregate,
   getFriendsRequestAggregate,
   searchUsersAggregate,
   getBlockedFriendsAggregate,
@@ -375,15 +376,18 @@ export class SocialService {
     limit: number,
     search: string,
   ) {
-    const [facetResult] = await this.friendshipModel.aggregate<{
-      data: Record<string, any>[];
-      total: { total: number }[];
-    }>(getFriendsFacetAggregate(userId, page, limit, search));
+    const friends = await this.friendshipModel.aggregate(
+      getFriendsAggregate(userId, page, limit, search),
+    );
 
-    const friends = facetResult?.data ?? [];
-    const totalCount = facetResult?.total?.[0]?.total ?? 0;
+    const sumTotal: { total: number }[] = await this.friendshipModel.aggregate([
+      ...getFriendsBaseAggregate(userId, search),
+      {
+        $count: 'total',
+      },
+    ]);
 
-    const data = friends.map((friend: Record<string, any>) => {
+    const data = (friends || []).map((friend: Record<string, any>) => {
       return {
         ...Utils.unprefix(friend, 'usr_'),
         friendship: Utils.unprefix(friend.friendship, 'frp_'),
@@ -393,8 +397,8 @@ export class SocialService {
     return Response.success(
       {
         friends: data || [], // Đảm bảo luôn là mảng, không bao giờ undefined
-        total: totalCount,
-        totalPage: Math.ceil(totalCount / limit),
+        total: sumTotal[0]?.total || 0,
+        totalPage: Math.ceil((sumTotal[0]?.total || 0) / limit),
         page: page,
         limit: limit,
       },

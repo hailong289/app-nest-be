@@ -236,41 +236,7 @@ export class RoomsService {
     });
   }
 
-  /**
-   * Lightweight sort key for GetRooms phase-A pagination.
-   * Uses RoomsState snapshot only — no per-room Message/User enrichment.
-   */
-  private handlePipelineSortKey(userId: string): PipelineStage[] {
-    const uid = this.utils.convertToObjectIdMongoose(userId);
-    return [
-      { $match: { 'room_members.user_id': uid } },
-      {
-        $lookup: {
-          from: 'RoomsState',
-          localField: '_id',
-          foreignField: 'room_id',
-          as: 'state',
-        },
-      },
-      { $set: { state: { $first: '$state' } } },
-      {
-        $addFields: {
-          _lastTs: {
-            $ifNull: [
-              '$state.last_message_snapshot.createdAt',
-              { $ifNull: ['$state.updatedAt', '$updatedAt'] },
-            ],
-          },
-        },
-      },
-      { $sort: { _lastTs: -1 } },
-    ];
-  }
-
-  private handlePipeline(
-    userId: string,
-    opts?: { omitSort?: boolean },
-  ): PipelineStage[] {
+  private handlePipeline(userId: string): PipelineStage[] {
     const uid = this.utils.convertToObjectIdMongoose(userId);
 
     const pipeline: PipelineStage[] = [
@@ -367,7 +333,8 @@ export class RoomsService {
           pipeline: [
             // Mới nhất trước
             { $sort: { createdAt: -1 } },
-            { $limit: 20 },
+            // Tuỳ ông muốn limit bao nhiêu event
+            // { $limit: 20 },
             {
               $project: {
                 _id: 0,
@@ -661,9 +628,7 @@ export class RoomsService {
           },
         },
       },
-      ...(opts?.omitSort
-        ? []
-        : [{ $sort: { _lastTs: -1 as const } } as PipelineStage]),
+      { $sort: { _lastTs: -1 } },
       /** 11.1) Pinned messages của room */
       {
         $lookup: {
@@ -1649,88 +1614,49 @@ export class RoomsService {
     const objectId = this.utils.convertToObjectIdMongoose(userId);
 
     const listRoomIds = await this.redis.sMembers(this.key.USER_ROOMS(userId));
-    if (!listRoomIds?.length) {
+    if (!listRoomIds) {
       throw new BadRequestException('chưa có cuộc trò chuyện nào');
     }
-
-    const cappedLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
-    const skip = Math.max(Number(offset) || 0, 0);
-
-    const baseMatch: PipelineStage = {
-      $match: {
-        $or: [
-          { room_id: { $in: listRoomIds } },
-          { 'room_members.user_id': objectId },
-        ],
-        ...matchType,
+    const listRooms = await this.roomModel.aggregate([
+      {
+        $match: {
+          $or: [
+            {
+              room_id: {
+                $in: listRoomIds,
+              },
+            },
+            {
+              'room_members.user_id': objectId,
+            },
+          ],
+          ...matchType,
+        },
       },
-    };
-
-    const nameFilterStages: PipelineStage[] = [
+      ...this.handlePipeline(userId),
+      // Drop rooms with no resolvable name BEFORE pagination — happens
+      // when a private counterpart was deleted (pipeline leaves `name`
+      // empty) or a group room has no title + no derivable fallback.
+      // Doing it at the DB layer (instead of post-fetch JS .filter)
+      // keeps `$skip/$limit` accurate: the page size reflects only
+      // displayable rooms.
       {
         $match: {
           name: { $type: 'string', $nin: [null, ''] },
         },
       },
-    ];
-
-    const searchStage: PipelineStage[] = q
-      ? [
-          {
-            $match: {
-              name: { $regex: removeAccents(q), $options: 'i' },
+      { $skip: Number(offset || 0) },
+      { $limit: Number(limit || 1000) },
+      ...(q
+        ? [
+            {
+              $match: {
+                name: { $regex: removeAccents(q), $options: 'i' }, // ✅ không phân biệt hoa/thường
+              },
             },
-          },
-        ]
-      : [];
-
-    let listRooms: Record<string, any>[];
-
-    if (q) {
-      // Search needs computed `name` from the full pipeline on all candidate rooms.
-      listRooms = await this.roomModel.aggregate([
-        baseMatch,
-        ...this.handlePipeline(userId),
-        ...nameFilterStages,
-        ...searchStage,
-        { $skip: skip },
-        { $limit: cappedLimit },
-      ]);
-    } else {
-      // Phase A: sort + paginate on lightweight state only.
-      const pageSlice = await this.roomModel.aggregate<{ _id: Types.ObjectId }>([
-        baseMatch,
-        ...this.handlePipelineSortKey(userId),
-        { $skip: skip },
-        { $limit: cappedLimit },
-        { $project: { _id: 1 } },
-      ]);
-
-      if (pageSlice.length === 0) {
-        return Response.success([], 'tất cả danh sách phòng');
-      }
-
-      const pageIds = pageSlice.map((r) => r._id);
-      const orderIndex = new Map(
-        pageIds.map((id, index) => [id.toString(), index]),
-      );
-
-      // Phase B: enrich only the current page (buffer extra rows for name filter).
-      const enriched = await this.roomModel.aggregate([
-        { $match: { _id: { $in: pageIds } } },
-        ...this.handlePipeline(userId, { omitSort: true }),
-        ...nameFilterStages,
-      ]);
-
-      listRooms = enriched
-        .sort(
-          (a, b) =>
-            (orderIndex.get(String(a._id)) ?? 0) -
-            (orderIndex.get(String(b._id)) ?? 0),
-        )
-        .slice(0, cappedLimit);
-    }
-
+          ]
+        : []),
+    ]);
     return Response.success(listRooms, 'tất cả danh sách phòng');
   }
   async changeLinkAvatarRoom(payload: ChangelinkAvatarRoomDto) {
