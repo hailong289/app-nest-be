@@ -46,9 +46,57 @@ export class ChangeFeedService {
   ) {}
 
   /**
-   * Cấp `seq` rồi phát event để consumer ghi outbox. Trả `seq` để caller (vd
-   * createMessage) gắn cùng giá trị vào payload realtime. No-op nếu không có
-   * recipient.
+   * Cấp một `seq` mới (INCR toàn cục). Dùng khi caller cần seq SỚM để gắn vào
+   * payload realtime TRƯỚC khi outbox được ghi ở chỗ khác (vd createMessage cấp
+   * seq, gắn vào MSGUPSERT, rồi truyền seq sang tail `handleMessagePersisted`).
+   */
+  async nextSeq(): Promise<number> {
+    return this.redis.incrPersist(REDISKEY.CHANGE_SEQ());
+  }
+
+  /**
+   * Phát `OUTBOX_APPEND` với `seq` cho trước (không INCR). Dùng khi seq đã được
+   * cấp sớm ở `nextSeq()` để live + catch-up dùng CHUNG một seq. No-op nếu
+   * không có recipient.
+   */
+  async emitWithSeq(
+    seq: number,
+    params: {
+      type: ChangeEventType;
+      roomId: string;
+      recipients: string[];
+      payload: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const { type, roomId, recipients, payload } = params;
+    if (!recipients?.length || !seq) return;
+    try {
+      await Utils.dispatchEventKafka(
+        this.chatClient,
+        KafkaEvent.OUTBOX_APPEND,
+        {
+          seq,
+          type,
+          roomId,
+          recipients,
+          payload,
+        } satisfies OutboxAppendPayload,
+      );
+    } catch (err) {
+      // Outbox là phần CATCH-UP — lỗi ở đây KHÔNG được làm hỏng mutation gốc
+      // (đã commit + emit realtime). Client vẫn nhận live; lần sync sau bù.
+      this.logger.error(
+        `[change-feed] emit ${type} seq=${seq} failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Cấp `seq` rồi phát event để consumer ghi outbox. Trả `seq` để caller gắn
+   * cùng giá trị vào payload realtime (live + catch-up chung seq). No-op nếu
+   * không có recipient.
    */
   async emit(params: {
     type: ChangeEventType;
@@ -56,17 +104,9 @@ export class ChangeFeedService {
     recipients: string[];
     payload: Record<string, unknown>;
   }): Promise<number> {
-    const { type, roomId, recipients, payload } = params;
-    if (!recipients?.length) return 0;
-
-    const seq = await this.redis.incrPersist(REDISKEY.CHANGE_SEQ());
-    await Utils.dispatchEventKafka(this.chatClient, KafkaEvent.OUTBOX_APPEND, {
-      seq,
-      type,
-      roomId,
-      recipients,
-      payload,
-    } satisfies OutboxAppendPayload);
+    if (!params.recipients?.length) return 0;
+    const seq = await this.nextSeq();
+    await this.emitWithSeq(seq, params);
     return seq;
   }
 

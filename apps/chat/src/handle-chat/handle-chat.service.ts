@@ -50,7 +50,13 @@ import { MemberStatus } from 'libs/db/src/mongo/model/call-history.model';
 import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
 import { REDISKEY } from '@app/constants/RedisKey';
-import { KafkaEvent, notifyType, socketEvent } from '@app/dto/enum.type';
+import {
+  ChangeEventType,
+  KafkaEvent,
+  notifyType,
+  socketEvent,
+} from '@app/dto/enum.type';
+import { ChangeFeedService } from '../change-feed/change-feed.service';
 import { RemoteSocketEmitter } from 'libs/ws/src';
 import { RedisService } from 'libs/db/src/redis/redis.service';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
@@ -109,6 +115,7 @@ export class HandleChatService {
     @Inject(SERVICES.CHAT)
     private readonly chatClient: ClientKafka,
     private readonly redis: RedisService,
+    private readonly changeFeed: ChangeFeedService,
   ) {}
 
   /**
@@ -136,6 +143,38 @@ export class HandleChatService {
       }
     }
     return msg;
+  }
+
+  /**
+   * Catch-up `message.updated` (fat) cho TOÀN member của phòng + gắn `seq` vào
+   * `msg` để live (gateway broadcast) dùng CHUNG seq với catch-up. Dùng cho
+   * react / pin / recall — các thay đổi message hiển thị cho mọi người.
+   * No-op khi không có msg/recipient. KHÔNG ném lỗi (outbox là phụ).
+   */
+  private async emitMsgUpdated(
+    finInfo: CachedRoom,
+    msg: Record<string, any> | undefined,
+  ): Promise<void> {
+    if (!msg) return;
+    const recipients = finInfo.room_members.map((m) => m.user_id.toString());
+    if (!recipients.length) return;
+    let seq = 0;
+    try {
+      seq = await this.changeFeed.nextSeq();
+    } catch {
+      seq = 0;
+    }
+    if (seq) msg.seq = seq;
+    await this.changeFeed.emitWithSeq(seq, {
+      type: ChangeEventType.MESSAGE_UPDATED,
+      roomId: finInfo._id.toString(),
+      recipients,
+      payload: {
+        roomId: finInfo.room_id,
+        roomMongoId: finInfo._id.toString(),
+        msg,
+      },
+    });
   }
 
   async createMessage(payload: CreateMessage) {
@@ -253,6 +292,17 @@ export class HandleChatService {
     const serializedMsg = this.serializeRoomEvent(
       msg[0] as Record<string, any>,
     );
+    // Cấp `seq` change-feed SỚM để gắn vào payload realtime (MSGUPSERT). Cùng
+    // `seq` này được truyền sang tail `handleMessagePersisted` để ghi outbox
+    // `room.newmsgs` → live + catch-up dùng CHUNG một seq, client tiến con trỏ
+    // nhất quán. Lỗi cấp seq không được chặn create path.
+    let changeSeq = 0;
+    try {
+      changeSeq = await this.changeFeed.nextSeq();
+    } catch {
+      changeSeq = 0;
+    }
+    if (changeSeq) serializedMsg.seq = changeSeq;
     const memberClientRooms = finInfo.room_members.map((m) =>
       this.key.ROOM_CLIENT(m.id),
     );
@@ -292,6 +342,7 @@ export class HandleChatService {
         sender_fullname: userInfo.usr_fullname,
         otherMemberIds,
         serializedMsg,
+        changeSeq,
       },
     );
 
@@ -348,6 +399,8 @@ export class HandleChatService {
     sender_fullname: string;
     otherMemberIds: string[];
     serializedMsg: Record<string, any>;
+    /** seq change-feed cấp ở createMessage, dùng chung cho live + catch-up. */
+    changeSeq?: number;
   }) {
     const {
       messageId,
@@ -363,6 +416,7 @@ export class HandleChatService {
       sender_fullname,
       otherMemberIds,
       serializedMsg,
+      changeSeq,
     } = payload;
 
     // Dedupe: mỗi message chỉ chạy tail 1 lần.
@@ -474,6 +528,36 @@ export class HandleChatService {
         },
       ),
     ]);
+
+    // ── Change-feed catch-up (login/mở lại bù phần miss) ──────────────
+    // `room.newmsgs`: 1 high-water-mark/người-nhận (compaction), dùng CHUNG
+    // `changeSeq` với MSGUPSERT live nên client online đã thấy thì lần reopen
+    // chỉ no-op. `room.read` cho sender → multi-device biết sender đã đọc tới.
+    if (changeSeq && otherMemberIds.length > 0) {
+      await this.changeFeed.emitWithSeq(changeSeq, {
+        type: ChangeEventType.ROOM_NEWMSGS,
+        roomId: roomMongoId,
+        recipients: otherMemberIds,
+        payload: {
+          roomId: roomCustomId,
+          roomMongoId,
+          newestMsgId: messageId,
+          newestMsgTs: createdAt,
+        },
+      });
+    }
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_READ,
+      roomId: roomMongoId,
+      recipients: [senderId],
+      payload: {
+        roomId: roomCustomId,
+        roomMongoId,
+        lastReadMsgId: messageId,
+        lastReadAt: createdAt,
+        unreadCount: 0,
+      },
+    });
   }
   private async recomputeUnreadForUserRoom(
     userId: string,
@@ -637,12 +721,28 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(messgeInfo._id.toString()),
     );
+    const serializedMsg = this.serializeRoomEvent(msg[0] as Record<string, any>);
+    // Change-feed: read-pointer của user đổi → catch-up `room.read`. Dùng chung
+    // seq với event mark:read live (gắn vào msg trả về cho gateway broadcast).
+    const readSeq = await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_READ,
+      roomId: roomInfro._id.toString(),
+      recipients: [userInfo._id.toString()],
+      payload: {
+        roomId: roomInfro.room_id,
+        roomMongoId: roomInfro._id.toString(),
+        lastReadMsgId: messgeInfo._id.toString(),
+        lastReadAt: readAt,
+        unreadCount: 0,
+      },
+    });
+    if (readSeq && serializedMsg) serializedMsg.seq = readSeq;
     return Response.success(
       {
         msgId: messgeInfo._id.toString(),
         members: roomInfro.room_members,
         roomId: roomInfro.room_id,
-        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
+        msg: serializedMsg,
       },
       'Đã đọc tin nhắn',
     );
@@ -799,12 +899,14 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
+    const serializedMsg = this.serializeRoomEvent(msg[0] as Record<string, any>);
+    await this.emitMsgUpdated(finInfo, serializedMsg);
     return Response.success(
       {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
+        msg: serializedMsg,
       },
       'Đã thả icon',
     );
@@ -865,12 +967,14 @@ export class HandleChatService {
       pinned,
     });
 
+    const serializedMsg = this.serializeRoomEvent(msg[0] as Record<string, any>);
+    await this.emitMsgUpdated(finInfo, serializedMsg);
     return Response.success(
       {
         msgId,
         members: finInfo.room_members,
         roomId: finInfo.room_id,
-        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
+        msg: serializedMsg,
       },
       'Đã ghim',
     );
@@ -923,6 +1027,19 @@ export class HandleChatService {
     const msgs = await this.messageModel.aggregate(
       buildMessagesDetailPipeline(msgIds),
     );
+    // Change-feed: ẩn-cho-tôi là per-user → `message.hidden` chỉ gửi user này.
+    const hideSeq = await this.changeFeed.emit({
+      type: ChangeEventType.MESSAGE_HIDDEN,
+      roomId: finInfo._id.toString(),
+      recipients: [userInfo._id.toString()],
+      payload: {
+        roomId: finInfo.room_id,
+        roomMongoId: finInfo._id.toString(),
+        msgId,
+      },
+    });
+    if (hideSeq && Array.isArray(msgs) && msgs[0])
+      (msgs[0] as Record<string, any>).seq = hideSeq;
     return Response.success(
       {
         msgs,
@@ -1009,6 +1126,11 @@ export class HandleChatService {
     const msgs = await this.messageModel.aggregate(
       buildMessagesDetailPipeline(msgIds),
     );
+    // Change-feed: thu hồi (toàn phòng) → `message.updated` cho từng msg ảnh
+    // hưởng (msg chính + các reply có preview đổi), gửi toàn member.
+    for (const m of msgs as Record<string, any>[]) {
+      await this.emitMsgUpdated(finInfo, m);
+    }
     return Response.success(
       {
         msgs,
