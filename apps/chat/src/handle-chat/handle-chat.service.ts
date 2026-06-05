@@ -49,7 +49,9 @@ import { Response } from '@app/helpers/response';
 import { MemberStatus } from 'libs/db/src/mongo/model/call-history.model';
 import { ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import { KafkaEvent, notifyType } from '@app/dto/enum.type';
+import { REDISKEY } from '@app/constants/RedisKey';
+import { KafkaEvent, notifyType, socketEvent } from '@app/dto/enum.type';
+import { RemoteSocketEmitter } from 'libs/ws/src';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
 import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
 
@@ -64,6 +66,7 @@ type CachedRoom = Room & { _id: Types.ObjectId };
 @Injectable()
 export class HandleChatService {
   private readonly utils = Utils;
+  private readonly key = REDISKEY;
 
   private readonly log = new Logger();
   constructor(
@@ -101,6 +104,7 @@ export class HandleChatService {
     private readonly quizModel: Model<Quiz>,
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
+    private readonly emitter: RemoteSocketEmitter,
   ) {}
 
   /**
@@ -203,9 +207,7 @@ export class HandleChatService {
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
       quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
-      desk_id: desk_id
-        ? this.utils.convertToObjectIdMongoose(desk_id)
-        : null,
+      desk_id: desk_id ? this.utils.convertToObjectIdMongoose(desk_id) : null,
       todo_project_id: null as Types.ObjectId | null,
     };
 
@@ -237,6 +239,26 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(createNewMsg._id.toString()),
     );
+
+    // Phát realtime NGAY khi payload đã đầy đủ — KHÔNG chờ tail side-effect
+    // (Kafka embedding, push notification, bulkWrite unread) ở dưới, và KHÔNG
+    // đi vòng gRPC response → gateway → emit. Bắn thẳng qua Redis adapter:
+    // chat service → Redis → apps/socket → client. Nhắm tới room cá nhân của
+    // từng thành viên (ROOM_CLIENT) — đúng semantics gateway đang dùng, room
+    // này luôn được join lúc connect nên không phụ thuộc trạng thái join roomId.
+    const serializedMsg = this.serializeRoomEvent(
+      msg[0] as Record<string, any>,
+    );
+    const memberClientRooms = finInfo.room_members.map((m) =>
+      this.key.ROOM_CLIENT(m.id),
+    );
+    this.emitter.broadcastTo(
+      '/chat',
+      memberClientRooms,
+      socketEvent.MSGUPSERT,
+      serializedMsg,
+    );
+
     // Generate content snapshot based on message type
     let contentSnap: string;
     switch (type) {
@@ -378,7 +400,7 @@ export class HandleChatService {
           data: {
             type: notifyType.noify_new_message,
             push_type: 'message',
-            msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
+            msg: serializedMsg,
           },
         },
       ),
@@ -414,15 +436,15 @@ export class HandleChatService {
         : []),
     ]);
 
-    return Response.success(
-      {
-        msgId: createNewMsg._id.toString(),
-        members: finInfo.room_members,
-        roomId: finInfo.room_id,
-        msg: this.serializeRoomEvent(msg[0] as Record<string, any>),
-      },
-      'Tin nhắn mới thành công',
-    );
+    // return Response.success(
+    //   {
+    //     msgId: createNewMsg._id.toString(),
+    //     members: finInfo.room_members,
+    //     roomId: finInfo.room_id,
+    //     msg: serializedMsg,
+    //   },
+    //   'Tin nhắn mới thành công',
+    // );
   }
   private async recomputeUnreadForUserRoom(
     userId: string,
