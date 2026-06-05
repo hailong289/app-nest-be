@@ -165,6 +165,7 @@ export class ChangeFeedService {
     nextSeq: number;
     hasMore: boolean;
     requireFullResync: boolean;
+    currentSeq: number;
   }> {
     const userId = new Types.ObjectId(params.userId);
     const sinceSeq = Number(params.sinceSeq ?? 0);
@@ -201,6 +202,16 @@ export class ChangeFeedService {
     });
     const nextSeq = events.length ? events[events.length - 1].seq : sinceSeq;
 
-    return { events, nextSeq, hasMore, requireFullResync };
+    // `currentSeq` = giá trị seq toàn cục hiện tại. Client dùng để đặt con trỏ
+    // sau cold-start (full-load) mà khỏi pull lại từ đầu.
+    let currentSeq = nextSeq;
+    try {
+      const raw = await this.redis.client.get(REDISKEY.CHANGE_SEQ());
+      currentSeq = Number(raw) || nextSeq;
+    } catch {
+      currentSeq = nextSeq;
+    }
+
+    return { events, nextSeq, hasMore, requireFullResync, currentSeq };
   }
 }

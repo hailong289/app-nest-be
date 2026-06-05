@@ -69,6 +69,8 @@ message SyncEventsOutput {
   bool hasMore = 3;
   // Cursor cũ hơn event nhỏ nhất còn lưu → client phải cold-start full-load.
   bool requireFullResync = 4;
+  // Seq toàn cục hiện tại — client đặt con trỏ sau cold-start.
+  int64 currentSeq = 5;
 }
 message inputPinnedRoom {
   string userId = 1;
