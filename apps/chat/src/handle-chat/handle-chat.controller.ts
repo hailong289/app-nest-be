@@ -84,6 +84,14 @@ export class HandleChatController {
     const result = await this.hdChat.getMsgFromRoom(payload);
     return result;
   }
+
+  /** Pull change-feed catch-up (outbox per-user) kể từ con trỏ sinceSeq. */
+  @GrpcMethod('ChatService', 'SyncEvents')
+  async SyncEvents(
+    @Body() payload: { userId: string; sinceSeq?: number; limit?: number },
+  ) {
+    return this.changeFeed.syncEvents(payload);
+  }
   @GrpcMethod('ChatService', 'HandleReact')
   async HandlingReat(@Body() payload: HandleReactDto) {
     const result = await this.hdChat.handleReact(payload);

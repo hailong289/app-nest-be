@@ -75,6 +75,7 @@ export interface RoomGrpcService {
   deletedRoom(data: any): Promise<ChatGatewayResponse>;
   getMsgFromRoom(data: any): any;
   getDocumentsFromRoom(data: any): any;
+  syncEvents(data: any): any;
 }
 
 @Controller('chat')
@@ -186,6 +187,28 @@ export class GatewayChatController {
     return await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
       body,
+    );
+  }
+
+  /**
+   * Catch-up sync: client pull change-feed (outbox) kể từ con trỏ `sinceSeq`.
+   * Trả { events[], nextSeq, hasMore, requireFullResync }. Xem
+   * plan/DONG_BO_EVENT_SYNC.md (Sprint 3 / Phần 3c).
+   */
+  @Get('sync/events')
+  async SyncEvents(
+    @Req() req: AuthenticatedRequest,
+    @Query('sinceSeq') sinceSeq?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const data = {
+      userId: req.user?._id,
+      sinceSeq: Number(sinceSeq ?? 0) || 0,
+      limit: Number(limit ?? 200) || 200,
+    };
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.syncEvents.bind(this.RoomGrpcService),
+      data,
     );
   }
 

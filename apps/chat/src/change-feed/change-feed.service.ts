@@ -142,4 +142,65 @@ export class ChangeFeedService {
 
     await this.changeEventModel.bulkWrite(ops, { ordered: false });
   }
+
+  /**
+   * Pull change-feed kể từ con trỏ `sinceSeq` cho catch-up sync (gRPC SyncEvents).
+   * Trả tối đa `limit` event theo `seq` tăng + `nextSeq`/`hasMore`. Đặt
+   * `requireFullResync=true` khi con trỏ đã cũ hơn event nhỏ nhất còn lưu (đã bị
+   * TTL/trim cắt) → client phải cold-start full-load. `payload` serialize JSON
+   * để qua gRPC an toàn (proto chỉ có `payloadJson`).
+   */
+  async syncEvents(params: {
+    userId: string;
+    sinceSeq?: number;
+    limit?: number;
+  }): Promise<{
+    events: Array<{
+      seq: number;
+      type: string;
+      roomId: string;
+      payloadJson: string;
+      createdAt: string;
+    }>;
+    nextSeq: number;
+    hasMore: boolean;
+    requireFullResync: boolean;
+  }> {
+    const userId = new Types.ObjectId(params.userId);
+    const sinceSeq = Number(params.sinceSeq ?? 0);
+    const limit = Math.min(Math.max(Number(params.limit ?? 200), 1), 500);
+
+    // Cursor cũ hơn event nhỏ nhất còn lưu (retention đã cắt) → full-resync.
+    // Chỉ xét khi client thực sự đã có cursor (>0); sinceSeq=0 nghĩa là pull từ đầu.
+    const oldest = await this.changeEventModel
+      .findOne({ user_id: userId })
+      .sort({ seq: 1 })
+      .select('seq')
+      .lean();
+    const requireFullResync =
+      sinceSeq > 0 && !!oldest && oldest.seq > sinceSeq + 1;
+
+    // Lấy limit+1 để biết còn nữa không (hasMore) mà khỏi query count riêng.
+    const rows = await this.changeEventModel
+      .find({ user_id: userId, seq: { $gt: sinceSeq } })
+      .sort({ seq: 1 })
+      .limit(limit + 1)
+      .lean();
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    const events = page.map((r) => {
+      const createdAt = (r as { createdAt?: Date }).createdAt;
+      return {
+        seq: r.seq,
+        type: r.type,
+        roomId: r.room_id?.toString() ?? '',
+        payloadJson: JSON.stringify(r.payload ?? {}),
+        createdAt: createdAt instanceof Date ? createdAt.toISOString() : '',
+      };
+    });
+    const nextSeq = events.length ? events[events.length - 1].seq : sinceSeq;
+
+    return { events, nextSeq, hasMore, requireFullResync };
+  }
 }
