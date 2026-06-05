@@ -117,6 +117,20 @@ describe('ChangeFeedService', () => {
       expect(res.requireFullResync).toBe(false);
     });
 
+    it('currentSeq does NOT echo a huge probe sinceSeq when Redis CHANGE_SEQ is empty', async () => {
+      // Client probes with MAX_SAFE_INTEGER to read the cursor; if Redis is
+      // empty, currentSeq must be 0 (not the giant sinceSeq) — else it poisons
+      // the client cursor.
+      const { service } = makeService({ find: [], currentSeq: null });
+      const res = await service.syncEvents({
+        userId: USER,
+        sinceSeq: Number.MAX_SAFE_INTEGER,
+        limit: 1,
+      });
+      expect(res.currentSeq).toBe(0);
+      expect(res.currentSeq).not.toBe(Number.MAX_SAFE_INTEGER);
+    });
+
     it('never requires resync on first pull (sinceSeq=0)', async () => {
       const { service } = makeService({ find: [], findOne: { seq: 999 } });
       const res = await service.syncEvents({ userId: USER, sinceSeq: 0, limit: 200 });

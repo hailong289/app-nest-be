@@ -1,9 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientKafka } from '@nestjs/microservices';
 import { Model, Types } from 'mongoose';
@@ -183,7 +178,14 @@ export class ChangeFeedService implements OnModuleInit {
       }
       return {
         insertOne: {
-          document: { user_id, room_id: roomObjId, type, seq, payload, expireAt },
+          document: {
+            user_id,
+            room_id: roomObjId,
+            type,
+            seq,
+            payload,
+            expireAt,
+          },
         },
       };
     });
@@ -274,14 +276,18 @@ export class ChangeFeedService implements OnModuleInit {
     });
     const nextSeq = events.length ? events[events.length - 1].seq : sinceSeq;
 
-    // `currentSeq` = giá trị seq toàn cục hiện tại. Client dùng để đặt con trỏ
-    // sau cold-start (full-load) mà khỏi pull lại từ đầu.
-    let currentSeq = nextSeq;
+    // `currentSeq` = giá trị seq toàn cục hiện tại (Redis CHANGE_SEQ). Client
+    // dùng để đặt con trỏ sau cold-start. KHÔNG fallback về `nextSeq`: client
+    // probe bằng sinceSeq cực lớn (MAX_SAFE_INTEGER) để lấy mốc → khi đó
+    // nextSeq = sinceSeq cực lớn; nếu CHANGE_SEQ đọc rỗng mà fallback nextSeq sẽ
+    // "đầu độc" con trỏ client = MAX → catch-up pull rỗng vĩnh viễn. Thiếu → 0.
+    let currentSeq = 0;
     try {
       const raw = await this.redis.client.get(REDISKEY.CHANGE_SEQ());
-      currentSeq = Number(raw) || nextSeq;
+      const parsed = Number(raw);
+      currentSeq = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
     } catch {
-      currentSeq = nextSeq;
+      currentSeq = 0;
     }
 
     return { events, nextSeq, hasMore, requireFullResync, currentSeq };
