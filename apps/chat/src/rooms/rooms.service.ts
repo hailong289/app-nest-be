@@ -69,55 +69,41 @@ export class RoomsService {
     private readonly roomCache: RoomCacheRepository,
   ) {}
 
-  async onModuleInit() {
-    await this.syncAllUserRoomsToRedis();
-  }
-
   /**
-   * Đồng bộ lại tất cả các phòng của user vào Redis khi khởi động service.
-   * Điều này đảm bảo tính nhất quán dữ liệu cho tính năng 'tham gia phòng mặc định'.
+   * Lazy-sync USER_ROOMS cho MỘT user (thay cho việc quét toàn bộ DB lúc
+   * startup). Gọi khi client connect và cache lạnh.
+   *
+   * - Nếu cờ USER_ROOMS_SYNCED tồn tại → đã nạp từ DB rồi, chỉ đọc lại set.
+   * - Nếu chưa → query mọi phòng của user (dùng index room_members.user_id),
+   *   ghi 1 pipeline SADD, đặt cờ ready, trả về danh sách room_id.
+   *
+   * Idempotent: nếu user được add vào phòng lúc đang lạnh, lần connect sau
+   * rebuild lại từ Mongo (đã gồm phòng mới) nên không mất dữ liệu.
    */
-  async syncAllUserRoomsToRedis() {
-    this.log.log('🔄 Bắt đầu đồng bộ User Rooms từ DB sang Redis...');
-    try {
-      interface UserRoomsAgg {
-        _id: Types.ObjectId;
-        rooms: string[];
-      }
-
-      // 1. Group tất cả Rooms theo thành viên để lấy danh sách room_id (custom string)
-      const cursor = this.roomModel
-        .aggregate<UserRoomsAgg>([
-          { $unwind: '$room_members' },
-          {
-            $group: {
-              _id: '$room_members.user_id',
-              rooms: { $push: '$room_id' },
-            },
-          },
-        ])
-        .cursor();
-
-      let count = 0;
-      // 2. Duyệt qua từng user và push vào Redis
-      for await (const uDoc of cursor) {
-        const doc = uDoc as UserRoomsAgg;
-        if (doc._id && doc.rooms && doc.rooms.length > 0) {
-          const userId = doc._id.toString();
-          // doc.rooms lúc này là mảng các room_id (string)
-          const roomIds: string[] = doc.rooms;
-          const key = this.key.USER_ROOMS(userId);
-
-          // Xóa set cũ để đảm bảo sạch sẽ
-          await this.redis.delKey(key);
-          await this.redis.sAdd(key, ...roomIds);
-          count++;
-        }
-      }
-      this.log.log(`✅ Đồng bộ hoàn tất: Đã update rooms cho ${count} users.`);
-    } catch (error) {
-      this.log.error('❌ Lỗi khi đồng bộ User Rooms:', error);
+  async ensureUserRoomsSynced(userId: string): Promise<string[]> {
+    if (!userId) return [];
+    const key = this.key.USER_ROOMS(userId);
+    const synced = await this.redis.getData<string>(
+      this.key.USER_ROOMS_SYNCED(userId),
+    );
+    if (synced) {
+      return this.redis.sMembers(key);
     }
+
+    const rooms = await this.roomModel
+      .find(
+        { 'room_members.user_id': this.utils.convertToObjectIdMongoose(userId) },
+        { room_id: 1, _id: 0 },
+      )
+      .lean<{ room_id: string }[]>();
+    const roomIds = rooms.map((r) => r.room_id).filter(Boolean);
+
+    if (roomIds.length > 0) {
+      await this.redis.pipelineSAdd([{ key, values: roomIds }]);
+    }
+    // Đặt cờ ready (kể cả user 0 phòng) để khỏi query Mongo lại mỗi lần connect.
+    await this.redis.setData(this.key.USER_ROOMS_SYNCED(userId), '1');
+    return roomIds;
   }
 
   /**
@@ -1092,10 +1078,11 @@ export class RoomsService {
             err instanceof Error ? err.message : String(err)
           }`,
         );
-        await Promise.all(
-          otherMemberObjIds.map((uid) =>
-            this.redis.sAdd(this.key.USER_ROOMS(uid), room_id),
-          ),
+        await this.redis.pipelineSAdd(
+          otherMemberObjIds.map((uid) => ({
+            key: this.key.USER_ROOMS(uid),
+            values: [room_id],
+          })),
         );
       }
     }
@@ -1565,10 +1552,11 @@ export class RoomsService {
           err instanceof Error ? err.message : String(err)
         }`,
       );
-      await Promise.all(
-        newMemberObjIds.map((uid) =>
-          this.redis.sAdd(this.key.USER_ROOMS(uid), roomId),
-        ),
+      await this.redis.pipelineSAdd(
+        newMemberObjIds.map((uid) => ({
+          key: this.key.USER_ROOMS(uid),
+          values: [roomId],
+        })),
       );
     }
 

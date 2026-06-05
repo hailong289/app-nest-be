@@ -34,6 +34,7 @@ export interface ChatGrpcService {
   AcceptCall<T = any>(data: T): Observable<any>;
   EndCall<T = any>(data: T): Observable<any>;
   SendCandidate<T = any>(data: T): Observable<any>;
+  SyncUserRooms<T = any>(data: T): Observable<{ roomIds: string[] }>;
 }
 
 @WebSocketGateway({
@@ -146,10 +147,23 @@ export class ChatGateway
       this.logger.log(
         `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
       );
-      const roomIds = await this.redis.sMembers(
+      let roomIds = await this.redis.sMembers(
         this.key.USER_ROOMS(client.userId),
       );
-      await client.join(roomIds);
+      // Cache lạnh (Redis vừa flush / lần đầu) → nhờ chat service rebuild từ
+      // Mongo (lazy-sync) rồi trả lại danh sách phòng để auto-join.
+      if (!roomIds.length) {
+        const res = (await Utils.dispatchGrpcRequest(
+          this.ChatGrpcService.SyncUserRooms.bind(this.ChatGrpcService),
+          { userId: client.userId },
+        )) as { roomIds?: string[] };
+        roomIds = res?.roomIds ?? [];
+      }
+      // Join theo lô để không block event loop khi user ở rất nhiều phòng.
+      const JOIN_CHUNK = 500;
+      for (let i = 0; i < roomIds.length; i += JOIN_CHUNK) {
+        await client.join(roomIds.slice(i, i + JOIN_CHUNK));
+      }
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';

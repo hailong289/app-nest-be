@@ -40,10 +40,12 @@ export class RoomMembershipSyncProcessor {
 
     for (let i = 0; i < total; i += ROOM_MEMBERSHIP_SYNC_CHUNK) {
       const chunk = memberIds.slice(i, i + ROOM_MEMBERSHIP_SYNC_CHUNK);
-      await Promise.all(
-        chunk.map((userId) =>
-          this.redis.sAdd(this.key.USER_ROOMS(userId), roomCustomId),
-        ),
+      // 1 pipeline = 1 round-trip cho cả chunk (thay vì 50 lệnh sAdd rời).
+      await this.redis.pipelineSAdd(
+        chunk.map((userId) => ({
+          key: this.key.USER_ROOMS(userId),
+          values: [roomCustomId],
+        })),
       );
       processed += chunk.length;
     }

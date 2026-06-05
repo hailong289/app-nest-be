@@ -61,6 +61,14 @@ export const REDISKEY = {
   USER_ROOMS: (userId: string) => `chat:user:${userId}:rooms`,
 
   /**
+   * Cờ đánh dấu USER_ROOMS của user đã được nạp từ MongoDB ít nhất 1 lần kể từ
+   * khi Redis còn sống. Dùng cho lazy-sync: connect lần đầu (cache lạnh) sẽ
+   * rebuild từ DB rồi set cờ này; các lần sau chỉ đọc set, khỏi query Mongo.
+   * Format: chat:user:{userId}:rooms:synced
+   */
+  USER_ROOMS_SYNCED: (userId: string) => `chat:user:${userId}:rooms:synced`,
+
+  /**
    * Lưu danh sách friends của user (Set)
    * Format: chat:user:{userId}:friends
    * Type: SET

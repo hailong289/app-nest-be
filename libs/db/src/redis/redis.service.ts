@@ -266,6 +266,27 @@ export class RedisService {
     }
   }
 
+  /**
+   * Add to many Sets in a single pipeline (one round-trip for the whole batch),
+   * instead of N separate SADD commands. Each entry maps a key to the values to
+   * add. Entries with no values are skipped.
+   */
+  async pipelineSAdd(
+    entries: { key: string; values: string[] }[],
+  ): Promise<void> {
+    try {
+      const valid = entries.filter((e) => e.values.length > 0);
+      if (valid.length === 0) return;
+      const pipeline = this.redis.pipeline();
+      for (const { key, values } of valid) {
+        pipeline.sadd(key, ...values);
+      }
+      await pipeline.exec();
+    } catch (err) {
+      console.error('Redis pipelineSAdd error:', err);
+    }
+  }
+
   // ────────────────────────────────────────────────────────────────
   // HASH helpers (used by call invite tracking + per-room call state)
   // ────────────────────────────────────────────────────────────────

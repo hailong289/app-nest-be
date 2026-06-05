@@ -44,6 +44,14 @@ export class RoomsController {
     return this.roomsService.GetRooms(payload);
   }
 
+  @GrpcMethod('ChatService', 'SyncUserRooms')
+  async SyncUserRooms(@Body() payload: { userId: string }) {
+    const roomIds = await this.roomsService.ensureUserRoomsSynced(
+      payload.userId,
+    );
+    return { roomIds };
+  }
+
   @GrpcMethod('ChatService', 'GetRoom')
   async GetRoom(@Body() payload: GetRoomDto) {
     const result = await this.roomsService.GetRoom(payload);

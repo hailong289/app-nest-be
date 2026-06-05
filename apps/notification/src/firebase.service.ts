@@ -193,9 +193,6 @@ export class FirebaseService {
         .find({ tkn_userId: { $in: userIds } }, 'tkn_fcmToken')
         .lean();
       fcms = mongoKeys.flatMap((k) => k.tkn_fcmToken || []);
-      if (fcms.length === 0) {
-        console.error('Không có fctoken (Redis & MongoDB đều trống)');
-      }
     }
     if (fcms.length > 0) {
       await this.pushNotification({
