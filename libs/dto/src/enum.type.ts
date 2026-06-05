@@ -49,6 +49,9 @@ export enum KafkaEvent {
   CREATE_ROOMS = 'create_rooms',
   SHARE_DOC_FOR_ROOM = 'document.shareforRoom',
 
+  // Chat — tail bất đồng bộ sau khi đã tạo message (chat tự consume)
+  MESSAGE_PERSISTED = 'chat.messagePersisted',
+
   // Notification & Auth
   SEND_OTP = 'send_otp',
   FORGOT_PASSWORD = 'forgot_password',

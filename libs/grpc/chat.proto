@@ -35,9 +35,19 @@ service ChatService {
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
   rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
   rpc MutedRoom(inputMutedRoom) returns (outputGetRoom);
+  // Lazy-sync USER_ROOMS: rebuild danh sách phòng của user từ DB nếu cache
+  // Redis lạnh, trả về để socket gateway auto-join lúc connect.
+  rpc SyncUserRooms(SyncUserRoomsInput) returns (SyncUserRoomsOutput);
 
 }
 // Requests and Responses
+
+message SyncUserRoomsInput {
+  string userId = 1;
+}
+message SyncUserRoomsOutput {
+  repeated string roomIds = 1;
+}
 message inputPinnedRoom {
   string userId = 1;
   string roomId = 2;

@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
 import { Logger } from '@nestjs/common';
+import Utils from '@app/helpers/utils';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -37,6 +38,10 @@ async function bootstrap() {
     },
   });
 
+  // Kafka consumer cho chat: tự consume MESSAGE_PERSISTED để chạy "tail" tạo
+  // tin nhắn (state/unread/notification) bất đồng bộ, không chặn create path.
+  Utils.createKafkaMicroserviceFromApplication(app, 'chat');
+
   try {
     await app.startAllMicroservices();
   } catch (error) {
@@ -47,6 +52,6 @@ async function bootstrap() {
   await app.init();
 
   console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
-  logger.log(`chat gRPC microservice is listening on port ${process.env.PORT}`);
+  logger.log(`chat gRPC + Kafka microservice is listening on port ${process.env.PORT}`);
 }
 void bootstrap();
