@@ -204,10 +204,14 @@ export class RoomsService {
       );
     }
 
-    // 4. Resolve the room's custom string id (used as Socket.IO room name)
+    // 4. Resolve the room's custom string id (used as Socket.IO room name) +
+    //    members (recipients cho change-feed catch-up).
     const room = await this.roomModel
-      .findById(input.room_id, { room_id: 1 })
-      .lean<{ room_id: string }>();
+      .findById(input.room_id, { room_id: 1, 'room_members.user_id': 1 })
+      .lean<{
+        room_id: string;
+        room_members?: Array<{ user_id: Types.ObjectId }>;
+      }>();
 
     if (!room?.room_id) {
       this.log.warn(
@@ -253,6 +257,28 @@ export class RoomsService {
       eventId: event.event_id,
       eventType: input.event_type,
       payload: input.payload ?? {},
+    });
+
+    // 7. Change-feed catch-up: system message (call.started/ended/joined/left,
+    //    member.joined/left, đổi tên/avatar, ...) cũng cần sync. Emit
+    //    `room.newmsgs` cho TOÀN member để user offline thấy khi mở lại.
+    //    Fire-and-forget (emit never-throw); không chặn luồng log.
+    const logRecipients = (room.room_members ?? []).map((m) =>
+      m.user_id.toString(),
+    );
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_NEWMSGS,
+      roomId: input.room_id.toString(),
+      recipients: logRecipients,
+      payload: {
+        roomId: room.room_id,
+        roomMongoId: input.room_id.toString(),
+        newestMsgId: systemMsg._id.toString(),
+        newestMsgTs:
+          systemMsg.createdAt instanceof Date
+            ? systemMsg.createdAt.toISOString()
+            : null,
+      },
     });
 
     return event;

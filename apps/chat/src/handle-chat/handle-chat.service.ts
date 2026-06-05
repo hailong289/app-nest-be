@@ -721,7 +721,9 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(messgeInfo._id.toString()),
     );
-    const serializedMsg = this.serializeRoomEvent(msg[0] as Record<string, any>);
+    const serializedMsg = this.serializeRoomEvent(
+      msg[0] as Record<string, any>,
+    );
     // Change-feed: read-pointer của user đổi → catch-up `room.read`. Dùng chung
     // seq với event mark:read live (gắn vào msg trả về cho gateway broadcast).
     const readSeq = await this.changeFeed.emit({
@@ -899,7 +901,9 @@ export class HandleChatService {
     const msg = await this.messageModel.aggregate(
       buildMessageDetailPipeline(msgId),
     );
-    const serializedMsg = this.serializeRoomEvent(msg[0] as Record<string, any>);
+    const serializedMsg = this.serializeRoomEvent(
+      msg[0] as Record<string, any>,
+    );
     await this.emitMsgUpdated(finInfo, serializedMsg);
     return Response.success(
       {
@@ -967,7 +971,9 @@ export class HandleChatService {
       pinned,
     });
 
-    const serializedMsg = this.serializeRoomEvent(msg[0] as Record<string, any>);
+    const serializedMsg = this.serializeRoomEvent(
+      msg[0] as Record<string, any>,
+    );
     await this.emitMsgUpdated(finInfo, serializedMsg);
     return Response.success(
       {
@@ -1171,6 +1177,25 @@ export class HandleChatService {
       if (!msg) {
         throw new BadRequestException('Không tạo được tin nhắn cuộc gọi');
       }
+
+      // Change-feed catch-up: tin nhắn `type:'call'` được tạo NGOÀI createMessage
+      // (không qua handleMessagePersisted) → tự emit `room.newmsgs` để user offline
+      // lúc có cuộc gọi vẫn thấy khi mở lại. Recipients = toàn member phòng.
+      const callRecipients = (room.room_members ?? []).map((m) =>
+        m.user_id.toString(),
+      );
+      await this.changeFeed.emit({
+        type: ChangeEventType.ROOM_NEWMSGS,
+        roomId: room._id.toString(),
+        recipients: callRecipients,
+        payload: {
+          roomId: room.room_id,
+          roomMongoId: room._id.toString(),
+          newestMsgId: msg._id.toString(),
+          newestMsgTs:
+            msg.createdAt instanceof Date ? msg.createdAt.toISOString() : null,
+        },
+      });
 
       const members = await this.userModel.find({
         usr_id: {
