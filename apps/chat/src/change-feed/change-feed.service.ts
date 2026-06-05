@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientKafka } from '@nestjs/microservices';
 import { Model, Types } from 'mongoose';
@@ -8,6 +13,11 @@ import { SERVICES } from '@app/constants';
 import { REDISKEY } from '@app/constants/RedisKey';
 import { ChangeEventType, KafkaEvent } from '@app/dto/enum.type';
 import Utils from '@app/helpers/utils';
+
+/** Retention change-feed: doc hết hạn sau ngần này (TTL theo `expireAt`). */
+export const CHANGEFEED_RETENTION_SECONDS = 30 * 24 * 60 * 60; // 30 ngày
+/** Cap mềm: giữ tối đa ngần này event/user (trim job cắt phần cũ vượt ngưỡng). */
+export const CHANGEFEED_MAX_PER_USER = 5000;
 
 /**
  * Payload của Kafka event `OUTBOX_APPEND`. `seq` được cấp ĐỒNG BỘ ở `emit()`
@@ -34,8 +44,14 @@ export interface OutboxAppendPayload {
  *   `UserChangeEvents`. `room.newmsgs` dùng upsert HWM (compaction) thay vì N row.
  */
 @Injectable()
-export class ChangeFeedService {
+export class ChangeFeedService implements OnModuleInit {
   private readonly logger = new Logger(ChangeFeedService.name);
+
+  /**
+   * Rollout kill-switch. `CHANGEFEED_ENABLED=false` → ngừng cấp seq + ghi outbox
+   * (mutation + realtime vẫn chạy như cũ; FE tự fallback full-load). Mặc định bật.
+   */
+  private readonly enabled = process.env.CHANGEFEED_ENABLED !== 'false';
 
   constructor(
     @InjectModel(UserChangeEvent.name)
@@ -45,12 +61,28 @@ export class ChangeFeedService {
     private readonly redis: RedisService,
   ) {}
 
+  async onModuleInit(): Promise<void> {
+    if (!this.enabled) {
+      this.logger.warn('Change-feed DISABLED (CHANGEFEED_ENABLED=false)');
+    }
+    // Drop TTL index legacy trên `createdAt` (Sprint 1) — nay TTL theo `expireAt`
+    // để HWM upsert refresh được hạn. Idempotent: bỏ qua nếu index không tồn tại.
+    try {
+      await this.changeEventModel.collection.dropIndex('createdAt_1');
+      this.logger.log('Dropped legacy TTL index createdAt_1');
+    } catch {
+      /* index không tồn tại → bỏ qua */
+    }
+  }
+
   /**
    * Cấp một `seq` mới (INCR toàn cục). Dùng khi caller cần seq SỚM để gắn vào
    * payload realtime TRƯỚC khi outbox được ghi ở chỗ khác (vd createMessage cấp
    * seq, gắn vào MSGUPSERT, rồi truyền seq sang tail `handleMessagePersisted`).
+   * Trả 0 khi change-feed tắt (rollout) → caller không gắn seq, không ghi outbox.
    */
   async nextSeq(): Promise<number> {
+    if (!this.enabled) return 0;
     return this.redis.incrPersist(REDISKEY.CHANGE_SEQ());
   }
 
@@ -121,6 +153,9 @@ export class ChangeFeedService {
 
     const roomObjId = Utils.convertToObjectIdMongoose(roomId);
     const isHwm = type === ChangeEventType.ROOM_NEWMSGS;
+    // Refresh hạn TTL ở MỖI lần ghi (kể cả HWM upsert) → phòng còn hoạt động
+    // không bị xoá nhầm. Xem model `expireAt`.
+    const expireAt = new Date(Date.now() + CHANGEFEED_RETENTION_SECONDS * 1000);
 
     const ops = recipients.map((uid) => {
       const user_id = new Types.ObjectId(uid);
@@ -128,19 +163,43 @@ export class ChangeFeedService {
         return {
           updateOne: {
             filter: { user_id, room_id: roomObjId, type },
-            update: { $set: { seq, payload } },
+            update: { $set: { seq, payload, expireAt } },
             upsert: true,
           },
         };
       }
       return {
         insertOne: {
-          document: { user_id, room_id: roomObjId, type, seq, payload },
+          document: { user_id, room_id: roomObjId, type, seq, payload, expireAt },
         },
       };
     });
 
     await this.changeEventModel.bulkWrite(ops, { ordered: false });
+
+    // Đánh dấu user "dirty" để job trim cap chỉ xử lý user có thay đổi (mục 5a).
+    await this.redis.sAdd(REDISKEY.CHANGEFEED_DIRTY(), ...recipients);
+  }
+
+  /**
+   * Cap mềm: giữ tối đa `CHANGEFEED_MAX_PER_USER` event mới nhất của 1 user, xoá
+   * phần cũ vượt ngưỡng. Lấy `seq` của event ở vị trí thứ CAP (sort giảm dần) làm
+   * mốc rồi `deleteMany(seq <= mốc)`. No-op nếu user có ≤ CAP event. Trả số đã xoá.
+   */
+  async trimUserToCap(userId: string): Promise<number> {
+    const uid = new Types.ObjectId(userId);
+    const cutoff = await this.changeEventModel
+      .findOne({ user_id: uid })
+      .sort({ seq: -1 })
+      .skip(CHANGEFEED_MAX_PER_USER)
+      .select('seq')
+      .lean();
+    if (!cutoff) return 0;
+    const res = await this.changeEventModel.deleteMany({
+      user_id: uid,
+      seq: { $lte: cutoff.seq },
+    });
+    return res.deletedCount ?? 0;
   }
 
   /**

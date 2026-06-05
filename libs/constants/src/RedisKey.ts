@@ -95,6 +95,14 @@ export const REDISKEY = {
   CHANGE_SEQ: () => `chat:changefeed:seq`,
 
   /**
+   * Set các userId vừa được ghi outbox kể từ lần trim trước. Job trim đọc set
+   * này để chỉ cap (giữ tối đa N event/user) cho những user thực sự có thay đổi,
+   * khỏi quét toàn collection. Cùng pattern với UNREAD_DIRTY.
+   * Format: chat:changefeed:dirty  (SET<userId>)
+   */
+  CHANGEFEED_DIRTY: () => `chat:changefeed:dirty`,
+
+  /**
    * Lưu danh sách friends của user (Set)
    * Format: chat:user:{userId}:friends
    * Type: SET

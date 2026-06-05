@@ -34,6 +34,14 @@ export class UserChangeEvent {
   /** Payload thin/fat tuỳ `type` (xem bảng 2a trong plan). */
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   payload: Record<string, unknown>;
+
+  /**
+   * Mốc hết hạn (TTL). Đặt = now + RETENTION ở MỖI lần ghi — kể cả HWM
+   * `room.newmsgs` upsert — nên một phòng còn hoạt động KHÔNG bị TTL xoá nhầm
+   * (khác `createdAt` chỉ set lúc insert). Xem plan/DONG_BO_EVENT_SYNC.md (5a).
+   */
+  @Prop({ type: Date })
+  expireAt: Date;
 }
 
 export const UserChangeEventSchema =
@@ -43,10 +51,9 @@ export const UserChangeEventSchema =
 UserChangeEventSchema.index({ user_id: 1, seq: 1 });
 // Compaction high-water-mark `room.newmsgs`: upsert 1 row/(user,room,type).
 UserChangeEventSchema.index({ user_id: 1, room_id: 1, type: 1 });
-// Retention: TTL 30 ngày kể từ createdAt (Mongoose timestamps).
-UserChangeEventSchema.index(
-  { createdAt: 1 },
-  { expireAfterSeconds: 30 * 24 * 60 * 60 },
-);
+// Retention: TTL theo `expireAt` (= now + RETENTION, refresh mỗi lần ghi). Mongo
+// xoá doc khi `expireAt` < hiện tại (expireAfterSeconds: 0). Thay cho TTL cũ trên
+// `createdAt` — index legacy `createdAt_1` được drop ở ChangeFeedService.onModuleInit.
+UserChangeEventSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 
 export default { name: 'UserChangeEvent', schema: UserChangeEventSchema };

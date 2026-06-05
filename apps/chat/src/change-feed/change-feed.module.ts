@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 import { ChangeFeedService } from './change-feed.service';
+import { ChangeFeedTrimService } from './change-feed-trim.service';
 
 /**
  * Đóng gói `ChangeFeedService` + ClientKafka `SERVICES.CHAT` (chat tự emit
@@ -21,7 +22,7 @@ const ChatSelfKafkaClient = SharedKafkaClientModule.registerAsync({
 
 @Module({
   imports: [ChatSelfKafkaClient],
-  providers: [ChangeFeedService],
+  providers: [ChangeFeedService, ChangeFeedTrimService],
   // Re-export cả ClientKafka SERVICES.CHAT để importer (HandleChat/Rooms) inject
   // được cả `ChangeFeedService` lẫn `@Inject(SERVICES.CHAT) ClientKafka`.
   exports: [ChangeFeedService, ChatSelfKafkaClient],
