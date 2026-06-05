@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { HandleChatService } from './handle-chat.service';
 import { RoomsModule } from '../rooms/rooms.module';
 import { HandleChatController } from './handle-chat.controller';
+import { UnreadFlushService } from './unread-flush.service';
 import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 
 @Module({
   controllers: [HandleChatController],
-  providers: [HandleChatService],
+  providers: [HandleChatService, UnreadFlushService],
   imports: [
     RoomsModule,
     SharedKafkaClientModule.registerAsync({
@@ -24,6 +25,12 @@ import { SharedKafkaClientModule } from 'libs/kafka';
       name: SERVICES.NOTIFICATION,
       clientId: 'chat-msg-notification',
       groupId: 'chat-msg-notification-group',
+    }),
+    // Client để chat EMIT event MESSAGE_PERSISTED cho chính nó (tail bất đồng bộ).
+    SharedKafkaClientModule.registerAsync({
+      name: SERVICES.CHAT,
+      clientId: 'chat-service-self-client',
+      groupId: 'chat-service-self-group',
     }),
   ],
 })

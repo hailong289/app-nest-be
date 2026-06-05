@@ -92,7 +92,9 @@ export class RoomsService {
 
     const rooms = await this.roomModel
       .find(
-        { 'room_members.user_id': this.utils.convertToObjectIdMongoose(userId) },
+        {
+          'room_members.user_id': this.utils.convertToObjectIdMongoose(userId),
+        },
         { room_id: 1, _id: 0 },
       )
       .lean<{ room_id: string }[]>();
@@ -222,6 +224,117 @@ export class RoomsService {
     });
   }
 
+  /**
+   * Pha A của GetRooms: CHỌN + PHÂN TRANG trên tập tất cả phòng của user bằng
+   * các stage NHẸ (chỉ 2 lookup điểm/phòng), để `$skip/$limit` cắt còn ~20 phòng
+   * TRƯỚC khi `handlePipeline` enrich nặng. Tránh enrich toàn bộ phòng rồi vứt đi.
+   *
+   * Sắp theo hoạt động gần nhất (last_message_snapshot.createdAt) và lọc bỏ phòng
+   * không hiển thị được (tên rỗng) + áp search `q` — tất cả TRƯỚC phân trang để
+   * page size phản ánh đúng số phòng hiển thị và search chạy trên toàn tập.
+   */
+  private buildRoomPaginateStages(
+    uid: Types.ObjectId,
+    opts: { matchType: Record<string, unknown>; q?: string },
+  ): PipelineStage[] {
+    const { matchType, q } = opts;
+    return [
+      { $match: { 'room_members.user_id': uid, ...matchType } },
+      {
+        $lookup: {
+          from: 'RoomsState',
+          localField: '_id',
+          foreignField: 'room_id',
+          pipeline: [
+            {
+              $project: {
+                _id: 0,
+                'last_message_snapshot.createdAt': 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+          as: '_pg_state',
+        },
+      },
+      { $set: { _pg_state: { $first: '$_pg_state' } } },
+      {
+        $addFields: {
+          _pg_lastTs: {
+            $ifNull: [
+              '$_pg_state.last_message_snapshot.createdAt',
+              { $ifNull: ['$_pg_state.updatedAt', '$updatedAt'] },
+            ],
+          },
+          _pg_other: {
+            $cond: [
+              { $eq: ['$room_type', 'private'] },
+              {
+                $first: {
+                  $filter: {
+                    input: '$room_members',
+                    as: 'm',
+                    cond: { $ne: ['$$m.user_id', uid] },
+                  },
+                },
+              },
+              null,
+            ],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'Users',
+          let: { oid: '$_pg_other.user_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$oid'] } } },
+            { $project: { _id: 0, usr_fullname: 1 } },
+          ],
+          as: '_pg_otherUser',
+        },
+      },
+      {
+        $addFields: {
+          _pg_name: {
+            $cond: [
+              { $eq: ['$room_type', 'private'] },
+              {
+                $ifNull: [
+                  {
+                    $cond: [
+                      {
+                        $or: [
+                          { $not: ['$_pg_other.name'] },
+                          { $eq: ['$_pg_other.name', ''] },
+                        ],
+                      },
+                      null,
+                      '$_pg_other.name',
+                    ],
+                  },
+                  { $first: '$_pg_otherUser.usr_fullname' },
+                ],
+              },
+              '$room_name',
+            ],
+          },
+        },
+      },
+      { $match: { _pg_name: { $type: 'string', $nin: [null, ''] } } },
+      ...(q
+        ? [
+            {
+              $match: {
+                _pg_name: { $regex: removeAccents(q), $options: 'i' },
+              },
+            } as PipelineStage,
+          ]
+        : []),
+      { $sort: { _pg_lastTs: -1 } },
+    ];
+  }
+
   private handlePipeline(userId: string): PipelineStage[] {
     const uid = this.utils.convertToObjectIdMongoose(userId);
 
@@ -319,8 +432,9 @@ export class RoomsService {
           pipeline: [
             // Mới nhất trước
             { $sort: { createdAt: -1 } },
-            // Tuỳ ông muốn limit bao nhiêu event
-            // { $limit: 20 },
+            // Giới hạn timeline ở danh sách phòng — chỉ lấy 20 event mới nhất.
+            // FE cần full timeline thì gọi API riêng khi mở phòng.
+            { $limit: 20 },
             {
               $project: {
                 _id: 0,
@@ -1601,51 +1715,30 @@ export class RoomsService {
     const matchType = type && type !== 'all' ? { room_type: type } : {};
     const objectId = this.utils.convertToObjectIdMongoose(userId);
 
-    const listRoomIds = await this.redis.sMembers(this.key.USER_ROOMS(userId));
-    if (!listRoomIds) {
-      throw new BadRequestException('chưa có cuộc trò chuyện nào');
-    }
+    // PHÂN TRANG TRƯỚC (pha A nhẹ) → cắt còn ~limit phòng → ENRICH SAU (pha B
+    // nặng = handlePipeline) chỉ trên trang. Lọc tên-rỗng + search `q` nằm trong
+    // pha A (trước skip/limit) nên page size đúng và search chạy trên toàn tập.
     const listRooms = await this.roomModel.aggregate([
-      {
-        $match: {
-          $or: [
-            {
-              room_id: {
-                $in: listRoomIds,
-              },
-            },
-            {
-              'room_members.user_id': objectId,
-            },
-          ],
-          ...matchType,
-        },
-      },
-      ...this.handlePipeline(userId),
-      // Drop rooms with no resolvable name BEFORE pagination — happens
-      // when a private counterpart was deleted (pipeline leaves `name`
-      // empty) or a group room has no title + no derivable fallback.
-      // Doing it at the DB layer (instead of post-fetch JS .filter)
-      // keeps `$skip/$limit` accurate: the page size reflects only
-      // displayable rooms.
-      {
-        $match: {
-          name: { $type: 'string', $nin: [null, ''] },
-        },
-      },
+      ...this.buildRoomPaginateStages(objectId, { matchType, q }),
       { $skip: Number(offset || 0) },
-      { $limit: Number(limit || 1000) },
-      ...(q
-        ? [
-            {
-              $match: {
-                name: { $regex: removeAccents(q), $options: 'i' }, // ✅ không phân biệt hoa/thường
-              },
-            },
-          ]
-        : []),
+      { $limit: Number(limit || 20) },
+      // dọn field tạm của pha A trước khi enrich (handlePipeline tự dựng lại
+      // name/_lastTs/... và $project quyết định shape cuối — không đổi).
+      { $unset: ['_pg_state', '_pg_lastTs', '_pg_other', '_pg_otherUser', '_pg_name'] },
+      ...this.handlePipeline(userId),
     ]);
-    return Response.success(listRooms, 'tất cả danh sách phòng');
+
+    // Unread sống ở Redis (hot-path HINCRBY) — override giá trị Mongo (vốn chỉ
+    // là bản flush gần nhất). 1 lần HGETALL cho cả trang; thiếu field → giữ
+    // my_state.unread_count (fallback khi Redis lạnh).
+    const unreadMap = await this.redis.hGetAll(this.key.UNREAD(userId));
+    const rooms = (listRooms as Array<Record<string, any>>).map((r) => {
+      // field unread = Room._id (xem handleMessagePersisted/markReadUpTo)
+      const v = unreadMap[String(r._mongoId ?? r._id)];
+      if (v !== undefined) r.unread_count = Number(v) || 0;
+      return r;
+    });
+    return Response.success(rooms, 'tất cả danh sách phòng');
   }
   async changeLinkAvatarRoom(payload: ChangelinkAvatarRoomDto) {
     const { userId, roomId, link } = payload;

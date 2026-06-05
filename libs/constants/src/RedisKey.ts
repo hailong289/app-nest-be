@@ -69,6 +69,24 @@ export const REDISKEY = {
   USER_ROOMS_SYNCED: (userId: string) => `chat:user:${userId}:rooms:synced`,
 
   /**
+   * Unread count live của user theo phòng (Hash, field = room_id custom).
+   * Hot-path tăng/giảm bằng HINCRBY (atomic) thay vì ghi Mongo mỗi tin.
+   * Format: chat:user:{userId}:unread  →  { "{roomId}": <count>, ... }
+   */
+  UNREAD: (userId: string) => `chat:user:${userId}:unread`,
+  /**
+   * Set các cặp "{userId}:{roomId}" có unread thay đổi kể từ lần flush trước.
+   * Job flush đọc set này để gom bulkWrite về Mongo theo lô.
+   */
+  UNREAD_DIRTY: () => `chat:unread:dirty`,
+  /**
+   * Khoá chống xử lý trùng tail của 1 message (Kafka at-least-once có thể
+   * redeliver). Set NX + TTL trước khi chạy tail.
+   * Format: chat:msg:{messageId}:processed
+   */
+  MSG_PROCESSED: (messageId: string) => `chat:msg:${messageId}:processed`,
+
+  /**
    * Lưu danh sách friends của user (Set)
    * Format: chat:user:{userId}:friends
    * Type: SET

@@ -341,6 +341,45 @@ export class RedisService {
   }
 
   /**
+   * Atomically increment a hash field. Trả về giá trị sau khi tăng.
+   */
+  async hIncrBy(key: string, field: string, by = 1): Promise<number> {
+    try {
+      return await this.redis.hincrby(key, field, by);
+    } catch (err) {
+      console.error('Redis hIncrBy error:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Tăng nhiều hash field trong MỘT pipeline (1 round-trip cho cả lô) và đồng
+   * thời đánh dấu các phần tử "dirty" để job flush gom về Mongo sau. Dùng cho
+   * hot-path unread khi một tin nhắn phải +1 cho nhiều thành viên.
+   *
+   * @param entries  mỗi phần tử: hash `key`, `field`, mức tăng `by`.
+   * @param dirty    (tuỳ chọn) set key + danh sách member cần SADD trong cùng pipeline.
+   */
+  async pipelineHIncrBy(
+    entries: { key: string; field: string; by?: number }[],
+    dirty?: { key: string; members: string[] },
+  ): Promise<void> {
+    try {
+      if (entries.length === 0) return;
+      const pipeline = this.redis.pipeline();
+      for (const { key, field, by } of entries) {
+        pipeline.hincrby(key, field, by ?? 1);
+      }
+      if (dirty && dirty.members.length > 0) {
+        pipeline.sadd(dirty.key, ...dirty.members);
+      }
+      await pipeline.exec();
+    } catch (err) {
+      console.error('Redis pipelineHIncrBy error:', err);
+    }
+  }
+
+  /**
    * Set / refresh TTL on an existing key. No-op if key doesn't exist
    * (returns 0). Used to extend call-state lifetimes on activity.
    */

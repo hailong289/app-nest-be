@@ -1,5 +1,5 @@
 import { Body, Controller, Logger } from '@nestjs/common';
-import { GrpcMethod } from '@nestjs/microservices';
+import { GrpcMethod, MessagePattern, Payload } from '@nestjs/microservices';
 import { HandleChatService } from './handle-chat.service';
 import {
   CreateMessage,
@@ -10,6 +10,7 @@ import {
   HandleReactDto,
   markReadUpToDto,
 } from '@app/dto';
+import { KafkaEvent } from '@app/dto/enum.type';
 
 @Controller('handle-chat')
 export class HandleChatController {
@@ -21,6 +22,27 @@ export class HandleChatController {
   async NewMsg(@Body() payload: CreateMessage) {
     const result = await this.hdChat.createMessage(payload);
     return result;
+  }
+
+  /**
+   * Consumer "tail" tạo tin nhắn (chat tự emit + tự consume). Chạy cập nhật
+   * RoomsState/MessageRead/unread + emit downstream BẤT ĐỒNG BỘ, không chặn
+   * create path. Lỗi ở đây không ảnh hưởng việc tạo tin (đã commit + emit realtime).
+   */
+  @MessagePattern(KafkaEvent.MESSAGE_PERSISTED)
+  async onMessagePersisted(
+    @Payload()
+    data: Parameters<HandleChatService['handleMessagePersisted']>[0],
+  ) {
+    try {
+      await this.hdChat.handleMessagePersisted(data);
+    } catch (err) {
+      this.logger.error(
+        `[MESSAGE_PERSISTED] tail failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   @GrpcMethod('ChatService', 'GetOneMsg')

@@ -52,6 +52,7 @@ import { SERVICES } from '@app/constants';
 import { REDISKEY } from '@app/constants/RedisKey';
 import { KafkaEvent, notifyType, socketEvent } from '@app/dto/enum.type';
 import { RemoteSocketEmitter } from 'libs/ws/src';
+import { RedisService } from 'libs/db/src/redis/redis.service';
 import { RoomType } from 'libs/db/src/mongo/model/room.model';
 import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
 
@@ -105,6 +106,9 @@ export class HandleChatService {
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
     private readonly emitter: RemoteSocketEmitter,
+    @Inject(SERVICES.CHAT)
+    private readonly chatClient: ClientKafka,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -259,103 +263,173 @@ export class HandleChatService {
       serializedMsg,
     );
 
-    // Generate content snapshot based on message type
-    let contentSnap: string;
+    // Toàn bộ "tail" (cập nhật RoomsState/MessageRead/RoomsUsersState + unread +
+    // emit downstream embedding/link/share/push) được ĐẨY SANG consumer
+    // MESSAGE_PERSISTED của chính chat service. Create path chỉ emit MỘT event
+    // rồi trả về — không chặn bởi N-write Mongo, không bị bão write làm nghẽn DB.
+    // Consumer group đóng vai trò điều tiết để Mongo nhận tải đều.
+    const otherMemberIds = finInfo.room_members
+      .filter((i) => i.user_id.toString() !== userInfo._id.toString())
+      .map((i) => i.user_id.toString());
+
+    await this.utils.dispatchEventKafka(
+      this.chatClient,
+      KafkaEvent.MESSAGE_PERSISTED,
+      {
+        messageId: createNewMsg._id.toString(),
+        createdAt:
+          createNewMsg.createdAt instanceof Date
+            ? createNewMsg.createdAt.toISOString()
+            : null,
+        roomMongoId: finInfo._id.toString(),
+        roomCustomId: finInfo.room_id,
+        senderId: userId,
+        type,
+        content: content || '',
+        documentId: documentId || null,
+        room_type: finInfo.room_type,
+        room_name: finInfo.room_name,
+        sender_fullname: userInfo.usr_fullname,
+        otherMemberIds,
+        serializedMsg,
+      },
+    );
+
+    return Response.success(
+      {
+        msgId: createNewMsg._id.toString(),
+        members: finInfo.room_members,
+        roomId: finInfo.room_id,
+        msg: serializedMsg,
+      },
+      'Tin nhắn mới thành công',
+    );
+  }
+
+  /** Preview text của tin nhắn cho last_message / push theo loại. */
+  private buildContentSnap(type: string, content?: string): string {
     switch (type) {
-      case 'image': {
-        contentSnap = '[Hình ảnh]';
-        break;
-      }
-      case 'file': {
-        contentSnap = '[File đính kèm]';
-        break;
-      }
-      case 'document': {
-        contentSnap = '[Tài liệu]';
-        break;
-      }
-      case 'video': {
-        contentSnap = '[Video]';
-        break;
-      }
-      case 'audio': {
-        contentSnap = '[Tin nhắn thoại]';
-        break;
-      }
-      case 'gif': {
-        contentSnap = 'Đã gửi file gif';
-        break;
-      }
-      case 'quiz': {
-        contentSnap = '[Bài kiểm tra]';
-        break;
-      }
-      default: {
-        contentSnap = content || '[Tin nhắn]';
-        break;
-      }
+      case 'image':
+        return '[Hình ảnh]';
+      case 'file':
+        return '[File đính kèm]';
+      case 'document':
+        return '[Tài liệu]';
+      case 'video':
+        return '[Video]';
+      case 'audio':
+        return '[Tin nhắn thoại]';
+      case 'gif':
+        return 'Đã gửi file gif';
+      case 'quiz':
+        return '[Bài kiểm tra]';
+      default:
+        return content || '[Tin nhắn]';
     }
-    const roomUserState = await this.RoomsUsersState.find({
-      room_id: finInfo._id,
+  }
+
+  /**
+   * "Tail" bất đồng bộ của createMessage — chạy trong Kafka consumer của chat
+   * (KafkaEvent.MESSAGE_PERSISTED). KHÔNG chặn create path; điều tiết tải ghi
+   * Mongo qua consumer group. Idempotent nhờ khoá MSG_PROCESSED (Kafka có thể
+   * redeliver, mà HINCRBY thì không idempotent).
+   */
+  async handleMessagePersisted(payload: {
+    messageId: string;
+    createdAt: string | null;
+    roomMongoId: string;
+    roomCustomId: string;
+    senderId: string;
+    type: string;
+    content: string;
+    documentId?: string | null;
+    room_type: string;
+    room_name: string;
+    sender_fullname: string;
+    otherMemberIds: string[];
+    serializedMsg: Record<string, any>;
+  }) {
+    const {
+      messageId,
+      createdAt,
+      roomMongoId,
+      roomCustomId,
+      senderId,
+      type,
+      content,
+      documentId,
+      room_type,
+      room_name,
+      sender_fullname,
+      otherMemberIds,
+      serializedMsg,
+    } = payload;
+
+    // Dedupe: mỗi message chỉ chạy tail 1 lần.
+    const processedKey = this.key.MSG_PROCESSED(messageId);
+    if (await this.redis.getData<string>(processedKey)) return;
+    await this.redis.setData(processedKey, '1', 24 * 60 * 60);
+
+    const roomObjId = this.utils.convertToObjectIdMongoose(roomMongoId);
+    const senderObjId = this.utils.convertToObjectIdMongoose(senderId);
+    const msgObjId = this.utils.convertToObjectIdMongoose(messageId);
+    const readAt = createdAt ? new Date(createdAt) : new Date();
+    const contentSnap = this.buildContentSnap(type, content);
+
+    // 1) Unread hot-path trên Redis (atomic) cho member khác + đánh dấu dirty.
+    //    Field = roomMongoId (= RoomsUsersState.room_id) để flush khỏi phải map.
+    if (otherMemberIds.length > 0) {
+      await this.redis.pipelineHIncrBy(
+        otherMemberIds.map((uid) => ({
+          key: this.key.UNREAD(uid),
+          field: roomMongoId,
+          by: 1,
+        })),
+        {
+          key: this.key.UNREAD_DIRTY(),
+          members: otherMemberIds.map((uid) => `${uid}:${roomMongoId}`),
+        },
+      );
+    }
+
+    // recipient không mute để push
+    const recipientsForPush = await this.RoomsUsersState.find({
+      room_id: roomObjId,
       user_id: {
-        $in: finInfo.room_members
-          .filter((i) => i.user_id != userInfo._id)
-          .map((m) => m.user_id),
+        $in: otherMemberIds.map((i) => this.utils.convertToObjectIdMongoose(i)),
       },
       muted: false,
     }).select('user_id');
 
-    const userMongoIds = finInfo.room_members
-      .filter((i) => i.user_id.toString() !== userId)
-      .map((i) => i.user_id.toString());
-    // Update message read and room state in parallel
+    // 2) Cập nhật Mongo + emit downstream song song (không cần trả kết quả).
     await Promise.allSettled([
-      this.messageReadModel.findOneAndUpdate(
+      this.RoomsStateModel.findOneAndUpdate(
+        { room_id: roomObjId },
         {
-          room_id: finInfo._id,
-          user_id: this.utils.convertToObjectIdMongoose(userId),
-        },
-        {
-          msg_id: createNewMsg._id,
-          uniq: `${createNewMsg._id.toString()}:${userId}`,
-          readAt: createNewMsg.createdAt,
+          last_message_id: msgObjId,
+          'last_message_snapshot.content': contentSnap,
+          'last_message_snapshot.sender_id': senderObjId,
         },
         { upsert: true },
       ),
-      this.RoomsStateModel.findOneAndUpdate(
-        {
-          room_id: finInfo._id,
-        },
-        {
-          last_message_id: createNewMsg._id,
-          'last_message_snapshot.content': contentSnap,
-          'last_message_snapshot.sender_id':
-            this.utils.convertToObjectIdMongoose(userId),
-        },
+      this.messageReadModel.findOneAndUpdate(
+        { room_id: roomObjId, user_id: senderObjId },
+        { msg_id: msgObjId, uniq: `${messageId}:${senderId}`, readAt },
         { upsert: true },
       ),
       this.RoomsUsersState.findOneAndUpdate(
-        {
-          room_id: finInfo._id,
-          user_id: this.utils.convertToObjectIdMongoose(userId),
-        },
-        {
-          last_read_msg_id: createNewMsg._id,
-          last_read_at: createNewMsg.createdAt,
-          unread_count: 0,
-        },
+        { room_id: roomObjId, user_id: senderObjId },
+        { last_read_msg_id: msgObjId, last_read_at: readAt, unread_count: 0 },
         { upsert: true },
       ),
+      // sender đọc tin của mình → clear unread Redis của sender cho phòng này
+      this.redis.hSet(this.key.UNREAD(senderId), roomMongoId, '0'),
       ...(type === 'text'
         ? [
             this.utils.dispatchEventKafka(
               this.aiClient,
               KafkaEvent.AI_CHAT_MSG_EMBEDDING,
-              {
-                text: content,
-                roomId: finInfo._id,
-                messageId: createNewMsg._id,
-              },
+              { text: content, roomId: roomObjId, messageId: msgObjId },
             ),
           ]
         : []),
@@ -364,12 +438,7 @@ export class HandleChatService {
             this.utils.dispatchEventKafka(
               this.fileClient,
               KafkaEvent.PROCESS_LINK,
-              {
-                content,
-                userId,
-                roomId: finInfo._id.toString(),
-                messageId: createNewMsg._id.toString(),
-              },
+              { content, userId: senderId, roomId: roomMongoId, messageId },
             ),
           ]
         : []),
@@ -379,10 +448,10 @@ export class HandleChatService {
               this.fileClient,
               KafkaEvent.SHARE_DOC_FOR_ROOM,
               {
-                roomId,
-                userId,
+                roomId: roomCustomId,
+                userId: senderId,
                 docId: documentId,
-                messageId: createNewMsg._id.toString(),
+                messageId,
               },
             ),
           ]
@@ -391,11 +460,11 @@ export class HandleChatService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION_USERS,
         {
-          userIds: roomUserState.map((i) => i.user_id),
+          userIds: recipientsForPush.map((i) => i.user_id),
           title:
-            finInfo.room_type === RoomType.Private
-              ? userInfo.usr_fullname
-              : `${finInfo.room_name} : ${userInfo.usr_fullname}`,
+            room_type === RoomType.Private
+              ? sender_fullname
+              : `${room_name} : ${sender_fullname}`,
           message: contentSnap,
           data: {
             type: notifyType.noify_new_message,
@@ -404,47 +473,7 @@ export class HandleChatService {
           },
         },
       ),
-      // Bump unread for every other member with ONE round-trip instead of
-      // running a heavy per-member aggregate (recomputeUnreadForUserRoom)
-      // for each — that fan-out was the main Mongo-CPU hotspot on send.
-      // upsert so a member without a state row yet still gets counted.
-      // Exact recompute (which excludes hidden messages) runs lazily on
-      // hide/delete, not on every message.
-      ...(userMongoIds.length > 0
-        ? [
-            this.RoomsUsersState.bulkWrite(
-              userMongoIds.map((i) => ({
-                updateOne: {
-                  filter: {
-                    room_id: finInfo._id,
-                    user_id: this.utils.convertToObjectIdMongoose(i),
-                  },
-                  update: {
-                    $inc: { unread_count: 1 },
-                    // bulkWrite skips Mongoose's setDefaultsOnInsert, so set
-                    // the defaults other code relies on explicitly — notably
-                    // `muted`: the push-notification target query filters
-                    // `{ muted: false }` and would exclude a row that lacks
-                    // the field entirely.
-                    $setOnInsert: { muted: false, pinned: false },
-                  },
-                  upsert: true,
-                },
-              })),
-            ),
-          ]
-        : []),
     ]);
-
-    // return Response.success(
-    //   {
-    //     msgId: createNewMsg._id.toString(),
-    //     members: finInfo.room_members,
-    //     roomId: finInfo.room_id,
-    //     msg: serializedMsg,
-    //   },
-    //   'Tin nhắn mới thành công',
-    // );
   }
   private async recomputeUnreadForUserRoom(
     userId: string,
@@ -596,6 +625,13 @@ export class HandleChatService {
           // createMessage's $inc.
           unread_count: 0,
         },
+      ),
+      // Reset unread hot-path trên Redis + đánh dấu dirty để flush ghi 0 về Mongo.
+      // Field = Room._id (khớp RoomsUsersState.room_id) để flush khỏi map.
+      this.redis.hSet(this.key.UNREAD(userId), roomInfro._id.toString(), '0'),
+      this.redis.sAdd(
+        this.key.UNREAD_DIRTY(),
+        `${userId}:${roomInfro._id.toString()}`,
       ),
     ]);
     const msg = await this.messageModel.aggregate(

@@ -14,6 +14,7 @@ import {
 } from 'libs/db/src';
 import { kafkaConfig } from 'libs/kafka';
 import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { KafkaAdminModule } from 'libs/kafka/kafka-admin.module';
       ),
       load: [redisConfig, mongoConfig, kafkaConfig],
     }),
+    ScheduleModule.forRoot(),
     KafkaAdminModule,
     MongodbModule,
     RedisModule,
