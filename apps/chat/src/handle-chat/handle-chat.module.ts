@@ -3,12 +3,14 @@ import { HandleChatService } from './handle-chat.service';
 import { RoomsModule } from '../rooms/rooms.module';
 import { HandleChatController } from './handle-chat.controller';
 import { UnreadFlushService } from './unread-flush.service';
+import { ChangeFeedService } from '../change-feed/change-feed.service';
 import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 
 @Module({
   controllers: [HandleChatController],
-  providers: [HandleChatService, UnreadFlushService],
+  providers: [HandleChatService, UnreadFlushService, ChangeFeedService],
+  exports: [ChangeFeedService],
   imports: [
     RoomsModule,
     SharedKafkaClientModule.registerAsync({

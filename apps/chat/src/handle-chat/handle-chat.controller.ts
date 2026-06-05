@@ -11,12 +11,17 @@ import {
   markReadUpToDto,
 } from '@app/dto';
 import { KafkaEvent } from '@app/dto/enum.type';
+import { ChangeFeedService } from '../change-feed/change-feed.service';
+import type { OutboxAppendPayload } from '../change-feed/change-feed.service';
 
 @Controller('handle-chat')
 export class HandleChatController {
   private readonly logger = new Logger(HandleChatController.name);
 
-  constructor(private readonly hdChat: HandleChatService) {}
+  constructor(
+    private readonly hdChat: HandleChatService,
+    private readonly changeFeed: ChangeFeedService,
+  ) {}
 
   @GrpcMethod('ChatService', 'CreateNewMsg')
   async NewMsg(@Body() payload: CreateMessage) {
@@ -39,6 +44,24 @@ export class HandleChatController {
     } catch (err) {
       this.logger.error(
         `[MESSAGE_PERSISTED] tail failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Consumer ghi outbox change-feed (catch-up sync). Tách khỏi mutation path:
+   * `emit()` chỉ INCR seq + dispatch, việc bulkWrite per-recipient chạy ở đây.
+   * Lỗi không ảnh hưởng mutation gốc (đã commit + emit realtime).
+   */
+  @MessagePattern(KafkaEvent.OUTBOX_APPEND)
+  async onOutboxAppend(@Payload() data: OutboxAppendPayload) {
+    try {
+      await this.changeFeed.handleOutboxAppend(data);
+    } catch (err) {
+      this.logger.error(
+        `[OUTBOX_APPEND] write failed: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );

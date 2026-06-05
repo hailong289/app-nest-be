@@ -156,6 +156,16 @@ export class RedisService {
   }
 
   /**
+   * Tăng key KHÔNG đặt TTL — dùng cho bộ đếm bền vững (vd change-feed `seq`).
+   * KHÁC `incr`: không expire, và **ném lỗi** thay vì trả 0 — vì với một con trỏ
+   * đơn điệu, trả 0 khi lỗi sẽ phá tính monotonic (sinh seq trùng/lùi).
+   * @returns Giá trị sau khi tăng (>= 1).
+   */
+  async incrPersist(key: string): Promise<number> {
+    return await this.redis.incr(key);
+  }
+
+  /**
    * Add one or more members to a Redis Set.
    * @param key - The Redis key.
    * @param values - The values to add.
