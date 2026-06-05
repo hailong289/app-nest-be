@@ -193,6 +193,27 @@ describe('ChangeFeedService', () => {
     });
   });
 
+  describe('resilience (never break the mutation)', () => {
+    it('nextSeq returns 0 instead of throwing when Redis INCR fails', async () => {
+      const { service, redis } = makeService();
+      redis.incrPersist = jest.fn(() => Promise.reject(new Error('redis down')));
+      await expect(service.nextSeq()).resolves.toBe(0);
+    });
+
+    it('emit resolves 0 (does NOT throw) when seq allocation fails', async () => {
+      const { service, redis } = makeService();
+      redis.incrPersist = jest.fn(() => Promise.reject(new Error('redis down')));
+      await expect(
+        service.emit({
+          type: ChangeEventType.ROOM_READ,
+          roomId: ROOM,
+          recipients: [USER],
+          payload: {},
+        }),
+      ).resolves.toBe(0);
+    });
+  });
+
   describe('rollout flag', () => {
     it('nextSeq returns 0 and does not INCR when disabled', async () => {
       process.env.CHANGEFEED_ENABLED = 'false';

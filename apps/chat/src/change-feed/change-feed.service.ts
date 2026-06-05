@@ -83,7 +83,20 @@ export class ChangeFeedService implements OnModuleInit {
    */
   async nextSeq(): Promise<number> {
     if (!this.enabled) return 0;
-    return this.redis.incrPersist(REDISKEY.CHANGE_SEQ());
+    try {
+      return await this.redis.incrPersist(REDISKEY.CHANGE_SEQ());
+    } catch (err) {
+      // Change-feed là phụ — KHÔNG được làm hỏng mutation gốc. Cấp seq lỗi (vd
+      // Redis blip) → trả 0, bỏ qua outbox lần này (client tự bù qua
+      // cold-start / requireFullResync). Đây là contract "fire-and-forget":
+      // cả emit() lẫn nextSeq() KHÔNG BAO GIỜ throw ra ngoài.
+      this.logger.error(
+        `[change-feed] nextSeq failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return 0;
+    }
   }
 
   /**

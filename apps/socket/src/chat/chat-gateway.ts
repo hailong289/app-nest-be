@@ -316,11 +316,24 @@ export class ChatGateway
         this.ChatGrpcService.MarkReadUpTo.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
+      // markReadUpTo có thể trả early-return (không phải member) / throw (phòng-tin
+      // không tồn tại, service lỗi) → `metadata` null/thiếu `members`. Guard để
+      // KHÔNG crash khi đọc `.msg`/`.members` (đây chính là lỗi
+      // "Cannot read properties of null (reading 'msg')").
+      const meta = result?.metadata as
+        | { msg?: unknown; members?: Array<Record<string, any>> }
+        | null
+        | undefined;
+      if (!meta || !Array.isArray(meta.members)) {
+        this.logger.warn(
+          '[MARK_READ] kết quả rỗng/không hợp lệ, bỏ qua broadcast',
+        );
+        return { ok: false };
+      }
+      const memberIds = meta.members.map((member: Record<string, any>) =>
+        this.key.ROOM_CLIENT(member.id),
       );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
+      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, meta.msg);
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MARK_READ] Error marking message as read:', error);
