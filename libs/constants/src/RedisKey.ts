@@ -87,6 +87,14 @@ export const REDISKEY = {
   MSG_PROCESSED: (messageId: string) => `chat:msg:${messageId}:processed`,
 
   /**
+   * Bộ đếm toàn cục đơn điệu cho change-feed catch-up (outbox). Mỗi mutation
+   * gọi INCR để cấp `seq`; client dùng `seq` làm con trỏ pull + chân lý thứ tự.
+   * Format: chat:changefeed:seq
+   * Type: STRING (INCR)
+   */
+  CHANGE_SEQ: () => `chat:changefeed:seq`,
+
+  /**
    * Lưu danh sách friends của user (Set)
    * Format: chat:user:{userId}:friends
    * Type: SET
