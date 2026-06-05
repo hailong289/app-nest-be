@@ -251,22 +251,14 @@ export class ChatGateway
 
     data.userId = user._id;
     try {
-      // Tạo message qua gRPC
-      console.log('🚀 ~ ChatGateway ~ onMessage ~ data:', data);
+      // Tạo message qua gRPC. Việc phát 'message:upsert' tới các thành viên
+      // KHÔNG còn diễn ra ở đây nữa — chat service đã bắn thẳng qua Redis
+      // adapter ngay sau khi dựng xong payload (giảm độ trễ, bỏ vòng gRPC về
+      // gateway). Gateway chỉ trả ack cho người gửi.
       const result = (await Utils.dispatchGrpcRequest(
         this.ChatGrpcService.CreateNewMsg.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
-
-      console.log('🚀 ~ ChatGateway ~ onMessage ~ result:', result);
-
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
-      );
-      console.log('🚀 ~ ChatGateway ~ onMessage ~ memberIds:', memberIds);
-
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
 
       return { ok: true, data: result };
     } catch (error) {
