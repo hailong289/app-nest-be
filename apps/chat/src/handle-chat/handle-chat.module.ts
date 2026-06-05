@@ -3,16 +3,19 @@ import { HandleChatService } from './handle-chat.service';
 import { RoomsModule } from '../rooms/rooms.module';
 import { HandleChatController } from './handle-chat.controller';
 import { UnreadFlushService } from './unread-flush.service';
-import { ChangeFeedService } from '../change-feed/change-feed.service';
+import { ChangeFeedModule } from '../change-feed/change-feed.module';
 import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 
 @Module({
   controllers: [HandleChatController],
-  providers: [HandleChatService, UnreadFlushService, ChangeFeedService],
-  exports: [ChangeFeedService],
+  providers: [HandleChatService, UnreadFlushService],
   imports: [
     RoomsModule,
+    // ChangeFeedService + ClientKafka SERVICES.CHAT (chat tự emit cho chính nó)
+    // được cung cấp từ ChangeFeedModule — tách ra để RoomsModule cũng dùng được
+    // mà không tạo vòng phụ thuộc với HandleChatModule.
+    ChangeFeedModule,
     SharedKafkaClientModule.registerAsync({
       name: SERVICES.AI,
       clientId: 'chat-service-ai-client',
@@ -27,12 +30,6 @@ import { SharedKafkaClientModule } from 'libs/kafka';
       name: SERVICES.NOTIFICATION,
       clientId: 'chat-msg-notification',
       groupId: 'chat-msg-notification-group',
-    }),
-    // Client để chat EMIT event MESSAGE_PERSISTED cho chính nó (tail bất đồng bộ).
-    SharedKafkaClientModule.registerAsync({
-      name: SERVICES.CHAT,
-      clientId: 'chat-service-self-client',
-      groupId: 'chat-service-self-group',
     }),
   ],
 })

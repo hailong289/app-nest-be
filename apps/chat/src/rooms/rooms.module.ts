@@ -21,9 +21,13 @@ import {
 import { ROOM_MEMBERSHIP_SYNC_QUEUE } from './room-membership-sync.constants';
 import { RoomMembershipSyncProcessor } from './room-membership-sync.processor';
 import { RoomCacheRepository } from './room-cache.repository';
+import { ChangeFeedModule } from '../change-feed/change-feed.module';
 
 @Module({
   imports: [
+    // Cung cấp ChangeFeedService cho RoomsService phát room.upserted/removed.
+    // Tách module nên không tạo vòng phụ thuộc với HandleChatModule.
+    ChangeFeedModule,
     MongooseModule.forFeature([
       messagesModel,
       userModel,

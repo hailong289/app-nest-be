@@ -40,7 +40,8 @@ import {
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
 import { RoomCacheRepository } from './room-cache.repository';
-import { socketEvent } from 'libs/dto/src/enum.type';
+import { ChangeEventType, socketEvent } from 'libs/dto/src/enum.type';
+import { ChangeFeedService } from '../change-feed/change-feed.service';
 import { buildMessageDetailPipeline } from '../handle-chat/Pipeline/getMsg';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
@@ -67,7 +68,58 @@ export class RoomsService {
     private readonly membershipSyncQueue: Queue<RoomMembershipSyncJobData>,
     private readonly userCache: UserCacheRepository,
     private readonly roomCache: RoomCacheRepository,
+    private readonly changeFeed: ChangeFeedService,
   ) {}
+
+  /**
+   * Catch-up `room.upserted` (fat) cho danh sách recipient — client upsert room
+   * vào IndexedDB khi mở lại. REUSE snapshot phòng đã có sẵn (không query thêm).
+   * No-op khi thiếu recipient. KHÔNG ném lỗi (outbox là phần phụ; emit() đã tự
+   * nuốt lỗi Kafka).
+   */
+  private async emitRoomUpserted(params: {
+    roomMongoId: string;
+    roomCustomId: string;
+    recipients: string[];
+    roomMetadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const { roomMongoId, roomCustomId, recipients, roomMetadata } = params;
+    const uniq = Array.from(new Set((recipients ?? []).filter(Boolean)));
+    if (!uniq.length) return;
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_UPSERTED,
+      roomId: roomMongoId,
+      recipients: uniq,
+      payload: {
+        roomId: roomCustomId,
+        roomMongoId,
+        ...(roomMetadata ?? {}),
+      },
+    });
+  }
+
+  /**
+   * Catch-up `room.removed` (thin) — client xoá room + messages khỏi cache. Dùng
+   * khi user bị kick / rời / phòng bị xoá. No-op khi thiếu recipient.
+   */
+  private async emitRoomRemoved(params: {
+    roomMongoId: string;
+    roomCustomId: string;
+    recipients: string[];
+  }): Promise<void> {
+    const { roomMongoId, roomCustomId, recipients } = params;
+    const uniq = Array.from(new Set((recipients ?? []).filter(Boolean)));
+    if (!uniq.length) return;
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_REMOVED,
+      roomId: roomMongoId,
+      recipients: uniq,
+      payload: {
+        roomId: roomCustomId,
+        roomMongoId,
+      },
+    });
+  }
 
   /**
    * Lazy-sync USER_ROOMS cho MỘT user (thay cho việc quét toàn bộ DB lúc
@@ -1229,6 +1281,19 @@ export class RoomsService {
       userId,
       roomId: room_id,
     });
+    // Change-feed: phòng mới → room.upserted cho TẤT CẢ member (gồm creator)
+    // để client mở lại upsert được room. Tái dùng metadata đã tính sẵn.
+    await this.emitRoomUpserted({
+      roomMongoId: newRoom._id.toString(),
+      roomCustomId: room_id,
+      recipients: allMemberObjIds,
+      roomMetadata: {
+        room_type: newRoom.room_type,
+        room_name: newRoom.room_name,
+        room_avatar: newRoom.room_avatar,
+        members: members,
+      },
+    });
     return Response.success(result, 'Tạo phòng thành công');
   }
 
@@ -1330,6 +1395,12 @@ export class RoomsService {
       if (targetIdx === -1) throw new NotFoundException('không tìm thấy');
       const leaving = members[targetIdx];
       const isAdminLeaving = leaving.role === 'admin';
+      // Recipients cho change-feed: người rời (room.removed) + member còn lại
+      // (room.upserted). Tính TRƯỚC khi $pull để có đủ danh sách.
+      const remainingMemberIds = members
+        .filter((_, i) => i !== targetIdx)
+        .map((m) => m.user_id.toString());
+      const leavingUserId = leaving.user_id.toString();
       // remover member
       await this.roomModel.updateOne(
         {
@@ -1364,6 +1435,17 @@ export class RoomsService {
           _id: roomInfor._id,
           room_id: roomId,
         });
+        // Change-feed: người rời → room.removed; member còn lại → room.upserted.
+        await this.emitRoomRemoved({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: [leavingUserId],
+        });
+        await this.emitRoomUpserted({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: remainingMemberIds,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
 
@@ -1393,6 +1475,17 @@ export class RoomsService {
           _id: roomInfor._id,
           room_id: roomId,
         });
+        // Change-feed: người rời → room.removed; member còn lại → room.upserted.
+        await this.emitRoomRemoved({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: [leavingUserId],
+        });
+        await this.emitRoomUpserted({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: remainingMemberIds,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const candidates = members
@@ -1411,6 +1504,12 @@ export class RoomsService {
         await this.roomCache.invalidate({
           _id: roomInfor._id,
           room_id: roomId,
+        });
+        // Phòng bị xoá hẳn (không còn ai) → room.removed cho toàn member cũ.
+        await this.emitRoomRemoved({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: members.map((m) => m.user_id.toString()),
         });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
@@ -1459,6 +1558,18 @@ export class RoomsService {
         },
       });
 
+      // Change-feed: admin rời + có người được thăng quyền → người rời nhận
+      // room.removed; member còn lại (gồm người vừa lên admin) nhận room.upserted.
+      await this.emitRoomRemoved({
+        roomMongoId: roomInfor._id.toString(),
+        roomCustomId: roomId,
+        recipients: [leavingUserId],
+      });
+      await this.emitRoomUpserted({
+        roomMongoId: roomInfor._id.toString(),
+        roomCustomId: roomId,
+        recipients: remainingMemberIds,
+      });
       return Response.success({ members: members, roomId }, 'Đã rời khỏi nhóm');
     } catch (err) {
       this.log.error(err);
@@ -1550,6 +1661,22 @@ export class RoomsService {
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
     await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
+    // Change-feed: member bị kick → room.removed; member còn lại → room.upserted.
+    const removedIds = memberRemoves.map((m) => m.user_id.toString());
+    const removedIdSet = new Set(removedIds);
+    const remainingIds = members
+      .map((m) => m.user_id.toString())
+      .filter((id) => !removedIdSet.has(id));
+    await this.emitRoomRemoved({
+      roomMongoId: roomInfor._id.toString(),
+      roomCustomId: roomId,
+      recipients: removedIds,
+    });
+    await this.emitRoomUpserted({
+      roomMongoId: roomInfor._id.toString(),
+      roomCustomId: roomId,
+      recipients: remainingIds,
+    });
     return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
@@ -1697,6 +1824,20 @@ export class RoomsService {
       },
     });
 
+    // Change-feed: thêm member → room.upserted cho TOÀN member (gồm người mới)
+    // để client mới upsert được room, client cũ cập nhật member list.
+    await this.emitRoomUpserted({
+      roomMongoId: roomInfo._id.toString(),
+      roomCustomId: roomId,
+      recipients: roomMember.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        room_type: roomInfo.room_type,
+        room_name: roomInfo.room_name,
+        room_avatar: roomInfo.room_avatar,
+        members: roomMember,
+      },
+    });
+
     return Response.success(
       { members: roomMember, roomId },
       'Đã thêm thành công',
@@ -1785,6 +1926,16 @@ export class RoomsService {
       targets: roominfo.room_members.map((m) => m.user_id),
       placeholder: `${userinfor.name} đã cập nhật ảnh đại diện`,
     });
+    // Change-feed: đổi avatar → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: roominfo._id.toString(),
+      roomCustomId: roominfo.room_id,
+      recipients: roominfo.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        room_avatar: roominfo.room_avatar,
+        members: roominfo.room_members,
+      },
+    });
     return Response.success(
       { members: roominfo.room_members, roomId },
       'đã thay đổi ảnh thành công',
@@ -1837,6 +1988,17 @@ export class RoomsService {
       actor_id: userinfo.user_id,
       placeholder: `${userinfo.name} đã đổi tên nhóm`,
       targets: room.room_members.map((m) => m.user_id),
+    });
+
+    // Change-feed: đổi tên → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: room._id.toString(),
+      roomCustomId: room.room_id,
+      recipients: room.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        room_name: room.room_name,
+        members: room.room_members,
+      },
     });
 
     return Response.success(
@@ -1966,6 +2128,15 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     });
+    // Change-feed: đổi biệt danh thành viên → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: roomUpdate._id.toString(),
+      roomCustomId: roomUpdate.room_id,
+      recipients: roomUpdate.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        members: roomUpdate.room_members,
+      },
+    });
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi tên thành công',
@@ -2046,6 +2217,15 @@ export class RoomsService {
         changed_at: Date.now(),
       },
     });
+    // Change-feed: đổi quyền thành viên → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: roomUpdate._id.toString(),
+      roomCustomId: roomUpdate.room_id,
+      recipients: roomUpdate.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        members: roomUpdate.room_members,
+      },
+    });
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi quyền thành công',
@@ -2085,6 +2265,16 @@ export class RoomsService {
         pinned_at: pinned ? new Date() : null,
       },
     );
+    // Change-feed: pin là per-user → room.upserted CHỈ cho user này.
+    await this.emitRoomUpserted({
+      roomMongoId: findRoom._id.toString(),
+      roomCustomId: findRoom.room_id,
+      recipients: [userInfo._id.toString()],
+      roomMetadata: {
+        pinned,
+        pinned_at: pinned ? new Date() : null,
+      },
+    });
     return await this.GetRoom({
       userId,
       roomId,
@@ -2124,6 +2314,15 @@ export class RoomsService {
         muted,
       },
     );
+    // Change-feed: mute là per-user → room.upserted CHỈ cho user này.
+    await this.emitRoomUpserted({
+      roomMongoId: findRoom._id.toString(),
+      roomCustomId: findRoom.room_id,
+      recipients: [userInfo._id.toString()],
+      roomMetadata: {
+        muted,
+      },
+    });
     return await this.GetRoom({
       userId,
       roomId,
@@ -2163,6 +2362,15 @@ export class RoomsService {
         clear_before_ts: new Date(),
       },
     );
+    // Change-feed: "xoá phòng" ở đây là per-user (chỉ set clear_before_ts cho
+    // user gọi — phòng vẫn tồn tại với member khác). Nên room.removed CHỈ gửi
+    // cho user này để client xoá room+messages khỏi cache cục bộ, KHÔNG ảnh
+    // hưởng cache của member khác.
+    await this.emitRoomRemoved({
+      roomMongoId: findRoom._id.toString(),
+      roomCustomId: findRoom.room_id,
+      recipients: [userInfo._id.toString()],
+    });
     return await this.GetRoom({
       userId,
       roomId,
