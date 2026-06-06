@@ -36,7 +36,7 @@ jobs:
           # Consumer nền: min-instances=1 để LUÔN có 1 instance chạy; no-cpu-throttling
           # để CPU được cấp liên tục (Cloud Run KHÔNG auto-scale theo Kafka lag — muốn
           # thêm consumer thì TĂNG min-instances, ≤ số partition). port=8080 = health.
-          flags: '--allow-unauthenticated --min-instances=1 --max-instances=6 --no-cpu-throttling --cpu=1 --memory=2Gi --port=8080 --concurrency=1 --timeout=300s'
+          flags: '--allow-unauthenticated --min-instances=1 --max-instances=6 --no-cpu-throttling --cpu=1 --memory=2Gi --concurrency=1000 --timeout=300s'
           env_vars: |-
             NODE_ENV=${{ secrets.NODE_ENV }}
             DB_CONNECTION=${{ secrets.DB_CONNECTION }}
