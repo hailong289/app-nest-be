@@ -65,31 +65,48 @@ export class FirebaseService {
   }: {
     title: string;
     message: string;
-    fcmTokens: string[];
+    fcmTokens: (string | null | undefined)[];
     data?: Record<string, any>;
     skipSaveToDb?: boolean;
   }) {
+    // SANITIZE: loại token null/rỗng. CỰC KỲ QUAN TRỌNG — nếu để lọt `null`,
+    // truy vấn `{ tkn_fcmToken: { $in: [null] } }` bên dưới sẽ KHỚP MỌI device
+    // chưa đăng ký FCM của TOÀN BỘ user → tạo notification cho cả hệ thống
+    // (bug "gửi cho toàn bộ user"). Token rỗng cũng làm FCM multicast lỗi.
+    const tokens = (fcmTokens || []).filter(
+      (t): t is string => typeof t === 'string' && t.length > 0,
+    );
+    if (tokens.length === 0) {
+      console.warn('pushNotification: không có FCM token hợp lệ → bỏ qua');
+      return true;
+    }
     /**
      * tạo notification cho người dùng (DB chết mà lỗi không làm chết service)
      */
+    // Resolve recipient userIds từ tokens — dùng để lưu DB VÀ để LOG biết FCM
+    // gửi cho AI (yêu cầu quan sát). Lỗi resolve không chặn việc gửi push.
+    let recipientUserIds: string[] = [];
+    try {
+      const keys = await this.keyModel
+        .find({ tkn_fcmToken: { $in: tokens } }, { tkn_userId: 1 })
+        .lean();
+      recipientUserIds = [...new Set(keys.map((k) => k.tkn_userId.toString()))];
+    } catch (error) {
+      console.error('Không resolve được userId từ FCM token:', error);
+    }
+
     if (!skipSaveToDb) {
       try {
-        const keys = await this.keyModel
-          .find({ tkn_fcmToken: { $in: fcmTokens } }, { tkn_userId: 1 })
-          .lean();
-
-        const userIds = [...new Set(keys.map((k) => k.tkn_userId.toString()))];
-
-        if (userIds.length === 0) {
+        if (recipientUserIds.length === 0) {
           console.warn(
             'No users found for tokens, cannot save notification to DB',
           );
         }
 
         await Promise.all(
-          userIds.map((uid) =>
+          recipientUserIds.map((uid) =>
             this.notificationService.createNotification({
-              userId: uid as unknown as string,
+              userId: uid as string,
               push_type: (data?.push_type as NotificationType) || 'other',
               title,
               message,
@@ -103,7 +120,7 @@ export class FirebaseService {
     }
 
     const payload: admin.messaging.MulticastMessage = {
-      tokens: fcmTokens,
+      tokens,
       notification: {
         title,
         body: message,
@@ -139,8 +156,58 @@ export class FirebaseService {
       },
     };
     try {
-      await this.getMessaging().sendEachForMulticast(payload);
-      console.log('🔥 Firebase Cloud Messaging sent successfully');
+      const res = await this.getMessaging().sendEachForMulticast(payload);
+      // LOG biết gửi cho AI: danh sách userId nhận + số device + ok/fail.
+      const who = recipientUserIds.length
+        ? recipientUserIds.join(', ')
+        : '(không map được userId)';
+      console.log(
+        `🔥 FCM "${title}" → ${recipientUserIds.length} user [${who}] · ` +
+          `${tokens.length} device · ok=${res.successCount} fail=${res.failureCount}`,
+      );
+      // Token lỗi → log + GOM token CHẾT để dọn khỏi DB (khỏi gửi lại + hết spam).
+      if (res.failureCount > 0) {
+        // Mã lỗi FCM cho token không còn hợp lệ (NotRegistered / not found / sai).
+        const INVALID_TOKEN_CODES = new Set([
+          'messaging/registration-token-not-registered',
+          'messaging/invalid-registration-token',
+          'messaging/invalid-argument',
+          'messaging/mismatched-credential',
+        ]);
+        const deadTokens: string[] = [];
+        res.responses.forEach((r, i) => {
+          if (!r.success) {
+            const code = (r.error as { code?: string })?.code;
+            const msg = r.error?.message || '';
+            console.warn(
+              `   ✗ device[${i}] token=${tokens[i]?.slice(0, 12)}… lỗi: ${msg}`,
+            );
+            // Token chết: theo mã lỗi HOẶC message (phòng SDK trả message thô).
+            const isDead =
+              (code && INVALID_TOKEN_CODES.has(code)) ||
+              /not.?registered|not.?found|invalid.?(registration|argument)/i.test(
+                msg,
+              );
+            if (isDead && tokens[i]) deadTokens.push(tokens[i]);
+          }
+        });
+
+        // Dọn token chết khỏi DB: null hoá `tkn_fcmToken` (GIỮ device/session, chỉ
+        // bỏ token FCM hỏng — app mở lại sẽ đăng ký token mới). Lỗi DB không chặn.
+        if (deadTokens.length) {
+          try {
+            const del = await this.keyModel.updateMany(
+              { tkn_fcmToken: { $in: deadTokens } },
+              { $set: { tkn_fcmToken: null } },
+            );
+            console.log(
+              `   🧹 đã dọn ${deadTokens.length} FCM token chết (cập nhật ${del.modifiedCount} device)`,
+            );
+          } catch (e) {
+            console.error('   🧹 dọn FCM token chết lỗi:', e);
+          }
+        }
+      }
     } catch (error) {
       console.error('🔥 Firebase Cloud Messaging error:', error);
     }

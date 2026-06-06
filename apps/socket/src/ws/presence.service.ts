@@ -240,7 +240,11 @@ export class PresenceService implements OnModuleInit {
    * inspects each member's `SOCKET_ALIVE` key, removes dead members, and
    * broadcasts offline if the set drops to empty.
    */
-  async cleanup(): Promise<{ checked: number; pruned: number; offline: number }> {
+  async cleanup(): Promise<{
+    checked: number;
+    pruned: number;
+    offline: number;
+  }> {
     const pattern = 'chat:user:*:online';
     let cursor = '0';
     let checked = 0;
@@ -266,7 +270,9 @@ export class PresenceService implements OnModuleInit {
           }
           const ns = m.slice(0, idx);
           const sid = m.slice(idx + 1);
-          const alive = await this.redis.getData(this.key.SOCKET_ALIVE(ns, sid));
+          const alive = await this.redis.getData(
+            this.key.SOCKET_ALIVE(ns, sid),
+          );
           if (!alive) dead.push(m);
         }
         if (dead.length > 0) {
