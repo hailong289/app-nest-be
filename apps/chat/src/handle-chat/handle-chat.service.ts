@@ -345,68 +345,6 @@ export class HandleChatService implements OnModuleInit {
     return this.messageModel.findById(this.utils.convertToObjectIdMongoose(id));
   }
 
-  /**
-   * Dựng MessageStoreRecord (string fields, JSON-safe) từ updatePayload + mốc thời
-   * gian. Dùng để: (1) produce write-behind, (2) đính kèm vào MESSAGE_PERSISTED để
-   * TAIL tự ghi message row ($setOnInsert) — đảm bảo persist kể cả khi chat-storage
-   * không chạy, và GHI ROW TRƯỚC khi cập nhật RoomsState (sidebar).
-   */
-  private buildStoreRecord(
-    messageId: Types.ObjectId,
-    updatePayload: {
-      msg_roomId: Types.ObjectId;
-      msg_sender: Types.ObjectId;
-      msg_content: string;
-      reply_to: Types.ObjectId | null;
-      attachment_ids: Types.ObjectId[];
-      msg_type: string;
-      document_id: Types.ObjectId | null;
-      quiz_id: Types.ObjectId | null;
-      desk_id: Types.ObjectId | null;
-      todo_project_id: Types.ObjectId | null;
-      msg_seq: number | null;
-    },
-    createdAt: Date,
-  ): MessageStoreRecord {
-    return {
-      _id: messageId.toString(),
-      msg_roomId: updatePayload.msg_roomId.toString(),
-      msg_sender: updatePayload.msg_sender.toString(),
-      msg_content: updatePayload.msg_content,
-      reply_to: updatePayload.reply_to?.toString() ?? null,
-      attachment_ids: updatePayload.attachment_ids.map((i) => i.toString()),
-      msg_type: updatePayload.msg_type,
-      document_id: updatePayload.document_id?.toString() ?? null,
-      quiz_id: updatePayload.quiz_id?.toString() ?? null,
-      desk_id: updatePayload.desk_id?.toString() ?? null,
-      todo_project_id: updatePayload.todo_project_id?.toString() ?? null,
-      createdAt: createdAt.toISOString(),
-      seq: updatePayload.msg_seq ?? undefined,
-    };
-  }
-
-  /** Map MessageStoreRecord → doc fields (ObjectId/Date) cho $setOnInsert ở tail. */
-  private storeRecordToDoc(r: MessageStoreRecord): Record<string, unknown> {
-    const oid = (v: string | null): Types.ObjectId | null =>
-      v ? this.utils.convertToObjectIdMongoose(v) : null;
-    return {
-      msg_roomId: this.utils.convertToObjectIdMongoose(r.msg_roomId),
-      msg_sender: this.utils.convertToObjectIdMongoose(r.msg_sender),
-      msg_content: r.msg_content,
-      reply_to: oid(r.reply_to),
-      attachment_ids: r.attachment_ids.map((i) =>
-        this.utils.convertToObjectIdMongoose(i),
-      ),
-      msg_type: r.msg_type,
-      document_id: oid(r.document_id),
-      quiz_id: oid(r.quiz_id),
-      desk_id: oid(r.desk_id),
-      todo_project_id: oid(r.todo_project_id),
-      msg_seq: r.seq && r.seq > 0 ? r.seq : null,
-      createdAt: new Date(r.createdAt),
-    };
-  }
-
   async createMessage(payload: CreateMessage) {
     const {
       roomId,
@@ -657,36 +595,50 @@ export class HandleChatService implements OnModuleInit {
     if (changeSeq) serializedMsg.seq = changeSeq;
     this.serializeRoomEvent(serializedMsg);
 
-    // GHI ROW ĐỒNG BỘ TRƯỚC khi broadcast — tin CHẮC CHẮN vào DB rồi mới hiện UI →
-    // reload KHÔNG mất + KHÔNG phụ thuộc chat-storage consume (Kafka yếu vẫn an toàn).
-    // Upsert theo `_id` rất rẻ, KHÔNG phải bottleneck burst: bottleneck thật là
-    // aggregate nặng (đã thay bằng buildRealtimePayload in-memory) + side-effects
-    // (RoomsState/unread/push/embedding — đã đẩy sang tail MESSAGE_PERSISTED). Nhờ
-    // vậy vẫn chịu nhiều tin cùng lúc mà không mất. E11000 = đua redeliver/echo →
-    // row đã có → OK; lỗi khác → báo tạo tin thất bại (FE đánh dấu failed + resend).
-    try {
+    // Broadcast realtime NGAY (trước Kafka/DB) — UI thấy tin tức thì; FE lưu IDB
+    // (cache) nên reload vẫn thấy kể cả khi chat-storage chưa kịp ghi.
+    this.broadcastMsgUpsert(
+      finInfo.room_members.map((m) => m.id),
+      serializedMsg,
+    );
+
+    // WRITE-BEHIND cho 1 TRIỆU tin/lúc: KHÔNG ghi từng row đồng bộ (sẽ hạ Mongo) —
+    // produce record sang chat-storage để BULK insertMany. Key=room → cùng partition,
+    // giữ thứ tự. Kafka (acks=all, idempotent) là lớp DURABLE; chat-storage là writer
+    // DUY NHẤT, drain robust (commit SAU khi ghi + retry) → không mất, không đua E11000.
+    // Produce LỖI (Kafka rớt) → fallback ghi Mongo để KHÔNG mất tin.
+    const record: MessageStoreRecord = {
+      _id: messageId.toString(),
+      msg_roomId: roomMongoId,
+      msg_sender: updatePayload.msg_sender.toString(),
+      msg_content: updatePayload.msg_content,
+      reply_to: updatePayload.reply_to?.toString() ?? null,
+      attachment_ids: updatePayload.attachment_ids.map((i) => i.toString()),
+      msg_type: updatePayload.msg_type,
+      document_id: updatePayload.document_id?.toString() ?? null,
+      quiz_id: updatePayload.quiz_id?.toString() ?? null,
+      desk_id: updatePayload.desk_id?.toString() ?? null,
+      todo_project_id: updatePayload.todo_project_id?.toString() ?? null,
+      createdAt: createdAt.toISOString(),
+      seq: changeSeq || undefined,
+    };
+    const res = await this.utils.dispatchEventKafka(
+      this.chatClient,
+      KafkaEvent.MESSAGE_STORE,
+      record,
+      roomMongoId,
+    );
+    const sc = (res as { statusCode?: number })?.statusCode;
+    if (sc && sc >= 400) {
+      this.log.warn(
+        `[write-behind] produce messageStore FAIL → fallback ghi Mongo (msg=${record._id})`,
+      );
       await this.messageModel.updateOne(
         { _id: messageId },
         { $set: { ...updatePayload, createdAt } },
         { upsert: true },
       );
-    } catch (err) {
-      const code = (err as { code?: number })?.code;
-      if (code !== 11000) {
-        this.log.error(
-          `[write-behind] ghi row FAIL msg=${messageId.toString()} type=${type}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-        throw new BadRequestException('không tạo được tin nhắn');
-      }
     }
-
-    // Broadcast realtime sau khi đã persist (row đã có trong DB).
-    this.broadcastMsgUpsert(
-      finInfo.room_members.map((m) => m.id),
-      serializedMsg,
-    );
 
     // Tail side-effect (giữ nguyên semantics) — key theo room.
     const otherMemberIds = finInfo.room_members
@@ -772,8 +724,6 @@ export class HandleChatService implements OnModuleInit {
     serializedMsg: Record<string, any>;
     /** seq change-feed cấp ở createMessage, dùng chung cho live + catch-up. */
     changeSeq?: number;
-    /** Write-behind: record để tail TỰ ghi message row (đảm bảo persist). */
-    record?: MessageStoreRecord;
   }) {
     const {
       messageId,
@@ -790,48 +740,14 @@ export class HandleChatService implements OnModuleInit {
       otherMemberIds,
       serializedMsg,
       changeSeq,
-      record,
     } = payload;
 
     const roomObjId = this.utils.convertToObjectIdMongoose(roomMongoId);
     const senderObjId = this.utils.convertToObjectIdMongoose(senderId);
     const msgObjId = this.utils.convertToObjectIdMongoose(messageId);
 
-    // PERSIST message row TRƯỚC MỌI THỨ (write-behind). `$setOnInsert` idempotent:
-    // ghi khi CHƯA có (sync path / chat-storage đã ghi / redeliver → no-op). Chạy
-    // NGOÀI dedup → đảm bảo row LUÔN tồn tại kể cả khi chat-storage kẹt/không chạy,
-    // và TRƯỚC khi cập nhật RoomsState (sidebar chỉ phản ánh tin đã có trong DB).
-    //
-    // CỰC KỲ QUAN TRỌNG: TUYỆT ĐỐI KHÔNG để bước này THROW. Nếu throw (vd E11000 do
-    // chat-storage vừa insert song song cùng _id, hay lỗi cast) thì cả tail vỡ →
-    // RoomsState không cập nhật (sidebar kẹt tin cũ) + Kafka retry chặn partition →
-    // MẤT HÀNG LOẠT tin sau đó. E11000 = row đã tồn tại (writer khác thắng) → OK.
-    if (record) {
-      try {
-        await this.messageModel.updateOne(
-          { _id: msgObjId },
-          { $setOnInsert: this.storeRecordToDoc(record) },
-          { upsert: true },
-        );
-      } catch (err) {
-        const code = (err as { code?: number })?.code;
-        if (code === 11000) {
-          // Đua insert với chat-storage cùng _id → row đã có → bỏ qua (idempotent).
-          this.log.warn(
-            `[tail] persist row E11000 (chat-storage đã ghi) msg=${messageId} → bỏ qua`,
-          );
-        } else {
-          // Lỗi khác: KHÔNG chặn tail (vẫn cập nhật RoomsState/unread). Log để tra
-          // cứu vì sao persist lỗi (đây là lúc tin có thể không vào DB nếu
-          // chat-storage cũng không chạy).
-          this.log.error(
-            `[tail] persist row FAIL msg=${messageId} type=${type} (KHÔNG chặn tail): ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        }
-      }
-    }
+    // GHI ROW: chat-storage là writer DUY NHẤT (bulk upsert) → tail KHÔNG ghi row
+    // nữa (hết đua E11000). Tail chỉ lo side-effects: RoomsState/unread/push/...
 
     // Dedupe: phần KHÔNG idempotent (unread $inc) chỉ chạy 1 lần / message.
     const processedKey = this.key.MSG_PROCESSED(messageId);

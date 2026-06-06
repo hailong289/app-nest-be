@@ -55,7 +55,14 @@ export async function startBulkBatchConsumer<T = unknown>(
   });
 
   await consumer.run({
-    autoCommit: false,
+    // autoCommit: TRUE — kafkajs commit các offset ĐÃ `resolveOffset` (chỉ resolve
+    // SAU khi ghi DB OK) sau mỗi batch. KHÔNG dùng autoCommit:false: lúc đó
+    // `commitOffsetsIfNecessary` là no-op → offset KHÔNG BAO GIỜ commit → restart
+    // consumer sẽ nhảy tới LATEST (fromBeginning:false) → BỎ QUA tin produce lúc
+    // down → MẤT TIN. Với autoCommit:true + eachBatchAutoResolve:false vẫn giữ
+    // at-least-once: handler lỗi → không resolve → không commit → redeliver.
+    autoCommit: true,
+    autoCommitInterval: 1000,
     eachBatchAutoResolve: false,
     eachBatch: async (payload: EachBatchPayload) => {
       const { batch } = payload;

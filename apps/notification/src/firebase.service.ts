@@ -165,17 +165,48 @@ export class FirebaseService {
         `🔥 FCM "${title}" → ${recipientUserIds.length} user [${who}] · ` +
           `${tokens.length} device · ok=${res.successCount} fail=${res.failureCount}`,
       );
-      // Token lỗi (token hết hạn/sai) → log để biết device nào không nhận được.
+      // Token lỗi → log + GOM token CHẾT để dọn khỏi DB (khỏi gửi lại + hết spam).
       if (res.failureCount > 0) {
+        // Mã lỗi FCM cho token không còn hợp lệ (NotRegistered / not found / sai).
+        const INVALID_TOKEN_CODES = new Set([
+          'messaging/registration-token-not-registered',
+          'messaging/invalid-registration-token',
+          'messaging/invalid-argument',
+          'messaging/mismatched-credential',
+        ]);
+        const deadTokens: string[] = [];
         res.responses.forEach((r, i) => {
           if (!r.success) {
+            const code = (r.error as { code?: string })?.code;
+            const msg = r.error?.message || '';
             console.warn(
-              `   ✗ device[${i}] token=${tokens[i]?.slice(0, 12)}… lỗi: ${
-                r.error?.message
-              }`,
+              `   ✗ device[${i}] token=${tokens[i]?.slice(0, 12)}… lỗi: ${msg}`,
             );
+            // Token chết: theo mã lỗi HOẶC message (phòng SDK trả message thô).
+            const isDead =
+              (code && INVALID_TOKEN_CODES.has(code)) ||
+              /not.?registered|not.?found|invalid.?(registration|argument)/i.test(
+                msg,
+              );
+            if (isDead && tokens[i]) deadTokens.push(tokens[i]);
           }
         });
+
+        // Dọn token chết khỏi DB: null hoá `tkn_fcmToken` (GIỮ device/session, chỉ
+        // bỏ token FCM hỏng — app mở lại sẽ đăng ký token mới). Lỗi DB không chặn.
+        if (deadTokens.length) {
+          try {
+            const del = await this.keyModel.updateMany(
+              { tkn_fcmToken: { $in: deadTokens } },
+              { $set: { tkn_fcmToken: null } },
+            );
+            console.log(
+              `   🧹 đã dọn ${deadTokens.length} FCM token chết (cập nhật ${del.modifiedCount} device)`,
+            );
+          } catch (e) {
+            console.error('   🧹 dọn FCM token chết lỗi:', e);
+          }
+        }
       }
     } catch (error) {
       console.error('🔥 Firebase Cloud Messaging error:', error);
