@@ -16,6 +16,10 @@ export enum socketEvent {
   STATUS = 'status:online',
   ROOMDELETE = 'room:delete',
   MSGMARKREAD = 'mark:read',
+  /** Ephemeral: FE người nhận báo đã nhận tin (1-1) → relay tới người gửi. */
+  MSGDELIVERED = 'message:delivered',
+  /** Ephemeral: server báo trạng thái tin (delivered/read) về client. */
+  MSGSTATUS = 'message:status',
   QUIZZANSWER = 'quizz:answer',
   UPDATE_QUIZ = 'update:quiz',
   UPDATE_TODO = 'update:todo',
@@ -73,6 +77,10 @@ export enum KafkaEvent {
   // Chat — ghi outbox change-feed (catch-up sync). Chat tự consume rồi bulkWrite
   // per-recipient vào UserChangeEvents. Xem plan/DONG_BO_EVENT_SYNC.md.
   OUTBOX_APPEND = 'chat.outboxAppend',
+  // Chat — write-behind lưu message row. createMessage produce (key=room_id);
+  // app `chat-storage` consume eachBatch rồi bulkWrite. Tách ghi DB khỏi hot-path
+  // để chịu burst lớn. Topic nhiều partition theo room_id. Xem plan write-behind.
+  MESSAGE_STORE = 'chat.messageStore',
 
   // Notification & Auth
   SEND_OTP = 'send_otp',

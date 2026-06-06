@@ -320,20 +320,16 @@ export class ChatGateway
       // không tồn tại, service lỗi) → `metadata` null/thiếu `members`. Guard để
       // KHÔNG crash khi đọc `.msg`/`.members` (đây chính là lỗi
       // "Cannot read properties of null (reading 'msg')").
+      // Broadcast realtime đã được chat service bắn THẲNG qua Redis adapter
+      // (markReadUpTo → broadcastMsgUpsert). Gateway chỉ ack, KHÔNG emit lại.
       const meta = result?.metadata as
         | { msg?: unknown; members?: Array<Record<string, any>> }
         | null
         | undefined;
       if (!meta || !Array.isArray(meta.members)) {
-        this.logger.warn(
-          '[MARK_READ] kết quả rỗng/không hợp lệ, bỏ qua broadcast',
-        );
+        this.logger.warn('[MARK_READ] kết quả rỗng/không hợp lệ');
         return { ok: false };
       }
-      const memberIds = meta.members.map((member: Record<string, any>) =>
-        this.key.ROOM_CLIENT(member.id),
-      );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, meta.msg);
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MARK_READ] Error marking message as read:', error);
@@ -372,12 +368,7 @@ export class ChatGateway
         this.ChatGrpcService.HandleReact.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
-      );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
-
+      // Broadcast đã do chat service bắn thẳng qua Redis (emitMsgUpdated).
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error creating message:', error);
@@ -417,12 +408,7 @@ export class ChatGateway
         this.ChatGrpcService.HandlePinned.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayResponse;
-      const msg = result.metadata.msg;
-      const memberIds = result.metadata.members.map(
-        (member: Record<string, any>) => this.key.ROOM_CLIENT(member.id),
-      );
-      this.io.to(memberIds).emit(socketEvent.MSGUPSERT, msg);
-
+      // Broadcast đã do chat service bắn thẳng qua Redis (emitMsgUpdated).
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error creating message:', error);
@@ -462,18 +448,8 @@ export class ChatGateway
         this.ChatGrpcService.HandleDeleteForUser.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayDeleteResponse;
-
-      const metadata = result?.metadata ?? {};
-      const memberIds = metadata.members.map((member: Record<string, any>) =>
-        this.key.ROOM_CLIENT(member.id),
-      );
-      const msgs: Array<Record<string, any>> = Array.isArray(metadata.msgs)
-        ? metadata.msgs
-        : [];
-      msgs.forEach((m) => {
-        this.io.to(memberIds).emit(socketEvent.MSGUPSERT, m);
-      });
-
+      // Broadcast đã do chat service bắn thẳng qua Redis (handleDeleteForUser,
+      // scope per-user). Gateway chỉ ack.
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error deleting message for users:', error);
@@ -514,17 +490,8 @@ export class ChatGateway
         this.ChatGrpcService.HandleDelete.bind(this.ChatGrpcService),
         data,
       )) as ChatGatewayDeleteResponse;
-
-      const metadata = result?.metadata ?? {};
-      const memberIds = metadata.members.map((member: Record<string, any>) =>
-        this.key.ROOM_CLIENT(member.id),
-      );
-      const msgs: Array<Record<string, any>> = Array.isArray(metadata.msgs)
-        ? metadata.msgs
-        : [];
-      msgs.forEach((m) => {
-        this.io.to(memberIds).emit(socketEvent.MSGUPSERT, m);
-      });
+      // Broadcast (recall, toàn phòng) đã do chat service bắn thẳng qua Redis
+      // (handleDelete → emitMsgUpdated). Gateway chỉ ack.
       return { ok: true, data: result };
     } catch (error) {
       this.logger.error('[MESSAGE] Error recalling message:', error);
@@ -662,6 +629,32 @@ export class ChatGateway
       typing: data.typing,
       roomId: data.roomId,
     });
+  }
+
+  /**
+   * EPHEMERAL "Delivered": FE người nhận báo đã nhận tin (1-1) → relay THẲNG tới
+   * room cá nhân của người GỬI để hiện ✓✓ delivered. KHÔNG ghi Kafka/Mongo (giống
+   * typing). Người gửi offline → emit rơi (chấp nhận). Xem plan message-status.
+   */
+  @SubscribeMessage(socketEvent.MSGDELIVERED)
+  async onMessageDelivered(
+    @MessageBody()
+    data: { roomId: string; msgId: string; senderId: string },
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      await this.getUser(client);
+    } catch {
+      return;
+    }
+    if (!data?.senderId || !data?.msgId) return;
+    this.io
+      .to(this.key.ROOM_CLIENT(data.senderId))
+      .emit(socketEvent.MSGSTATUS, {
+        roomId: data.roomId,
+        msgId: data.msgId,
+        status: 'delivered',
+      });
   }
 
   // @SubscribeMessage(socketEvent.QUIZZANSWER)

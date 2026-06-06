@@ -300,6 +300,7 @@ class Utils {
     client: ClientKafka,
     pattern: string,
     data: Record<string, unknown> = {},
+    key?: string,
   ): Promise<
     ReturnType<typeof Response.success> | ReturnType<typeof Response.error>
   > {
@@ -318,7 +319,10 @@ class Utils {
       );
     }
     try {
-      await client.emit(pattern, data).toPromise();
+      // Có `key` → emit dạng { key, value } để Kafka route theo key (cùng key →
+      // cùng partition, giữ thứ tự). Không có key → giữ nguyên hành vi cũ.
+      const message = key === undefined ? data : { key, value: data };
+      await client.emit(pattern, message).toPromise();
     } catch (error) {
       const errorMessage =
         error && typeof error === 'object' && 'message' in error

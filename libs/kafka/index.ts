@@ -13,3 +13,4 @@ export * from './kafka.interface';
 
 export * from './kafka-admin.service';
 export * from './kafka-admin.module';
+export * from './kafka-batch-consumer';

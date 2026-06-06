@@ -95,6 +95,15 @@ export const REDISKEY = {
   CHANGE_SEQ: () => `chat:changefeed:seq`,
 
   /**
+   * Watermark seq lớn nhất ĐÃ GHI xong vào outbox (consumer cập nhật sau bulkWrite).
+   * Dùng để phân biệt "consumer đang lag" (CHANGE_SEQ > written → có event chưa
+   * ghi → client nên retry) với "đã ghi đủ" (written == CHANGE_SEQ → client KHÔNG
+   * cần retry dù seq toàn cục lớn hơn cursor của user — tránh false-positive
+   * mayHavePending do seq là toàn cục). Format: chat:changefeed:writtenseq (STRING)
+   */
+  CHANGE_WRITTEN_SEQ: () => `chat:changefeed:writtenseq`,
+
+  /**
    * Set các userId vừa được ghi outbox kể từ lần trim trước. Job trim đọc set
    * này để chỉ cap (giữ tối đa N event/user) cho những user thực sự có thay đổi,
    * khỏi quét toàn collection. Cùng pattern với UNREAD_DIRTY.
