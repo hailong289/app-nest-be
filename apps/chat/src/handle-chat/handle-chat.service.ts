@@ -1206,7 +1206,17 @@ export class HandleChatService implements OnModuleInit {
           type === 'new' ? { $gt: cursorTs } : { $lt: cursorTs };
       }
     }
-
+    // const compare: Record<string, any> = {};
+    // if (type && msgId && Types.ObjectId.isValid(msgId)) {
+    //   const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
+    //   if (type === 'new') {
+    //     // Load tin nhắn mới hơn msgId (để load real-time updates)
+    //     compare._id = { $gt: msgObjectId };
+    //   } else if (type === 'old') {
+    //     // Load tin nhắn cũ hơn msgId (để pagination lùi về quá khứ)
+    //     compare._id = { $lt: msgObjectId };
+    //   }
+    // }
     // LUÔN lấy N tin MỚI NHẤT của tập đã lọc: DESC + limit rồi đảo về ASC cho FE.
     // - type='new' (createdAt > cursor): N tin MỚI NHẤT sau cursor → mở phòng hiện
     //   ĐÚNG tin mới nhất kể cả cache cũ (gap giữa cursor↔mới nhất tải sau bằng
@@ -1214,10 +1224,18 @@ export class HandleChatService implements OnModuleInit {
     // - type='old' (createdAt < cursor): N tin gần nhất trong quá khứ (pagination lùi).
     // - null: N tin mới nhất toàn phòng.
     const pipeLine = buildMessageCorePipeline(userId);
+
     const result = await this.messageModel.aggregate([
       {
         $match: {
-          msg_roomId: roomInfo._id,
+          // PHẢI cast về ObjectId: `roomInfo._id` có thể là STRING khi room phục
+          // vụ từ cache L2 (Redis JSON-deserialize _id → string). Aggregate
+          // KHÔNG auto-cast như query Mongoose → `{msg_roomId: "<hex>"}` (string)
+          // sẽ KHÔNG khớp `msg_roomId` (ObjectId) → trả RỖNG dù DB có data.
+          // (createMessage ghi qua Mongoose nên được cast, vẫn lưu đúng.)
+          msg_roomId: this.utils.convertToObjectIdMongoose(
+            String(roomInfo._id),
+          ),
           ...compare,
         },
       },
