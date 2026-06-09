@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { HttpExceptionsFilter } from '@app/helpers/http-exception-filter.error';
 import { Logger } from '@nestjs/common';
+import Utils from '@app/helpers/utils';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -27,8 +28,19 @@ async function bootstrap() {
         oneofs: true,
         includeDirs: [join(process.cwd(), 'libs/grpc')],
       },
+      channelOptions: {
+        'grpc.keepalive_time_ms': 60000,
+        'grpc.keepalive_timeout_ms': 10000,
+        'grpc.keepalive_permit_without_calls': 1,
+        'grpc.http2.min_time_between_pings_ms': 60000,
+        'grpc.http2.min_ping_interval_without_data_ms': 10000,
+      },
     },
   });
+
+  // Kafka consumer cho chat: tự consume MESSAGE_PERSISTED để chạy "tail" tạo
+  // tin nhắn (state/unread/notification) bất đồng bộ, không chặn create path.
+  Utils.createKafkaMicroserviceFromApplication(app, 'chat');
 
   try {
     await app.startAllMicroservices();
@@ -40,6 +52,6 @@ async function bootstrap() {
   await app.init();
 
   console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
-  logger.log(`chat gRPC microservice is listening on port ${process.env.PORT}`);
+  logger.log(`chat gRPC + Kafka microservice is listening on port ${process.env.PORT}`);
 }
 void bootstrap();

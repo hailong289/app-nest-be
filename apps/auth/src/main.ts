@@ -17,6 +17,13 @@ async function bootstrap() {
         process.env.PROTO_URL || 'libs/grpc/auth.proto',
       ),
       url: `${process.env.HOST}:${process.env.PORT}`,
+      channelOptions: {
+        'grpc.keepalive_time_ms': 60000,
+        'grpc.keepalive_timeout_ms': 10000,
+        'grpc.keepalive_permit_without_calls': 1,
+        'grpc.http2.min_time_between_pings_ms': 60000,
+        'grpc.http2.min_ping_interval_without_data_ms': 10000,
+      },
     },
   });
 

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Inject,
   Param,
   Patch,
@@ -75,6 +76,7 @@ export interface RoomGrpcService {
   deletedRoom(data: any): Promise<ChatGatewayResponse>;
   getMsgFromRoom(data: any): any;
   getDocumentsFromRoom(data: any): any;
+  syncEvents(data: any): any;
 }
 
 @Controller('chat')
@@ -154,6 +156,8 @@ export class GatewayChatController {
       ...result,
     };
   }
+  // Dữ liệu động (last_message/unread) → no-store, tránh 304 trả sidebar stale.
+  @Header('Cache-Control', 'no-store')
   @Get('rooms')
   async GetRooms(
     @Req() req: AuthenticatedRequest,
@@ -186,6 +190,30 @@ export class GatewayChatController {
     return await this.gatewayService.dispatchGrpcRequest(
       this.RoomGrpcService.getRoom.bind(this.RoomGrpcService),
       body,
+    );
+  }
+
+  /**
+   * Catch-up sync: client pull change-feed (outbox) kể từ con trỏ `sinceSeq`.
+   * Trả { events[], nextSeq, hasMore, requireFullResync }. Xem
+   * plan/DONG_BO_EVENT_SYNC.md (Sprint 3 / Phần 3c).
+   */
+  // Catch-up sync PHẢI luôn tươi — 304 sẽ làm client bỏ sót event → no-store.
+  @Header('Cache-Control', 'no-store')
+  @Get('sync/events')
+  async SyncEvents(
+    @Req() req: AuthenticatedRequest,
+    @Query('sinceSeq') sinceSeq?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const data = {
+      userId: req.user?._id,
+      sinceSeq: Number(sinceSeq ?? 0) || 0,
+      limit: Number(limit ?? 200) || 200,
+    };
+    return await this.gatewayService.dispatchGrpcRequest(
+      this.RoomGrpcService.syncEvents.bind(this.RoomGrpcService),
+      data,
     );
   }
 
@@ -298,6 +326,11 @@ export class GatewayChatController {
     return result;
   }
 
+  // KHÔNG cache: messages là dữ liệu ĐỘNG. Mặc định Express bật ETag → trả 304
+  // (Not Modified) khi FE gửi If-None-Match → tuỳ trình duyệt/axios, body có thể
+  // RỖNG/stale → FE tưởng không có tin mới → MẤT tin khi reload/đổi phòng. Ép
+  // no-store → luôn 200 + body tươi, browser không gửi conditional request.
+  @Header('Cache-Control', 'no-store')
   @Get('messages/:roomId')
   async GetMsgFromRoom(
     @Req() req: AuthenticatedRequest,

@@ -84,6 +84,10 @@ RoomSchema.index({ room_lastMessage: -1 });
 RoomSchema.index({ updatedAt: -1 });
 RoomSchema.index({ room_name_norm: 1 });
 RoomSchema.index({ room_type: 1, 'room_members.user_id': 1 });
+// Phục vụ lazy-sync USER_ROOMS: truy vấn mọi phòng của 1 user chỉ theo
+// room_members.user_id (không kèm room_type) — index compound ở trên không
+// dùng được vì user_id không phải prefix, nên cần index riêng tránh COLLSCAN.
+RoomSchema.index({ 'room_members.user_id': 1 });
 
 /** ===== Helpers ===== */
 // Chuẩn hoá tiếng Việt (không dấu, lowercase)

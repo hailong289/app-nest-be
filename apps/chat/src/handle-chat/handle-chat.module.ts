@@ -2,14 +2,20 @@ import { Module } from '@nestjs/common';
 import { HandleChatService } from './handle-chat.service';
 import { RoomsModule } from '../rooms/rooms.module';
 import { HandleChatController } from './handle-chat.controller';
+import { UnreadFlushService } from './unread-flush.service';
+import { ChangeFeedModule } from '../change-feed/change-feed.module';
 import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 
 @Module({
   controllers: [HandleChatController],
-  providers: [HandleChatService],
+  providers: [HandleChatService, UnreadFlushService],
   imports: [
     RoomsModule,
+    // ChangeFeedService + ClientKafka SERVICES.CHAT (chat tự emit cho chính nó)
+    // được cung cấp từ ChangeFeedModule — tách ra để RoomsModule cũng dùng được
+    // mà không tạo vòng phụ thuộc với HandleChatModule.
+    ChangeFeedModule,
     SharedKafkaClientModule.registerAsync({
       name: SERVICES.AI,
       clientId: 'chat-service-ai-client',

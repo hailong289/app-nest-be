@@ -61,6 +61,57 @@ export const REDISKEY = {
   USER_ROOMS: (userId: string) => `chat:user:${userId}:rooms`,
 
   /**
+   * Cờ đánh dấu USER_ROOMS của user đã được nạp từ MongoDB ít nhất 1 lần kể từ
+   * khi Redis còn sống. Dùng cho lazy-sync: connect lần đầu (cache lạnh) sẽ
+   * rebuild từ DB rồi set cờ này; các lần sau chỉ đọc set, khỏi query Mongo.
+   * Format: chat:user:{userId}:rooms:synced
+   */
+  USER_ROOMS_SYNCED: (userId: string) => `chat:user:${userId}:rooms:synced`,
+
+  /**
+   * Unread count live của user theo phòng (Hash, field = room_id custom).
+   * Hot-path tăng/giảm bằng HINCRBY (atomic) thay vì ghi Mongo mỗi tin.
+   * Format: chat:user:{userId}:unread  →  { "{roomId}": <count>, ... }
+   */
+  UNREAD: (userId: string) => `chat:user:${userId}:unread`,
+  /**
+   * Set các cặp "{userId}:{roomId}" có unread thay đổi kể từ lần flush trước.
+   * Job flush đọc set này để gom bulkWrite về Mongo theo lô.
+   */
+  UNREAD_DIRTY: () => `chat:unread:dirty`,
+  /**
+   * Khoá chống xử lý trùng tail của 1 message (Kafka at-least-once có thể
+   * redeliver). Set NX + TTL trước khi chạy tail.
+   * Format: chat:msg:{messageId}:processed
+   */
+  MSG_PROCESSED: (messageId: string) => `chat:msg:${messageId}:processed`,
+
+  /**
+   * Bộ đếm toàn cục đơn điệu cho change-feed catch-up (outbox). Mỗi mutation
+   * gọi INCR để cấp `seq`; client dùng `seq` làm con trỏ pull + chân lý thứ tự.
+   * Format: chat:changefeed:seq
+   * Type: STRING (INCR)
+   */
+  CHANGE_SEQ: () => `chat:changefeed:seq`,
+
+  /**
+   * Watermark seq lớn nhất ĐÃ GHI xong vào outbox (consumer cập nhật sau bulkWrite).
+   * Dùng để phân biệt "consumer đang lag" (CHANGE_SEQ > written → có event chưa
+   * ghi → client nên retry) với "đã ghi đủ" (written == CHANGE_SEQ → client KHÔNG
+   * cần retry dù seq toàn cục lớn hơn cursor của user — tránh false-positive
+   * mayHavePending do seq là toàn cục). Format: chat:changefeed:writtenseq (STRING)
+   */
+  CHANGE_WRITTEN_SEQ: () => `chat:changefeed:writtenseq`,
+
+  /**
+   * Set các userId vừa được ghi outbox kể từ lần trim trước. Job trim đọc set
+   * này để chỉ cap (giữ tối đa N event/user) cho những user thực sự có thay đổi,
+   * khỏi quét toàn collection. Cùng pattern với UNREAD_DIRTY.
+   * Format: chat:changefeed:dirty  (SET<userId>)
+   */
+  CHANGEFEED_DIRTY: () => `chat:changefeed:dirty`,
+
+  /**
    * Lưu danh sách friends của user (Set)
    * Format: chat:user:{userId}:friends
    * Type: SET
@@ -323,6 +374,9 @@ export const REDIS_TTL = {
   // truly forgotten zombies (browser frozen for a day, etc.) without
   // requiring an extra heartbeat ping from the FE.
   CALL_ACTIVE: 8 * 3600, // 8 hours — refreshed on every meaningful call event
+  // Document cache (room/user) — read-heavy, ít thay đổi. L2 (Redis) giữ
+  // bản full doc; L1 (RAM) có TTL ngắn riêng. Pub/sub invalidate khi đổi.
+  CACHE_ENTITY: 1800, // 30 phút
 } as const;
 
 /**

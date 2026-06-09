@@ -69,6 +69,9 @@ export class RegisterDto {
   @IsNotEmpty({ message: 'Token đăng ký không được để trống' })
   @IsString()
   tempRegisterToken: string;
+  @IsOptional()
+  @IsString()
+  email?: string;
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   password: string;
   @IsNotEmpty({ message: 'Giới tính không được để trống' })

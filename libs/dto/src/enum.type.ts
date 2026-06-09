@@ -16,6 +16,10 @@ export enum socketEvent {
   STATUS = 'status:online',
   ROOMDELETE = 'room:delete',
   MSGMARKREAD = 'mark:read',
+  /** Ephemeral: FE người nhận báo đã nhận tin (1-1) → relay tới người gửi. */
+  MSGDELIVERED = 'message:delivered',
+  /** Ephemeral: server báo trạng thái tin (delivered/read) về client. */
+  MSGSTATUS = 'message:status',
   QUIZZANSWER = 'quizz:answer',
   UPDATE_QUIZ = 'update:quiz',
   UPDATE_TODO = 'update:todo',
@@ -24,6 +28,25 @@ export enum socketEvent {
 
 export enum notifyType {
   noify_new_message = 'notify:new:message',
+}
+
+/**
+ * Loại event trong change-feed catch-up (outbox per-user). Client switch theo
+ * `type` để apply vào IndexedDB. Xem plan/DONG_BO_EVENT_SYNC.md (bảng 2a).
+ */
+export enum ChangeEventType {
+  /** thin {roomId,newestMsgId,newestMsgTs,count} — high-water-mark tin mới. */
+  ROOM_NEWMSGS = 'room.newmsgs',
+  /** fat: snapshot message — edit/soft-delete/pin/react. */
+  MESSAGE_UPDATED = 'message.updated',
+  /** thin {roomId,msgId} — delete-for-me (per-user). */
+  MESSAGE_HIDDEN = 'message.hidden',
+  /** fat {roomId,lastReadMsgId,lastReadAt,unreadCount} — read/unread đổi. */
+  ROOM_READ = 'room.read',
+  /** fat: room metadata — tạo/đổi tên/avatar/member/pin-list. */
+  ROOM_UPSERTED = 'room.upserted',
+  /** thin {roomId} — user bị kick/rời/phòng xoá. */
+  ROOM_REMOVED = 'room.removed',
 }
 
 export enum KafkaEvent {
@@ -48,6 +71,16 @@ export enum KafkaEvent {
   // Room & Document
   CREATE_ROOMS = 'create_rooms',
   SHARE_DOC_FOR_ROOM = 'document.shareforRoom',
+
+  // Chat — tail bất đồng bộ sau khi đã tạo message (chat tự consume)
+  MESSAGE_PERSISTED = 'chat.messagePersisted',
+  // Chat — ghi outbox change-feed (catch-up sync). Chat tự consume rồi bulkWrite
+  // per-recipient vào UserChangeEvents. Xem plan/DONG_BO_EVENT_SYNC.md.
+  OUTBOX_APPEND = 'chat.outboxAppend',
+  // Chat — write-behind lưu message row. createMessage produce (key=room_id);
+  // app `chat-storage` consume eachBatch rồi bulkWrite. Tách ghi DB khỏi hot-path
+  // để chịu burst lớn. Topic nhiều partition theo room_id. Xem plan write-behind.
+  MESSAGE_STORE = 'chat.messageStore',
 
   // Notification & Auth
   SEND_OTP = 'send_otp',

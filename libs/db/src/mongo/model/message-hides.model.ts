@@ -24,5 +24,9 @@ export const MessageHideSchema = SchemaFactory.createForClass(MessageHide);
 // Index removed: uniq already has unique: true in @Prop
 MessageHideSchema.index({ user_id: 1, room_id: 1, msg_id: 1 });
 MessageHideSchema.index({ room_id: 1, msg_id: 1 });
+// Message-detail pipelines look up hides by msg_id alone (hiddenBy /
+// reply hidden). Neither composite index above has msg_id as a prefix,
+// so a standalone msg_id index is needed to avoid a collection scan.
+MessageHideSchema.index({ msg_id: 1 });
 
 export default { name: 'MessageHide', schema: MessageHideSchema };

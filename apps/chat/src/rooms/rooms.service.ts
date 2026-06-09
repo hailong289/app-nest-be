@@ -35,12 +35,20 @@ import {
   Room,
   RoomEvent,
   User,
-  EventRoomType,
   RoomsUsersState,
+  UserCacheRepository,
 } from 'libs/db/src';
 import { RemoteSocketEmitter } from 'libs/ws/src';
-import { socketEvent } from 'libs/dto/src/enum.type';
+import { RoomCacheRepository } from './room-cache.repository';
+import { ChangeEventType, socketEvent } from 'libs/dto/src/enum.type';
+import { ChangeFeedService } from '../change-feed/change-feed.service';
 import { buildMessageDetailPipeline } from '../handle-chat/Pipeline/getMsg';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
+import {
+  ROOM_MEMBERSHIP_SYNC_QUEUE,
+  type RoomMembershipSyncJobData,
+} from './room-membership-sync.constants';
 
 @Injectable()
 export class RoomsService {
@@ -56,57 +64,100 @@ export class RoomsService {
     @InjectModel(RoomsUsersState.name)
     private readonly RoomsUsersState: Model<RoomsUsersState>,
     private readonly emitter: RemoteSocketEmitter,
+    @InjectQueue(ROOM_MEMBERSHIP_SYNC_QUEUE)
+    private readonly membershipSyncQueue: Queue<RoomMembershipSyncJobData>,
+    private readonly userCache: UserCacheRepository,
+    private readonly roomCache: RoomCacheRepository,
+    private readonly changeFeed: ChangeFeedService,
   ) {}
 
-  async onModuleInit() {
-    await this.syncAllUserRoomsToRedis();
+  /**
+   * Catch-up `room.upserted` (fat) cho danh sách recipient — client upsert room
+   * vào IndexedDB khi mở lại. REUSE snapshot phòng đã có sẵn (không query thêm).
+   * No-op khi thiếu recipient. KHÔNG ném lỗi (outbox là phần phụ; emit() đã tự
+   * nuốt lỗi Kafka).
+   */
+  private async emitRoomUpserted(params: {
+    roomMongoId: string;
+    roomCustomId: string;
+    recipients: string[];
+    roomMetadata?: Record<string, unknown>;
+  }): Promise<void> {
+    const { roomMongoId, roomCustomId, recipients, roomMetadata } = params;
+    const uniq = Array.from(new Set((recipients ?? []).filter(Boolean)));
+    if (!uniq.length) return;
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_UPSERTED,
+      roomId: roomMongoId,
+      recipients: uniq,
+      payload: {
+        roomId: roomCustomId,
+        roomMongoId,
+        ...(roomMetadata ?? {}),
+      },
+    });
   }
 
   /**
-   * Đồng bộ lại tất cả các phòng của user vào Redis khi khởi động service.
-   * Điều này đảm bảo tính nhất quán dữ liệu cho tính năng 'tham gia phòng mặc định'.
+   * Catch-up `room.removed` (thin) — client xoá room + messages khỏi cache. Dùng
+   * khi user bị kick / rời / phòng bị xoá. No-op khi thiếu recipient.
    */
-  async syncAllUserRoomsToRedis() {
-    this.log.log('🔄 Bắt đầu đồng bộ User Rooms từ DB sang Redis...');
-    try {
-      interface UserRoomsAgg {
-        _id: Types.ObjectId;
-        rooms: string[];
-      }
+  private async emitRoomRemoved(params: {
+    roomMongoId: string;
+    roomCustomId: string;
+    recipients: string[];
+  }): Promise<void> {
+    const { roomMongoId, roomCustomId, recipients } = params;
+    const uniq = Array.from(new Set((recipients ?? []).filter(Boolean)));
+    if (!uniq.length) return;
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_REMOVED,
+      roomId: roomMongoId,
+      recipients: uniq,
+      payload: {
+        roomId: roomCustomId,
+        roomMongoId,
+      },
+    });
+  }
 
-      // 1. Group tất cả Rooms theo thành viên để lấy danh sách room_id (custom string)
-      const cursor = this.roomModel
-        .aggregate<UserRoomsAgg>([
-          { $unwind: '$room_members' },
-          {
-            $group: {
-              _id: '$room_members.user_id',
-              rooms: { $push: '$room_id' },
-            },
-          },
-        ])
-        .cursor();
-
-      let count = 0;
-      // 2. Duyệt qua từng user và push vào Redis
-      for await (const uDoc of cursor) {
-        const doc = uDoc as UserRoomsAgg;
-        if (doc._id && doc.rooms && doc.rooms.length > 0) {
-          const userId = doc._id.toString();
-          // doc.rooms lúc này là mảng các room_id (string)
-          const roomIds: string[] = doc.rooms;
-          const key = this.key.USER_ROOMS(userId);
-
-          // Xóa set cũ để đảm bảo sạch sẽ
-          await this.redis.delKey(key);
-          await this.redis.sAdd(key, ...roomIds);
-          count++;
-        }
-      }
-      this.log.log(`✅ Đồng bộ hoàn tất: Đã update rooms cho ${count} users.`);
-    } catch (error) {
-      this.log.error('❌ Lỗi khi đồng bộ User Rooms:', error);
+  /**
+   * Lazy-sync USER_ROOMS cho MỘT user (thay cho việc quét toàn bộ DB lúc
+   * startup). Gọi khi client connect và cache lạnh.
+   *
+   * - Nếu cờ USER_ROOMS_SYNCED tồn tại → đã nạp từ DB rồi, chỉ đọc lại set.
+   * - Nếu chưa → query mọi phòng của user (dùng index room_members.user_id),
+   *   ghi 1 pipeline SADD, đặt cờ ready, trả về danh sách room_id.
+   *
+   * Idempotent: nếu user được add vào phòng lúc đang lạnh, lần connect sau
+   * rebuild lại từ Mongo (đã gồm phòng mới) nên không mất dữ liệu.
+   */
+  async ensureUserRoomsSynced(userId: string): Promise<string[]> {
+    if (!userId) return [];
+    const key = this.key.USER_ROOMS(userId);
+    const synced = await this.redis.getData<string>(
+      this.key.USER_ROOMS_SYNCED(userId),
+    );
+    if (synced) {
+      return this.redis.sMembers(key);
     }
+
+    const rooms = await this.roomModel
+      .find(
+        {
+          'room_members.user_id': this.utils.convertToObjectIdMongoose(userId),
+        },
+        { room_id: 1, _id: 0 },
+      )
+      .lean<{ room_id: string }[]>();
+    const roomIds = rooms.map((r) => r.room_id).filter(Boolean);
+
+    if (roomIds.length > 0) {
+      await this.redis.pipelineSAdd([{ key, values: roomIds }]);
+    }
+    // Đặt cờ ready (kể cả user 0 phòng) để khỏi query Mongo lại mỗi lần connect.
+    await this.redis.setData(this.key.USER_ROOMS_SYNCED(userId), '1');
+    return roomIds;
   }
 
   /**
@@ -153,10 +204,14 @@ export class RoomsService {
       );
     }
 
-    // 4. Resolve the room's custom string id (used as Socket.IO room name)
+    // 4. Resolve the room's custom string id (used as Socket.IO room name) +
+    //    members (recipients cho change-feed catch-up).
     const room = await this.roomModel
-      .findById(input.room_id, { room_id: 1 })
-      .lean<{ room_id: string }>();
+      .findById(input.room_id, { room_id: 1, 'room_members.user_id': 1 })
+      .lean<{
+        room_id: string;
+        room_members?: Array<{ user_id: Types.ObjectId }>;
+      }>();
 
     if (!room?.room_id) {
       this.log.warn(
@@ -168,24 +223,24 @@ export class RoomsService {
     // 5. Hydrate the system message through the same pipeline FE uses for
     //    regular messages so it carries `room_event` (event_type, actor,
     //    targets, payload). FE renders it via <SystemMessageBubble />.
-    let messagePayload: Record<string, unknown>;
+    // `messagePayload: unknown` thay vì `Record<string, unknown>` để khớp
+    // ngay với `toObject()` (Mongoose doc class không có index signature)
+    // và signature `broadcastTo(...args: unknown[])` — bỏ được mọi cast.
+    let messagePayload: unknown;
     try {
-      const [hydrated] = await this.messageModel.aggregate(
-        buildMessageDetailPipeline(systemMsg._id.toString()),
-      );
-      messagePayload =
-        (hydrated as Record<string, unknown>) ??
-        (systemMsg.toObject() as unknown as Record<string, unknown>);
+      const hydrated: Record<string, unknown> | undefined = (
+        await this.messageModel.aggregate<Record<string, unknown>>(
+          buildMessageDetailPipeline(systemMsg._id.toString()),
+        )
+      )[0];
+      messagePayload = hydrated ?? systemMsg.toObject();
     } catch (err) {
       this.log.warn(
         `[ROOM_EVENT] Pipeline hydration failed for ${String(systemMsg._id)}: ${
           err instanceof Error ? err.message : String(err)
         } — emitting raw doc instead`,
       );
-      messagePayload = systemMsg.toObject() as unknown as Record<
-        string,
-        unknown
-      >;
+      messagePayload = systemMsg.toObject();
     }
 
     // 6. Broadcast via Redis-backed emitter (apps/socket relays to clients)
@@ -202,6 +257,28 @@ export class RoomsService {
       eventId: event.event_id,
       eventType: input.event_type,
       payload: input.payload ?? {},
+    });
+
+    // 7. Change-feed catch-up: system message (call.started/ended/joined/left,
+    //    member.joined/left, đổi tên/avatar, ...) cũng cần sync. Emit
+    //    `room.newmsgs` cho TOÀN member để user offline thấy khi mở lại.
+    //    Fire-and-forget (emit never-throw); không chặn luồng log.
+    const logRecipients = (room.room_members ?? []).map((m) =>
+      m.user_id.toString(),
+    );
+    await this.changeFeed.emit({
+      type: ChangeEventType.ROOM_NEWMSGS,
+      roomId: input.room_id.toString(),
+      recipients: logRecipients,
+      payload: {
+        roomId: room.room_id,
+        roomMongoId: input.room_id.toString(),
+        newestMsgId: systemMsg._id.toString(),
+        newestMsgTs:
+          systemMsg.createdAt instanceof Date
+            ? systemMsg.createdAt.toISOString()
+            : null,
+      },
     });
 
     return event;
@@ -223,6 +300,117 @@ export class RoomsService {
       eventType: 'room.refresh',
       payload,
     });
+  }
+
+  /**
+   * Pha A của GetRooms: CHỌN + PHÂN TRANG trên tập tất cả phòng của user bằng
+   * các stage NHẸ (chỉ 2 lookup điểm/phòng), để `$skip/$limit` cắt còn ~20 phòng
+   * TRƯỚC khi `handlePipeline` enrich nặng. Tránh enrich toàn bộ phòng rồi vứt đi.
+   *
+   * Sắp theo hoạt động gần nhất (last_message_snapshot.createdAt) và lọc bỏ phòng
+   * không hiển thị được (tên rỗng) + áp search `q` — tất cả TRƯỚC phân trang để
+   * page size phản ánh đúng số phòng hiển thị và search chạy trên toàn tập.
+   */
+  private buildRoomPaginateStages(
+    uid: Types.ObjectId,
+    opts: { matchType: Record<string, unknown>; q?: string },
+  ): PipelineStage[] {
+    const { matchType, q } = opts;
+    return [
+      { $match: { 'room_members.user_id': uid, ...matchType } },
+      {
+        $lookup: {
+          from: 'RoomsState',
+          localField: '_id',
+          foreignField: 'room_id',
+          pipeline: [
+            {
+              $project: {
+                _id: 0,
+                'last_message_snapshot.createdAt': 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+          as: '_pg_state',
+        },
+      },
+      { $set: { _pg_state: { $first: '$_pg_state' } } },
+      {
+        $addFields: {
+          _pg_lastTs: {
+            $ifNull: [
+              '$_pg_state.last_message_snapshot.createdAt',
+              { $ifNull: ['$_pg_state.updatedAt', '$updatedAt'] },
+            ],
+          },
+          _pg_other: {
+            $cond: [
+              { $eq: ['$room_type', 'private'] },
+              {
+                $first: {
+                  $filter: {
+                    input: '$room_members',
+                    as: 'm',
+                    cond: { $ne: ['$$m.user_id', uid] },
+                  },
+                },
+              },
+              null,
+            ],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'Users',
+          let: { oid: '$_pg_other.user_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$oid'] } } },
+            { $project: { _id: 0, usr_fullname: 1 } },
+          ],
+          as: '_pg_otherUser',
+        },
+      },
+      {
+        $addFields: {
+          _pg_name: {
+            $cond: [
+              { $eq: ['$room_type', 'private'] },
+              {
+                $ifNull: [
+                  {
+                    $cond: [
+                      {
+                        $or: [
+                          { $not: ['$_pg_other.name'] },
+                          { $eq: ['$_pg_other.name', ''] },
+                        ],
+                      },
+                      null,
+                      '$_pg_other.name',
+                    ],
+                  },
+                  { $first: '$_pg_otherUser.usr_fullname' },
+                ],
+              },
+              '$room_name',
+            ],
+          },
+        },
+      },
+      { $match: { _pg_name: { $type: 'string', $nin: [null, ''] } } },
+      ...(q
+        ? [
+            {
+              $match: {
+                _pg_name: { $regex: removeAccents(q), $options: 'i' },
+              },
+            } as PipelineStage,
+          ]
+        : []),
+      { $sort: { _pg_lastTs: -1 } },
+    ];
   }
 
   private handlePipeline(userId: string): PipelineStage[] {
@@ -322,8 +510,9 @@ export class RoomsService {
           pipeline: [
             // Mới nhất trước
             { $sort: { createdAt: -1 } },
-            // Tuỳ ông muốn limit bao nhiêu event
-            // { $limit: 20 },
+            // Giới hạn timeline ở danh sách phòng — chỉ lấy 20 event mới nhất.
+            // FE cần full timeline thì gọi API riêng khi mở phòng.
+            { $limit: 20 },
             {
               $project: {
                 _id: 0,
@@ -535,92 +724,16 @@ export class RoomsService {
         },
       },
 
-      /** 9) unread_count_calc: baseTs = max(last_read_at, clear_before_ts) */
-      {
-        $addFields: {
-          _baseTs: {
-            $switch: {
-              branches: [
-                {
-                  case: {
-                    $and: [
-                      { $ifNull: ['$my_state.last_read_at', false] },
-                      { $ifNull: ['$my_state.clear_before_ts', false] },
-                      {
-                        $gt: [
-                          '$my_state.last_read_at',
-                          '$my_state.clear_before_ts',
-                        ],
-                      },
-                    ],
-                  },
-                  then: '$my_state.last_read_at',
-                },
-                {
-                  case: {
-                    $and: [
-                      { $ifNull: ['$my_state.last_read_at', false] },
-                      { $ifNull: ['$my_state.clear_before_ts', false] },
-                      {
-                        $lte: [
-                          '$my_state.last_read_at',
-                          '$my_state.clear_before_ts',
-                        ],
-                      },
-                    ],
-                  },
-                  then: '$my_state.clear_before_ts',
-                },
-              ],
-              default: {
-                $ifNull: [
-                  '$my_state.last_read_at',
-                  '$my_state.clear_before_ts',
-                ],
-              },
-            },
-          },
-        },
-      },
-      {
-        $lookup: {
-          from: 'Messages',
-          let: { rid: '$_id', uid: uid, baseTs: '$_baseTs' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$msg_roomId', '$$rid'] },
-                    { $ne: ['$msg_sender', '$$uid'] },
-                    {
-                      $or: [
-                        { $eq: ['$deletedAt', null] },
-                        { $not: ['$deletedAt'] },
-                      ],
-                    },
-                    {
-                      $cond: [
-                        { $ifNull: ['$$baseTs', false] },
-                        { $gt: ['$createdAt', '$$baseTs'] },
-                        true,
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-            { $count: 'cnt' },
-          ],
-          as: 'unread',
-        },
-      },
-      {
-        $set: {
-          unread_count_calc: { $ifNull: [{ $first: '$unread.cnt' }, 0] },
-        },
-      },
-      { $unset: ['unread', '_baseTs', '_lastMsgTs', '_lastMsgSender'] },
+      /**
+       * 9) unread_count: dùng trực tiếp `my_state.unread_count` (đã được
+       * handle-chat duy trì qua recomputeUnreadForUserRoom trên mỗi
+       * message/read). Trước đây stage này $lookup Messages + $count cho
+       * TỪNG phòng để tính `unread_count_calc` — chạy trên toàn bộ phòng của
+       * user trước khi paginate, là một trong các stage tốn kém nhất. Bỏ đi:
+       * projection cuối lấy `my_state.unread_count` (fallback 0 nếu user chưa
+       * có RoomsUsersState cho phòng đó).
+       */
+      { $unset: ['_lastMsgTs', '_lastMsgSender'] },
 
       /** 10) Avatar & tên hiển thị (private fallback) */
       {
@@ -959,7 +1072,7 @@ export class RoomsService {
 
           is_read: 1,
           unread_count: {
-            $ifNull: ['$my_state.unread_count', '$unread_count_calc'],
+            $ifNull: ['$my_state.unread_count', 0],
           },
           my_state: 1,
           last_read_id: {
@@ -979,20 +1092,14 @@ export class RoomsService {
     return pipeline;
   }
 
-  public async getUserInfo(userId: string) {
-    const user = await this.userModel
-      .findOne({
-        _id: this.utils.convertToObjectIdMongoose(userId),
-        usr_status: 'active',
-      })
-      .select({
-        _id: 1,
-        usr_fullname: 1,
-        usr_id: 1,
-      })
-      .exec();
-
-    return user;
+  public async getUserInfo(
+    userId: string,
+  ): Promise<(User & { _id: Types.ObjectId }) | null> {
+    const user = await this.userCache.getById(userId);
+    // Giữ nguyên hợp đồng cũ: chỉ trả user đang 'active'.
+    if (!user || user.usr_status !== 'active') return null;
+    // lean() luôn trả về doc có _id tại runtime; cast để callers dùng được ._id.
+    return user as User & { _id: Types.ObjectId };
   }
   async create(payload: CreateRoomDto) {
     // create array save log
@@ -1026,15 +1133,13 @@ export class RoomsService {
     members.push({
       user_id: getInforUserCreateRoom._id,
       id: getInforUserCreateRoom.usr_id,
-      role: (type === 'private'
-        ? 'owner'
-        : 'admin') as unknown as memberType['role'],
+      role: (type === 'private' ? 'owner' : 'admin') as memberType['role'],
       name: '',
       // joinedAt: new Date(),
     });
 
     // kiem tra thong tin thanh vien
-    const checkMemberIds = await this.userModel
+    const checkMemberIdsRaw = await this.userModel
       .find({
         usr_id: {
           $in: memberIds,
@@ -1047,6 +1152,16 @@ export class RoomsService {
         usr_fullname: 1,
       })
       .exec();
+
+    // Lọc creator ra khỏi danh sách member: FE đôi khi vô tình truyền cả
+    // usr_id của chính creator trong `memberIds`. Trước đây code không lọc
+    // nên `room_members` chứa creator 2 lần (1 admin + 1 member) — thấy rõ
+    // trong các room cũ. Sau khi thêm unique index (user_id, room_id) trên
+    // RoomsUsersState, dup này gây E11000 lúc insertMany.
+    const creatorIdStr = getInforUserCreateRoom._id.toString();
+    const checkMemberIds = checkMemberIdsRaw.filter(
+      (m) => m._id.toString() !== creatorIdStr,
+    );
 
     if (checkMemberIds.length > 1 && type === 'private') {
       throw new BadRequestException('thành viên không hợp lệ');
@@ -1062,9 +1177,7 @@ export class RoomsService {
       members.push({
         user_id: member._id,
         id: member.usr_id,
-        role: (type === 'channel'
-          ? 'guest'
-          : 'member') as unknown as memberType['role'],
+        role: (type === 'channel' ? 'guest' : 'member') as memberType['role'],
         name: member.usr_fullname || '',
         joinedAt: new Date(),
       });
@@ -1103,71 +1216,109 @@ export class RoomsService {
       throw new BadRequestException('Tạo phòng thất bại');
     }
 
-    // add member save info in redis
-    const saddMember = members.map((i) => {
-      return this.redis.sAdd(
-        this.key.ROOM_MEMBERS(room_id),
-        i.user_id.toString(),
-      );
-    });
-    const saddRoom = members.map((i) =>
-      this.redis.sAdd(this.key.USER_ROOMS(i.user_id.toString()), room_id),
+    // 1) ROOM_MEMBERS: 1 batched sAdd thay vì N call song song (sAdd nhận
+    //    nhiều values cùng key). Trước đây fan-out N sAdd ngay trong request
+    //    handler đã đánh sập service khi N≈1000.
+    const allMemberObjIds = members.map((m) => m.user_id.toString());
+    const creatorObjId = getInforUserCreateRoom._id.toString();
+    const otherMemberObjIds = allMemberObjIds.filter(
+      (id) => id !== creatorObjId,
     );
+
+    // 2) USER_ROOMS cho creator chạy ngay: response trả về xong creator phải
+    //    thấy nhóm trong list của mình lập tức (FE thường refetch list ngay
+    //    sau khi POST /rooms thành công). Các member khác đẩy vào Bull queue
+    //    xử lý chunk 50/lần ở background.
+    // 3) RoomsUsersState dùng insertMany ordered:false: index (user_id, room_id)
+    //    unique nên dup không làm crash. Trước đây chỉ tạo state cho creator
+    //    — member khác không có row state, gây sai unread_count/pinned về sau.
     await Promise.all([
-      ...saddMember,
-      ...saddRoom,
-      this.RoomsUsersState.create({
-        room_id: newRoom._id,
-        user_id: this.utils.convertToObjectIdMongoose(userId),
+      this.redis.sAdd(this.key.ROOM_MEMBERS(room_id), ...allMemberObjIds),
+      this.redis.sAdd(this.key.USER_ROOMS(creatorObjId), room_id),
+      this.RoomsUsersState.insertMany(
+        members.map((m) => ({
+          room_id: newRoom._id,
+          user_id: m.user_id,
+        })),
+        { ordered: false },
+      ).catch((err) => {
+        // ordered:false → mongoose vẫn throw BulkWriteError nếu có bất kỳ
+        // failure nào (kể cả duplicate key). Vì index unique, dup là kỳ vọng
+        // khi retry — không cần log rầm rộ.
+        this.log.warn(
+          `[ROOM_CREATE] RoomsUsersState.insertMany partial: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       }),
     ]);
 
-    // ghi log
+    if (otherMemberObjIds.length > 0) {
+      // Enqueue background USER_ROOMS sAdd cho các member còn lại. Worker
+      // bốc 50/lần (xem room-membership-sync.processor.ts) nên kể cả 10k
+      // member cũng không nuốt connection pool.
+      try {
+        await this.membershipSyncQueue.add({
+          roomCustomId: room_id,
+          memberIds: otherMemberObjIds,
+        });
+      } catch (err) {
+        // Queue down không được fail request — fallback chạy sync ngay
+        // (chấp nhận response chậm hơn 1 chút thay vì 503).
+        this.log.warn(
+          `[ROOM_CREATE] enqueue membership-sync failed, fallback inline: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        await this.redis.pipelineSAdd(
+          otherMemberObjIds.map((uid) => ({
+            key: this.key.USER_ROOMS(uid),
+            values: [room_id],
+          })),
+        );
+      }
+    }
+
+    // Invalidate two-tier room cache so reads (handle-chat) don't serve stale data.
+    await this.roomCache.invalidate(newRoom);
+
+    // 4) Một event "tạo nhóm" duy nhất thay vì N event "Y đã được thêm".
+    //    Trước đây fan-out N writeLogRoom (mỗi cái ~5 mongo ops) là nguyên
+    //    nhân gốc gây timeout 20s. Về UX: room mới chỉ nên có 1 system
+    //    message "X đã tạo nhóm với N thành viên" trên đầu thread.
     if (type !== 'private') {
-      const newlogs = members.map((i) => {
-        let payload: Record<string, any> | undefined = undefined;
-        const eventTypeVal: EventRoomType =
-          i.role === 'admin' ? 'member.create' : 'member.added';
-        // build a minimal CreateRoomEvent and cast to satisfy the DTO type
-        if (i.role === 'admin') {
-          payload = {
-            creator_id: this.utils.randomId(),
-            creator_name: i.name,
-            room_type: type,
-            room_name: name,
-            room_avatar: newRoom.room_avatar,
-            members_count: members.length,
-          };
-          return this.writeLogRoom({
-            event_type: eventTypeVal,
-            room_id: newRoom._id,
-            placeholder: `${i.name} đã tạo nhóm`,
-            actor_id: getInforUserCreateRoom._id,
-            targets: [],
-            payload,
-          } as CreateRoomEvent);
-        } else {
-          payload = {
-            user_id: i.user_id,
-            user_name: i.name,
-            joinedAt: i.joinedAt,
-            joined_by: getInforUserCreateRoom._id,
-          };
-          return this.writeLogRoom({
-            event_type: eventTypeVal,
-            room_id: newRoom._id,
-            placeholder: `${i.name} đã đã được thêm vào nhóm`,
-            actor_id: getInforUserCreateRoom._id,
-            targets: members.map((m) => m.user_id),
-            payload,
-          } as CreateRoomEvent);
-        }
+      await this.writeLogRoom({
+        event_type: 'member.create',
+        room_id: newRoom._id,
+        placeholder: `${getInforUserCreateRoom.usr_fullname} đã tạo nhóm`,
+        actor_id: getInforUserCreateRoom._id,
+        targets: members.map((m) => m.user_id),
+        payload: {
+          creator_id: this.utils.randomId(),
+          creator_name: getInforUserCreateRoom.usr_fullname,
+          room_type: type,
+          room_name: name,
+          room_avatar: newRoom.room_avatar,
+          members_count: members.length,
+        },
       });
-      await Promise.all(newlogs);
     }
     const result: Record<string, any> = await this.getRoomInfo({
       userId,
       roomId: room_id,
+    });
+    // Change-feed: phòng mới → room.upserted cho TẤT CẢ member (gồm creator)
+    // để client mở lại upsert được room. Tái dùng metadata đã tính sẵn.
+    await this.emitRoomUpserted({
+      roomMongoId: newRoom._id.toString(),
+      roomCustomId: room_id,
+      recipients: allMemberObjIds,
+      roomMetadata: {
+        room_type: newRoom.room_type,
+        room_name: newRoom.room_name,
+        room_avatar: newRoom.room_avatar,
+        members: members,
+      },
     });
     return Response.success(result, 'Tạo phòng thành công');
   }
@@ -1270,6 +1421,12 @@ export class RoomsService {
       if (targetIdx === -1) throw new NotFoundException('không tìm thấy');
       const leaving = members[targetIdx];
       const isAdminLeaving = leaving.role === 'admin';
+      // Recipients cho change-feed: người rời (room.removed) + member còn lại
+      // (room.upserted). Tính TRƯỚC khi $pull để có đủ danh sách.
+      const remainingMemberIds = members
+        .filter((_, i) => i !== targetIdx)
+        .map((m) => m.user_id.toString());
+      const leavingUserId = leaving.user_id.toString();
       // remover member
       await this.roomModel.updateOne(
         {
@@ -1297,9 +1454,24 @@ export class RoomsService {
             left_role: leaving.role,
             left_userId: leaving.user_id,
           },
-        } as CreateRoomEvent);
+        });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
+        // Change-feed: người rời → room.removed; member còn lại → room.upserted.
+        await this.emitRoomRemoved({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: [leavingUserId],
+        });
+        await this.emitRoomUpserted({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: remainingMemberIds,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
 
@@ -1322,9 +1494,24 @@ export class RoomsService {
             left_role: leaving.role,
             left_userId: leaving.user_id,
           },
-        } as CreateRoomEvent);
+        });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
+        // Change-feed: người rời → room.removed; member còn lại → room.upserted.
+        await this.emitRoomRemoved({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: [leavingUserId],
+        });
+        await this.emitRoomUpserted({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: remainingMemberIds,
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const candidates = members
@@ -1340,6 +1527,16 @@ export class RoomsService {
         });
         await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
         await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+        await this.roomCache.invalidate({
+          _id: roomInfor._id,
+          room_id: roomId,
+        });
+        // Phòng bị xoá hẳn (không còn ai) → room.removed cho toàn member cũ.
+        await this.emitRoomRemoved({
+          roomMongoId: roomInfor._id.toString(),
+          roomCustomId: roomId,
+          recipients: members.map((m) => m.user_id.toString()),
+        });
         return Response.success('', 'Đã rời khỏi nhóm');
       }
       const promoteTarget = candidates[0];
@@ -1355,6 +1552,7 @@ export class RoomsService {
 
       await this.redis.sRem(this.key.ROOM_MEMBERS(roomId), userId);
       await this.redis.sRem(this.key.USER_ROOMS(userId), roomId);
+      await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
       // ghi log trong tinh nhắn
       await this.writeLogRoom({
         event_type: 'member.left',
@@ -1369,7 +1567,7 @@ export class RoomsService {
           left_role: leaving.role,
           left_userId: leaving.user_id,
         },
-      } as CreateRoomEvent);
+      });
       await this.writeLogRoom({
         event_type: 'member.change.role',
         actor_id: promoteTarget.user_id,
@@ -1384,8 +1582,20 @@ export class RoomsService {
           new_role: 'admin',
           userId: promoteTarget.user_id,
         },
-      } as CreateRoomEvent);
+      });
 
+      // Change-feed: admin rời + có người được thăng quyền → người rời nhận
+      // room.removed; member còn lại (gồm người vừa lên admin) nhận room.upserted.
+      await this.emitRoomRemoved({
+        roomMongoId: roomInfor._id.toString(),
+        roomCustomId: roomId,
+        recipients: [leavingUserId],
+      });
+      await this.emitRoomUpserted({
+        roomMongoId: roomInfor._id.toString(),
+        roomCustomId: roomId,
+        recipients: remainingMemberIds,
+      });
       return Response.success({ members: members, roomId }, 'Đã rời khỏi nhóm');
     } catch (err) {
       this.log.error(err);
@@ -1472,10 +1682,27 @@ export class RoomsService {
 
           userId: m.user_id,
         },
-      } as CreateRoomEvent),
+      }),
     );
     // tiến hành xử lý promise all
     await Promise.all([...promiseAll, ...rmmb, ...rmroom, ...newlog]);
+    await this.roomCache.invalidate({ _id: roomInfor._id, room_id: roomId });
+    // Change-feed: member bị kick → room.removed; member còn lại → room.upserted.
+    const removedIds = memberRemoves.map((m) => m.user_id.toString());
+    const removedIdSet = new Set(removedIds);
+    const remainingIds = members
+      .map((m) => m.user_id.toString())
+      .filter((id) => !removedIdSet.has(id));
+    await this.emitRoomRemoved({
+      roomMongoId: roomInfor._id.toString(),
+      roomCustomId: roomId,
+      recipients: removedIds,
+    });
+    await this.emitRoomUpserted({
+      roomMongoId: roomInfor._id.toString(),
+      roomCustomId: roomId,
+      recipients: remainingIds,
+    });
     return Response.success({ members, roomId }, 'Đã xoá thành viên');
   }
 
@@ -1517,60 +1744,125 @@ export class RoomsService {
         usr_id: 1,
       })
       .exec();
-    // push only the user id strings to match roomMember's string[] type
-    roomMember.push(
-      ...users.map((u) => {
-        return {
-          user_id: u._id,
-          id: u.usr_id,
-          name: u.usr_fullname,
-          role: 'member' as unknown as memberType['role'],
-          joinedAt: new Date(),
-        };
-      }),
-    );
-    const PromiseAll = users.map((m) =>
-      this.roomModel.updateOne(
-        {
-          room_id: roomId,
-          'room_members.id': { $ne: m.usr_id },
-        },
-        {
-          $push: {
-            room_members: {
-              id: m.usr_id,
-              name: m.usr_fullname,
-              user_id: m._id,
-              role: 'member' as unknown as memberType['role'],
-            },
-          },
-        },
-      ),
-    );
-    const addmb = users.map((m) =>
-      this.redis.sAdd(this.key.ROOM_MEMBERS(roomId), m._id.toString()),
-    );
-    const addroom = users.map((m) =>
-      this.redis.sAdd(this.key.USER_ROOMS(m._id.toString()), roomId),
-    );
-    // ghi log tin hành động
-    const newlog = users.map((m) =>
-      this.writeLogRoom({
-        event_type: 'member.added',
-        actor_id: this.utils.convertToObjectIdMongoose(userId),
-        room_id: roomInfo._id,
-        targets: users.map((i) => i._id),
-        placeholder: `${m.usr_fullname} đã đượct thêm nhóm`,
-        payload: {
-          _id: this.utils.randomId(),
-          name: m.usr_fullname,
-          addeddAt: Date.now(),
 
-          userId: m._id,
-        },
-      } as CreateRoomEvent),
-    );
-    await Promise.all([...PromiseAll, ...addmb, ...addroom, ...newlog]);
+    // Lọc bỏ những user đã ở trong nhóm (idempotent — trước đây mỗi
+    // updateOne tự lọc bằng `'room_members.id': { $ne }`; giờ gộp 1 update
+    // nên phải lọc ở code).
+    const existingIds = new Set(roomMember.map((m) => m.id));
+    const newUsers = users.filter((u) => !existingIds.has(u.usr_id));
+
+    if (newUsers.length === 0) {
+      return Response.success(
+        { members: roomMember, roomId },
+        'Thành viên đã có sẵn trong nhóm',
+      );
+    }
+
+    const newMemberDocs = newUsers.map((u) => ({
+      user_id: u._id,
+      id: u.usr_id,
+      name: u.usr_fullname,
+      role: 'member' as memberType['role'],
+      joinedAt: new Date(),
+    }));
+    roomMember.push(...newMemberDocs);
+
+    const newMemberObjIds = newUsers.map((u) => u._id.toString());
+
+    // Lấy tên người thực hiện hành động để dựng 1 system message duy nhất
+    // ("X đã thêm N người vào nhóm") thay vì spam N message.
+    const actor = await this.userModel
+      .findById(this.utils.convertToObjectIdMongoose(userId), {
+        usr_fullname: 1,
+      })
+      .lean<{ usr_fullname?: string }>();
+    const actorName = actor?.usr_fullname || '';
+
+    // 1) Gộp N updateOne lên cùng doc thành 1 update với $each — đây là
+    //    nguyên nhân chính gây WiredTiger lock contention khi N≈1000.
+    // 2) ROOM_MEMBERS sAdd: 1 batched call (sAdd accept ...values).
+    // 3) RoomsUsersState insertMany: tạo state row cho từng member mới
+    //    (ordered:false để dup không stop batch).
+    await Promise.all([
+      this.roomModel.updateOne(
+        { room_id: roomId },
+        { $push: { room_members: { $each: newMemberDocs } } },
+      ),
+      this.redis.sAdd(this.key.ROOM_MEMBERS(roomId), ...newMemberObjIds),
+      this.RoomsUsersState.insertMany(
+        newUsers.map((u) => ({
+          room_id: roomInfo._id,
+          user_id: u._id,
+        })),
+        { ordered: false },
+      ).catch((err) => {
+        this.log.warn(
+          `[ROOM_ADD_MEMBER] RoomsUsersState.insertMany partial: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }),
+    ]);
+
+    await this.roomCache.invalidate(roomInfo);
+
+    // Đẩy USER_ROOMS sAdd về Bull queue, worker xử lý chunk 50/lần. Tránh
+    // nuốt connection pool khi add 1000 member 1 phát.
+    try {
+      await this.membershipSyncQueue.add({
+        roomCustomId: roomId,
+        memberIds: newMemberObjIds,
+      });
+    } catch (err) {
+      this.log.warn(
+        `[ROOM_ADD_MEMBER] enqueue membership-sync failed, fallback inline: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      await this.redis.pipelineSAdd(
+        newMemberObjIds.map((uid) => ({
+          key: this.key.USER_ROOMS(uid),
+          values: [roomId],
+        })),
+      );
+    }
+
+    // 1 system message gộp thay vì N message "Y đã được thêm".
+    await this.writeLogRoom({
+      event_type: 'member.added',
+      actor_id: this.utils.convertToObjectIdMongoose(userId),
+      room_id: roomInfo._id,
+      targets: newUsers.map((u) => u._id),
+      placeholder:
+        newUsers.length === 1
+          ? `${actorName} đã thêm ${newUsers[0].usr_fullname} vào nhóm`
+          : `${actorName} đã thêm ${newUsers.length} người vào nhóm`,
+      payload: {
+        _id: this.utils.randomId(),
+        actor_id: this.utils.convertToObjectIdMongoose(userId),
+        actor_name: actorName,
+        addeddAt: Date.now(),
+        members_count: newUsers.length,
+        added_users: newUsers.map((u) => ({
+          userId: u._id,
+          name: u.usr_fullname,
+        })),
+      },
+    });
+
+    // Change-feed: thêm member → room.upserted cho TOÀN member (gồm người mới)
+    // để client mới upsert được room, client cũ cập nhật member list.
+    await this.emitRoomUpserted({
+      roomMongoId: roomInfo._id.toString(),
+      roomCustomId: roomId,
+      recipients: roomMember.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        room_type: roomInfo.room_type,
+        room_name: roomInfo.room_name,
+        room_avatar: roomInfo.room_avatar,
+        members: roomMember,
+      },
+    });
 
     return Response.success(
       { members: roomMember, roomId },
@@ -1590,51 +1882,30 @@ export class RoomsService {
     const matchType = type && type !== 'all' ? { room_type: type } : {};
     const objectId = this.utils.convertToObjectIdMongoose(userId);
 
-    const listRoomIds = await this.redis.sMembers(this.key.USER_ROOMS(userId));
-    if (!listRoomIds) {
-      throw new BadRequestException('chưa có cuộc trò chuyện nào');
-    }
+    // PHÂN TRANG TRƯỚC (pha A nhẹ) → cắt còn ~limit phòng → ENRICH SAU (pha B
+    // nặng = handlePipeline) chỉ trên trang. Lọc tên-rỗng + search `q` nằm trong
+    // pha A (trước skip/limit) nên page size đúng và search chạy trên toàn tập.
     const listRooms = await this.roomModel.aggregate([
-      {
-        $match: {
-          $or: [
-            {
-              room_id: {
-                $in: listRoomIds,
-              },
-            },
-            {
-              'room_members.user_id': objectId,
-            },
-          ],
-          ...matchType,
-        },
-      },
-      ...this.handlePipeline(userId),
-      // Drop rooms with no resolvable name BEFORE pagination — happens
-      // when a private counterpart was deleted (pipeline leaves `name`
-      // empty) or a group room has no title + no derivable fallback.
-      // Doing it at the DB layer (instead of post-fetch JS .filter)
-      // keeps `$skip/$limit` accurate: the page size reflects only
-      // displayable rooms.
-      {
-        $match: {
-          name: { $type: 'string', $nin: [null, ''] },
-        },
-      },
+      ...this.buildRoomPaginateStages(objectId, { matchType, q }),
       { $skip: Number(offset || 0) },
-      { $limit: Number(limit || 1000) },
-      ...(q
-        ? [
-            {
-              $match: {
-                name: { $regex: removeAccents(q), $options: 'i' }, // ✅ không phân biệt hoa/thường
-              },
-            },
-          ]
-        : []),
+      { $limit: Number(limit || 20) },
+      // dọn field tạm của pha A trước khi enrich (handlePipeline tự dựng lại
+      // name/_lastTs/... và $project quyết định shape cuối — không đổi).
+      { $unset: ['_pg_state', '_pg_lastTs', '_pg_other', '_pg_otherUser', '_pg_name'] },
+      ...this.handlePipeline(userId),
     ]);
-    return Response.success(listRooms, 'tất cả danh sách phòng');
+
+    // Unread sống ở Redis (hot-path HINCRBY) — override giá trị Mongo (vốn chỉ
+    // là bản flush gần nhất). 1 lần HGETALL cho cả trang; thiếu field → giữ
+    // my_state.unread_count (fallback khi Redis lạnh).
+    const unreadMap = await this.redis.hGetAll(this.key.UNREAD(userId));
+    const rooms = (listRooms as Array<Record<string, any>>).map((r) => {
+      // field unread = Room._id (xem handleMessagePersisted/markReadUpTo)
+      const v = unreadMap[String(r._mongoId ?? r._id)];
+      if (v !== undefined) r.unread_count = Number(v) || 0;
+      return r;
+    });
+    return Response.success(rooms, 'tất cả danh sách phòng');
   }
   async changeLinkAvatarRoom(payload: ChangelinkAvatarRoomDto) {
     const { userId, roomId, link } = payload;
@@ -1668,19 +1939,31 @@ export class RoomsService {
       },
       { new: true },
     );
-    const userinfor = roominfo?.room_members.find(
+    if (!roominfo) throw new NotFoundException('không tìm thấy phòng');
+    await this.roomCache.invalidate(roominfo);
+    const userinfor = roominfo.room_members.find(
       (i) => i.user_id.toString() === userId,
     );
     if (!userinfor) throw new NotFoundException('không tìm thấy thông tin');
     await this.writeLogRoom({
       event_type: 'member.change.avatar',
-      room_id: roominfo?._id,
+      room_id: roominfo._id,
       actor_id: this.utils.convertToObjectIdMongoose(userId),
-      targets: roominfo?.room_members.map((m) => m.user_id),
+      targets: roominfo.room_members.map((m) => m.user_id),
       placeholder: `${userinfor.name} đã cập nhật ảnh đại diện`,
-    } as CreateRoomEvent);
+    });
+    // Change-feed: đổi avatar → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: roominfo._id.toString(),
+      roomCustomId: roominfo.room_id,
+      recipients: roominfo.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        room_avatar: roominfo.room_avatar,
+        members: roominfo.room_members,
+      },
+    });
     return Response.success(
-      { members: roominfo?.room_members, roomId },
+      { members: roominfo.room_members, roomId },
       'đã thay đổi ảnh thành công',
     );
   }
@@ -1720,14 +2003,29 @@ export class RoomsService {
     const userinfo = room.room_members.find(
       (m) => m.user_id.toString() === userId,
     );
+    if (!userinfo)
+      throw new BadRequestException('không tìm thấy thông tin thành viên');
+
+    await this.roomCache.invalidate(room);
 
     await this.writeLogRoom({
       event_type: 'member.change.name',
       room_id: room._id,
-      actor_id: userinfo?.user_id,
-      placeholder: `${userinfo?.name} đã đổi tên nhóm`,
+      actor_id: userinfo.user_id,
+      placeholder: `${userinfo.name} đã đổi tên nhóm`,
       targets: room.room_members.map((m) => m.user_id),
-    } as CreateRoomEvent);
+    });
+
+    // Change-feed: đổi tên → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: room._id.toString(),
+      roomCustomId: room.room_id,
+      recipients: room.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        room_name: room.room_name,
+        members: room.room_members,
+      },
+    });
 
     return Response.success(
       { members: room.room_members, roomId },
@@ -1838,6 +2136,8 @@ export class RoomsService {
     if (!roomUpdate) {
       throw new BadRequestException('Không thể cập nhật nick name');
     }
+
+    await this.roomCache.invalidate(roomUpdate);
     // ghi log
     //
 
@@ -1853,7 +2153,16 @@ export class RoomsService {
         changed_by: userInfo._id,
         changed_at: Date.now(),
       },
-    } as CreateRoomEvent);
+    });
+    // Change-feed: đổi biệt danh thành viên → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: roomUpdate._id.toString(),
+      roomCustomId: roomUpdate.room_id,
+      recipients: roomUpdate.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        members: roomUpdate.room_members,
+      },
+    });
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi tên thành công',
@@ -1918,6 +2227,8 @@ export class RoomsService {
     if (!roomUpdate) {
       throw new BadRequestException('Không thể cập nhật quyền');
     }
+
+    await this.roomCache.invalidate(roomUpdate);
     // ghi log
     await this.writeLogRoom({
       event_type: 'member.change.role',
@@ -1931,7 +2242,16 @@ export class RoomsService {
         changed_by: userInfo._id,
         changed_at: Date.now(),
       },
-    } as CreateRoomEvent);
+    });
+    // Change-feed: đổi quyền thành viên → room.upserted cho toàn member.
+    await this.emitRoomUpserted({
+      roomMongoId: roomUpdate._id.toString(),
+      roomCustomId: roomUpdate.room_id,
+      recipients: roomUpdate.room_members.map((m) => m.user_id.toString()),
+      roomMetadata: {
+        members: roomUpdate.room_members,
+      },
+    });
     return Response.success(
       { members: roomUpdate.room_members, roomId: roomUpdate.room_id },
       'Đổi quyền thành công',
@@ -1971,6 +2291,16 @@ export class RoomsService {
         pinned_at: pinned ? new Date() : null,
       },
     );
+    // Change-feed: pin là per-user → room.upserted CHỈ cho user này.
+    await this.emitRoomUpserted({
+      roomMongoId: findRoom._id.toString(),
+      roomCustomId: findRoom.room_id,
+      recipients: [userInfo._id.toString()],
+      roomMetadata: {
+        pinned,
+        pinned_at: pinned ? new Date() : null,
+      },
+    });
     return await this.GetRoom({
       userId,
       roomId,
@@ -2010,6 +2340,15 @@ export class RoomsService {
         muted,
       },
     );
+    // Change-feed: mute là per-user → room.upserted CHỈ cho user này.
+    await this.emitRoomUpserted({
+      roomMongoId: findRoom._id.toString(),
+      roomCustomId: findRoom.room_id,
+      recipients: [userInfo._id.toString()],
+      roomMetadata: {
+        muted,
+      },
+    });
     return await this.GetRoom({
       userId,
       roomId,
@@ -2049,6 +2388,15 @@ export class RoomsService {
         clear_before_ts: new Date(),
       },
     );
+    // Change-feed: "xoá phòng" ở đây là per-user (chỉ set clear_before_ts cho
+    // user gọi — phòng vẫn tồn tại với member khác). Nên room.removed CHỈ gửi
+    // cho user này để client xoá room+messages khỏi cache cục bộ, KHÔNG ảnh
+    // hưởng cache của member khác.
+    await this.emitRoomRemoved({
+      roomMongoId: findRoom._id.toString(),
+      roomCustomId: findRoom.room_id,
+      recipients: [userInfo._id.toString()],
+    });
     return await this.GetRoom({
       userId,
       roomId,
