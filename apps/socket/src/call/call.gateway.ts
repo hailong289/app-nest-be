@@ -53,6 +53,18 @@ export interface AiGrpcService {
   TranscribeRealtime<T = any>(data: T): Observable<any>;
 }
 
+type SttEngine = 'browser' | 'google';
+
+interface SttControlPayload {
+  roomId: string;
+  targetUserId: string;
+  enabled: boolean;
+  engine?: SttEngine;
+  recognitionLanguage?: string;
+  translateFrom?: string;
+  translateTo?: string;
+}
+
 @WebSocketGateway({
   cors: {
     origin: '*',
@@ -74,6 +86,7 @@ export class CallGateway
   private readonly key = REDISKEY;
   private ChatGrpcService!: ChatGrpcService;
   private AiGrpcService!: AiGrpcService;
+  private readonly sttSubscribers = new Map<string, Set<string>>();
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     @Inject(SERVICES.AI) private readonly aiClient: ClientGrpc,
@@ -94,6 +107,112 @@ export class CallGateway
     this.ChatGrpcService =
       this.chatClient.getService<ChatGrpcService>('ChatService');
     this.AiGrpcService = this.aiClient.getService<AiGrpcService>('AIService');
+  }
+
+  private getSttSubscriptionKey(roomId: string, speakerUserId: string) {
+    return `${roomId}::${speakerUserId}`;
+  }
+
+  private parseSttSubscriptionKey(key: string) {
+    const idx = key.lastIndexOf('::');
+    return {
+      roomId: idx >= 0 ? key.slice(0, idx) : '',
+      speakerUserId: idx >= 0 ? key.slice(idx + 2) : key,
+    };
+  }
+
+  private async emitToActiveCallSocket(
+    userId: string,
+    event: string,
+    payload: Record<string, unknown>,
+  ) {
+    const socketId = await this.redis.getData<string>(
+      this.key.USER_CALL_SOCKET(userId),
+    );
+    if (!socketId) return false;
+    this.io.to(socketId).emit(event, payload);
+    return true;
+  }
+
+  private addSttSubscriber(
+    roomId: string,
+    speakerUserId: string,
+    requesterUserId: string,
+  ) {
+    const key = this.getSttSubscriptionKey(roomId, speakerUserId);
+    const subscribers = this.sttSubscribers.get(key) ?? new Set<string>();
+    subscribers.add(requesterUserId);
+    this.sttSubscribers.set(key, subscribers);
+    return subscribers.size;
+  }
+
+  private removeSttSubscriber(
+    roomId: string,
+    speakerUserId: string,
+    requesterUserId: string,
+  ) {
+    const key = this.getSttSubscriptionKey(roomId, speakerUserId);
+    const subscribers = this.sttSubscribers.get(key);
+    if (!subscribers) return 0;
+
+    subscribers.delete(requesterUserId);
+    if (subscribers.size === 0) {
+      this.sttSubscribers.delete(key);
+      return 0;
+    }
+
+    return subscribers.size;
+  }
+
+  private async cleanupSttSubscriptionsForUser(userId: string) {
+    for (const [key, subscribers] of this.sttSubscribers.entries()) {
+      const { roomId, speakerUserId } = this.parseSttSubscriptionKey(key);
+
+      if (speakerUserId === userId) {
+        this.sttSubscribers.delete(key);
+        continue;
+      }
+
+      if (!subscribers.has(userId)) continue;
+      subscribers.delete(userId);
+
+      await this.emitToActiveCallSocket(speakerUserId, 'call:stt-control', {
+        roomId,
+        targetUserId: speakerUserId,
+        requestedByUserId: userId,
+        enabled: false,
+        reason: 'requester_disconnected',
+        subscriberCount: subscribers.size,
+      });
+
+      if (subscribers.size === 0) {
+        this.sttSubscribers.delete(key);
+      }
+    }
+  }
+
+  private async emitSttPayloadToSubscribers(
+    roomId: string,
+    speakerUserId: string,
+    event: 'call:stt-segment' | 'call:stt-result',
+    payload: Record<string, unknown>,
+    senderSocketId: string,
+  ) {
+    const key = this.getSttSubscriptionKey(roomId, speakerUserId);
+    const subscribers = this.sttSubscribers.get(key);
+    if (!subscribers || subscribers.size === 0) return false;
+
+    await Promise.all(
+      Array.from(subscribers).map(async (requesterUserId) => {
+        const socketId = await this.redis.getData<string>(
+          this.key.USER_CALL_SOCKET(requesterUserId),
+        );
+        if (!socketId || socketId === senderSocketId) return;
+        this.io.to(socketId).emit(event, payload);
+      }),
+    );
+
+    return true;
   }
 
   /**
@@ -749,6 +868,8 @@ export class CallGateway
       // Without this, the server-side transports/producers linger until ICE timeout.
       const userUlid = client.user?.usr_id;
       if (userUlid) {
+        await this.cleanupSttSubscriptionsForUser(userUlid);
+
         for (const socketRoom of client.rooms) {
           if (socketRoom === client.id) continue;
           try {
@@ -1582,6 +1703,7 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
+      await this.cleanupSttSubscriptionsForUser(user.usr_id);
       // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
         (d) => this.ChatGrpcService.EndCall(d),
@@ -1841,6 +1963,81 @@ export class CallGateway
     }
   }
 
+  @SubscribeMessage('call:stt-control')
+  async handleSttControl(
+    @MessageBody() data: SttControlPayload,
+    @ConnectedSocket() client: SocketWithUser,
+  ) {
+    try {
+      const user = await this.getUser(client);
+      const requesterUserId = user.usr_id;
+
+      if (!data.roomId || !data.targetUserId) {
+        return { ok: false, error: 'Missing roomId or targetUserId' };
+      }
+
+      if (data.targetUserId === requesterUserId) {
+        return { ok: false, error: 'Cannot request STT from yourself' };
+      }
+
+      let subscriberCount = 0;
+      if (data.enabled) {
+        const targetSocketId = await this.redis.getData<string>(
+          this.key.USER_CALL_SOCKET(data.targetUserId),
+        );
+        if (!targetSocketId) {
+          return { ok: false, error: 'Target call socket is not active' };
+        }
+
+        subscriberCount = this.addSttSubscriber(
+          data.roomId,
+          data.targetUserId,
+          requesterUserId,
+        );
+
+        this.io.to(targetSocketId).emit('call:stt-control', {
+          roomId: data.roomId,
+          requestedByUserId: requesterUserId,
+          requestedByName: user.usr_fullname || 'Người tham gia',
+          targetUserId: data.targetUserId,
+          enabled: true,
+          engine: data.engine === 'browser' ? 'browser' : 'google',
+          recognitionLanguage: data.recognitionLanguage || 'vi-VN',
+          translateFrom: data.translateFrom || 'auto',
+          translateTo: data.translateTo || 'vi',
+          subscriberCount,
+        });
+      } else {
+        subscriberCount = this.removeSttSubscriber(
+          data.roomId,
+          data.targetUserId,
+          requesterUserId,
+        );
+
+        await this.emitToActiveCallSocket(data.targetUserId, 'call:stt-control', {
+          roomId: data.roomId,
+          requestedByUserId: requesterUserId,
+          requestedByName: user.usr_fullname || 'Người tham gia',
+          targetUserId: data.targetUserId,
+          enabled: false,
+          engine: data.engine === 'browser' ? 'browser' : 'google',
+          recognitionLanguage: data.recognitionLanguage || 'vi-VN',
+          translateFrom: data.translateFrom || 'auto',
+          translateTo: data.translateTo || 'vi',
+          subscriberCount,
+        });
+      }
+
+      return { ok: true, subscriberCount };
+    } catch (error) {
+      this.logger.error('[CALL] Error handling stt-control:', error);
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   /**
    * Relay finalized speech-to-text segments between call participants.
    * Recognition still happens locally in each browser; the server only
@@ -1851,20 +2048,33 @@ export class CallGateway
     @MessageBody()
     data: {
       actionUserId?: string;
+      speakerUserId?: string;
       roomId: string;
       speaker: string;
       text: string;
       isFinal: boolean;
       timestamp: string;
+      detectedLanguage?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
+      data.speakerUserId = user.usr_id;
       data.speaker = user.usr_fullname || data.speaker;
 
-      this.io.to(data.roomId).except(client.id).emit('call:stt-segment', data);
+      const routed = await this.emitSttPayloadToSubscribers(
+        data.roomId,
+        user.usr_id,
+        'call:stt-segment',
+        data as unknown as Record<string, unknown>,
+        client.id,
+      );
+
+      if (!routed) {
+        this.io.to(data.roomId).except(client.id).emit('call:stt-segment', data);
+      }
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error relaying stt-segment:', error);
@@ -1877,6 +2087,7 @@ export class CallGateway
     @MessageBody()
     data: {
       actionUserId?: string;
+      speakerUserId?: string;
       roomId: string;
       speaker?: string;
       audioChunk: string;
@@ -1934,6 +2145,7 @@ export class CallGateway
       if (result.statusCode === 200 && transcript) {
         const payload = {
           actionUserId: user.usr_id,
+          speakerUserId: user.usr_id,
           roomId: data.roomId,
           speaker: result.metadata?.speakerName || speaker,
           text: transcript,
@@ -1946,10 +2158,20 @@ export class CallGateway
         };
 
         client.emit('call:stt-result', payload);
-        this.io
-          .to(data.roomId)
-          .except(client.id)
-          .emit('call:stt-result', payload);
+        const routed = await this.emitSttPayloadToSubscribers(
+          data.roomId,
+          user.usr_id,
+          'call:stt-result',
+          payload,
+          client.id,
+        );
+
+        if (!routed) {
+          this.io
+            .to(data.roomId)
+            .except(client.id)
+            .emit('call:stt-result', payload);
+        }
       }
 
       return { ok: true, isEmpty: !transcript };
