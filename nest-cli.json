@@ -45,6 +45,17 @@
         "tsConfigPath": "apps/chat/tsconfig.app.json"
       }
     },
+    "chat-storage": {
+      "type": "application",
+      "root": "apps/chat-storage",
+      "entryFile": "main",
+      "sourceRoot": "apps/chat-storage/src",
+      "compilerOptions": {
+        "watchAssets": true,
+        "assets": ["**/*.env", "**/*.yaml"],
+        "tsConfigPath": "apps/chat-storage/tsconfig.app.json"
+      }
+    },
     "notification": {
       "type": "application",
       "root": "apps/notification",

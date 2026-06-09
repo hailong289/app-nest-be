@@ -14,11 +14,20 @@ import {
   roomModel,
   roomsStateModel,
   roomsUsersStateModel,
+  SharedBullModule,
   userModel,
+  UserCacheRepository,
 } from 'libs/db/src';
+import { ROOM_MEMBERSHIP_SYNC_QUEUE } from './room-membership-sync.constants';
+import { RoomMembershipSyncProcessor } from './room-membership-sync.processor';
+import { RoomCacheRepository } from './room-cache.repository';
+import { ChangeFeedModule } from '../change-feed/change-feed.module';
 
 @Module({
   imports: [
+    // Cung cấp ChangeFeedService cho RoomsService phát room.upserted/removed.
+    // Tách module nên không tạo vòng phụ thuộc với HandleChatModule.
+    ChangeFeedModule,
     MongooseModule.forFeature([
       messagesModel,
       userModel,
@@ -32,9 +41,12 @@ import {
     ]),
     RedisModule,
     RemoteEmitterModule,
+    // Queue cho bulk USER_ROOMS sAdd khi tạo group lớn / add nhiều member.
+    // Worker xử lý theo lô 50/lần để khỏi đè connection pool.
+    SharedBullModule.registerQueue(ROOM_MEMBERSHIP_SYNC_QUEUE),
   ],
   controllers: [RoomsController],
-  providers: [RoomsService],
-  exports: [RoomsService],
+  providers: [RoomsService, RoomMembershipSyncProcessor, UserCacheRepository, RoomCacheRepository],
+  exports: [RoomsService, UserCacheRepository, RoomCacheRepository],
 })
 export class RoomsModule {}

@@ -41,6 +41,12 @@ export type { MessageReactionDocument } from './message-reactions.model';
 export { MessageHide, MessageHideSchema } from './message-hides.model';
 export { default as messageHidesModel } from './message-hides.model';
 export type { MessageHideDocument } from './message-hides.model';
+export {
+  UserChangeEvent,
+  UserChangeEventSchema,
+} from './user-change-event.model';
+export { default as userChangeEventModel } from './user-change-event.model';
+export type { UserChangeEventDocument } from './user-change-event.model';
 
 // Attachment model
 export {

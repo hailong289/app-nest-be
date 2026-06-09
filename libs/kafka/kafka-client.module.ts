@@ -23,8 +23,6 @@ export class SharedKafkaClientModule {
                 );
               }
 
-              console.log('kafkaConfig', kafkaConfig);
-
               // Merge config gốc với config riêng của từng service
               return {
                 transport: Transport.KAFKA,

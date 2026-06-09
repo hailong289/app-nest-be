@@ -23,5 +23,9 @@ export class MessageRead {
 export const MessageReadSchema = SchemaFactory.createForClass(MessageRead);
 // Index removed: uniq already has unique: true in @Prop
 MessageReadSchema.index({ room_id: 1, user_id: 1 }, { unique: true });
+// Read receipts are looked up by msg_id when building message detail
+// (read_list). Without this the $lookup collection-scans MessageReads on
+// every send/read/react.
+MessageReadSchema.index({ msg_id: 1 });
 
 export default { name: 'MessageRead', schema: MessageReadSchema };

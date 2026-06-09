@@ -18,6 +18,10 @@
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
+    // TS6 bật strictPropertyInitialization theo strictNullChecks → 500+ lỗi DTO
+    // (thuộc tính không khởi tạo, vốn được class-validator/Nest gán runtime).
+    // Tắt tường minh để giữ hành vi như TS5.x (DTO không cần initializer).
+    "strictPropertyInitialization": false,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,

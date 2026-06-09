@@ -98,7 +98,9 @@ export class SocialService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION,
         {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+          fcmTokens: fcmTokens
+            .map((token) => token.tkn_fcmToken)
+            .filter((t): t is string => !!t),
           title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
           message: 'Bạn có một lời mời kết bạn mới',
           data: {
@@ -120,14 +122,14 @@ export class SocialService {
     limit: number,
     type: string,
   ) {
-    const friendRequests = await this.userModel.aggregate([
+    const friendRequests = await this.friendshipModel.aggregate([
       ...getFriendsRequestAggregate(userId, type),
-      { $sort: { createdAt: -1 } },
+      { $sort: { 'friendship.updatedAt': -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
     ]);
 
-    const total: { total: number }[] = await this.userModel.aggregate([
+    const total: { total: number }[] = await this.friendshipModel.aggregate([
       ...getFriendsRequestAggregate(userId, type),
       { $count: 'total' },
     ]);
@@ -189,7 +191,9 @@ export class SocialService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION,
         {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+          fcmTokens: fcmTokens
+            .map((token) => token.tkn_fcmToken)
+            .filter((t): t is string => !!t),
           title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
           message: 'Bạn đã được kết bạn với người dùng',
           data: {
@@ -298,7 +302,9 @@ export class SocialService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION,
         {
-          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
+          fcmTokens: fcmTokens
+            .map((token) => token.tkn_fcmToken)
+            .filter((t): t is string => !!t),
           title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
           message: 'Bạn đã bị từ chối kết bạn với người dùng',
           data: {
@@ -376,11 +382,11 @@ export class SocialService {
     limit: number,
     search: string,
   ) {
-    const friends = await this.userModel.aggregate(
+    const friends = await this.friendshipModel.aggregate(
       getFriendsAggregate(userId, page, limit, search),
     );
 
-    const sumTotal: { total: number }[] = await this.userModel.aggregate([
+    const sumTotal: { total: number }[] = await this.friendshipModel.aggregate([
       ...getFriendsBaseAggregate(userId, search),
       {
         $count: 'total',
@@ -546,16 +552,17 @@ export class SocialService {
           ],
         }
       : {};
-    const blockedFriends = await this.userModel.aggregate([
+    const blockedFriends = await this.friendshipModel.aggregate([
       ...getBlockedFriendsAggregate(userId),
-      { $sort: { createdAt: -1 } },
+      { $match: searchMatch },
+      { $sort: { 'friendship.updatedAt': -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
-      { $match: searchMatch },
     ]);
 
-    const totalAgg: { total: number }[] = await this.userModel.aggregate([
+    const totalAgg: { total: number }[] = await this.friendshipModel.aggregate([
       ...getBlockedFriendsAggregate(userId),
+      { $match: searchMatch },
       { $count: 'total' },
     ]);
     const data = blockedFriends.map((friend: Record<string, any>) => {

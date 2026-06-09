@@ -1,5 +1,5 @@
 import { Body, Controller, Logger } from '@nestjs/common';
-import { GrpcMethod } from '@nestjs/microservices';
+import { GrpcMethod, MessagePattern, Payload } from '@nestjs/microservices';
 import { HandleChatService } from './handle-chat.service';
 import {
   CreateMessage,
@@ -10,17 +10,62 @@ import {
   HandleReactDto,
   markReadUpToDto,
 } from '@app/dto';
+import { KafkaEvent } from '@app/dto/enum.type';
+import { ChangeFeedService } from '../change-feed/change-feed.service';
+import type { OutboxAppendPayload } from '../change-feed/change-feed.service';
 
 @Controller('handle-chat')
 export class HandleChatController {
   private readonly logger = new Logger(HandleChatController.name);
 
-  constructor(private readonly hdChat: HandleChatService) {}
+  constructor(
+    private readonly hdChat: HandleChatService,
+    private readonly changeFeed: ChangeFeedService,
+  ) {}
 
   @GrpcMethod('ChatService', 'CreateNewMsg')
   async NewMsg(@Body() payload: CreateMessage) {
     const result = await this.hdChat.createMessage(payload);
     return result;
+  }
+
+  /**
+   * Consumer "tail" tạo tin nhắn (chat tự emit + tự consume). Chạy cập nhật
+   * RoomsState/MessageRead/unread + emit downstream BẤT ĐỒNG BỘ, không chặn
+   * create path. Lỗi ở đây không ảnh hưởng việc tạo tin (đã commit + emit realtime).
+   */
+  @MessagePattern(KafkaEvent.MESSAGE_PERSISTED)
+  async onMessagePersisted(
+    @Payload()
+    data: Parameters<HandleChatService['handleMessagePersisted']>[0],
+  ) {
+    try {
+      await this.hdChat.handleMessagePersisted(data);
+    } catch (err) {
+      this.logger.error(
+        `[MESSAGE_PERSISTED] tail failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Consumer ghi outbox change-feed (catch-up sync). Tách khỏi mutation path:
+   * `emit()` chỉ INCR seq + dispatch, việc bulkWrite per-recipient chạy ở đây.
+   * Lỗi không ảnh hưởng mutation gốc (đã commit + emit realtime).
+   */
+  @MessagePattern(KafkaEvent.OUTBOX_APPEND)
+  async onOutboxAppend(@Payload() data: OutboxAppendPayload) {
+    try {
+      await this.changeFeed.handleOutboxAppend(data);
+    } catch (err) {
+      this.logger.error(
+        `[OUTBOX_APPEND] write failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   @GrpcMethod('ChatService', 'GetOneMsg')
@@ -38,6 +83,14 @@ export class HandleChatController {
   async GetMsgFromRoom(@Body() payload: GetMsgFromRoomDTO) {
     const result = await this.hdChat.getMsgFromRoom(payload);
     return result;
+  }
+
+  /** Pull change-feed catch-up (outbox per-user) kể từ con trỏ sinceSeq. */
+  @GrpcMethod('ChatService', 'SyncEvents')
+  async SyncEvents(
+    @Body() payload: { userId: string; sinceSeq?: number; limit?: number },
+  ) {
+    return this.changeFeed.syncEvents(payload);
   }
   @GrpcMethod('ChatService', 'HandleReact')
   async HandlingReat(@Body() payload: HandleReactDto) {

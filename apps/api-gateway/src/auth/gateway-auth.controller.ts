@@ -326,8 +326,7 @@ export class GatewayAuthController {
       body,
     )) as { metadata?: { tempRegisterToken?: string; accessToken?: string } };
 
-    // For reset-password OTP, the metadata contains an accessToken — set cookie.
-    // For register OTP, the metadata contains a tempRegisterToken — just return it.
+    // Reset-password OTP → accessToken + cookie. Register OTP → tempRegisterToken only.
     if (result?.metadata?.accessToken && !result?.metadata?.tempRegisterToken) {
       setAuthCookie(res, result.metadata as AuthCookiePayload);
     }

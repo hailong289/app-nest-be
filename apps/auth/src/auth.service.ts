@@ -22,7 +22,7 @@ import axios from 'axios';
 import Userschema, { User } from 'libs/db/src/mongo/model/user.model';
 import { Key } from 'libs/db/src/mongo/model/keys.model';
 import { Otp } from 'libs/db/src/mongo/model/otp.model';
-import { RedisService } from 'libs/db/src';
+import { RedisService, UserCacheRepository } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
 
 /**
@@ -180,6 +180,7 @@ export class AuthService implements OnModuleInit {
     @InjectModel('Otp') private readonly otpModel: Model<Otp>,
     private readonly redis: RedisService,
     @Inject() private readonly jwtService: JwtService,
+    private readonly userCache: UserCacheRepository,
   ) {}
 
   async onModuleInit() {
@@ -300,13 +301,14 @@ export class AuthService implements OnModuleInit {
   }
 
   async sendOtp(email: string, type: string) {
-    if (!Utils.isEmail(email)) {
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    if (!Utils.isEmail(normalizedEmail)) {
       return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
     if (type === 'register') {
       const existingUser = await this.userModel
-        .findOne({ usr_email: email })
+        .findOne({ usr_email: normalizedEmail })
         .exec();
       if (existingUser) {
         return Response.conflict('Email đã được sử dụng');
@@ -315,14 +317,14 @@ export class AuthService implements OnModuleInit {
 
     const otpCode = Utils.generateOtp(6);
     await this.otpModel.create({
-      indicator: email,
+      indicator: normalizedEmail,
       otp: otpCode,
       type,
     });
 
     try {
       await axios.post(`${this.gatewayUrl}/api/notifications/send-otp`, {
-        email,
+        email: normalizedEmail,
         otp: otpCode,
       });
     } catch (error) {
@@ -345,13 +347,17 @@ export class AuthService implements OnModuleInit {
       if (payload.scope !== 'register') {
         return Response.error('Token sai scope', 400, 'Bad Request');
       }
-      email = payload.email ?? '';
+      email = (payload.email ?? '').trim().toLowerCase();
     } catch {
       return Response.error(
         'Token đăng ký không hợp lệ hoặc đã hết hạn',
         400,
         'Bad Request',
       );
+    }
+
+    if (!Utils.isEmail(email)) {
+      return Response.error('Email không hợp lệ', 400, 'Bad Request');
     }
 
     const existingUser = await this.userModel
@@ -456,8 +462,9 @@ export class AuthService implements OnModuleInit {
     otp: string,
     type: string = 'reset-password',
   ) {
+    const normalizedIndicator = (indicator || '').trim().toLowerCase();
     const keyEntry = await this.otpModel
-      .findOne({ indicator: indicator, otp, type })
+      .findOne({ indicator: normalizedIndicator, otp, type })
       .exec();
 
     if (!keyEntry) {
@@ -473,7 +480,7 @@ export class AuthService implements OnModuleInit {
 
     if (type === 'register') {
       const tempRegisterToken = this.jwtService.sign(
-        { email: indicator, scope: 'register' },
+        { email: normalizedIndicator, scope: 'register' },
         {
           secret:
             process.env.REGISTER_TOKEN_SECRET || 'register_token_secret',
@@ -611,6 +618,10 @@ export class AuthService implements OnModuleInit {
     try {
       user.usr_avatar = data.avatarUrl;
       await user.save();
+      await Promise.all([
+        this.userCache.invalidate(String(user._id)),
+        this.userCache.invalidate(user.usr_id),
+      ]);
       return Response.success(
         { url: data.avatarUrl },
         'Cập nhật ảnh đại diện thành công',
@@ -638,6 +649,10 @@ export class AuthService implements OnModuleInit {
       user.usr_address = data.address;
     }
     await user.save();
+    await Promise.all([
+      this.userCache.invalidate(String(user._id)),
+      this.userCache.invalidate(user.usr_id),
+    ]);
     const userData = Utils.omit(user.toObject(), ['usr_salt', '__v']);
     return Response.success(
       { user: Utils.unprefix(userData, 'usr_') },

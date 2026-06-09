@@ -35,9 +35,46 @@ service ChatService {
   rpc GetDocumentsFromRoom(GetDocumentsFromRoomInput)returns(GetMsgs);
   rpc PinnendRoom(inputPinnedRoom) returns (outputGetRoom);
   rpc MutedRoom(inputMutedRoom) returns (outputGetRoom);
+  // Lazy-sync USER_ROOMS: rebuild danh sách phòng của user từ DB nếu cache
+  // Redis lạnh, trả về để socket gateway auto-join lúc connect.
+  rpc SyncUserRooms(SyncUserRoomsInput) returns (SyncUserRoomsOutput);
+  // Catch-up sync: pull change-feed (outbox per-user) kể từ con trỏ sinceSeq.
+  rpc SyncEvents(SyncEventsInput) returns (SyncEventsOutput);
 
 }
 // Requests and Responses
+
+message SyncUserRoomsInput {
+  string userId = 1;
+}
+message SyncUserRoomsOutput {
+  repeated string roomIds = 1;
+}
+
+message SyncEventsInput {
+  string userId = 1;
+  int64 sinceSeq = 2;
+  int32 limit = 3;
+}
+message SyncEventItem {
+  int64 seq = 1;
+  string type = 2;        // ChangeEventType (room.newmsgs/message.updated/...)
+  string roomId = 3;      // room Mongo _id
+  string payloadJson = 4; // payload thin/fat JSON-serialized
+  string createdAt = 5;   // ISO timestamp
+}
+message SyncEventsOutput {
+  repeated SyncEventItem events = 1;
+  int64 nextSeq = 2;
+  bool hasMore = 3;
+  // Cursor cũ hơn event nhỏ nhất còn lưu → client phải cold-start full-load.
+  bool requireFullResync = 4;
+  // Seq toàn cục hiện tại — client đặt con trỏ sau cold-start.
+  int64 currentSeq = 5;
+  // Batch rỗng nhưng currentSeq > nextSeq → outbox có thể đang lag → client nên
+  // RETRY-có-backoff thay vì chốt sổ (race "pointer out of sync").
+  bool mayHavePending = 6;
+}
 message inputPinnedRoom {
   string userId = 1;
   string roomId = 2;

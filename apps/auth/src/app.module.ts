@@ -14,6 +14,8 @@ import {
   MongodbModule,
   redisConfig,
   RedisModule,
+  CacheModule,
+  UserCacheRepository,
 } from 'libs/db/src';
 
 @Module({
@@ -24,11 +26,12 @@ import {
       load: [mongoConfig, redisConfig],
     }),
     RedisModule,
+    CacheModule,
     MongodbModule,
     JwtModule.register({}),
     MongooseModule.forFeature([userModel, otpModel, keysModel]),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, UserCacheRepository],
 })
 export class AppModule {}
