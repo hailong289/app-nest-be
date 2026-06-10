@@ -15,7 +15,7 @@ export class QuizzController {
   constructor(private readonly quizzService: QuizzService) {}
 
   @GrpcMethod('QuizzService', 'CreateQuizz')
-  async createQuizz(data: CreateQuizzDto) {
+  async createQuizz(data: CreateQuizzDto & { quiz_createdBy: string }) {
     return await this.quizzService.createQuizz(data);
   }
 
