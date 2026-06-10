@@ -67,10 +67,16 @@ export class GatewayQuizzController {
   }
 
   @Post('create')
-  async createQuizz(@Body() body: CreateQuizzDto) {
+  async createQuizz(
+    @Body() body: CreateQuizzDto,
+    @Req() req: AuthenticatedRequest
+  ) {
     return await this.gatewayService.dispatchGrpcRequest(
       this.quizzService.CreateQuizz.bind(this.quizzService),
-      body,
+      {
+        ...body,
+        quiz_createdBy: req.user._id
+      },
     );
   }
 

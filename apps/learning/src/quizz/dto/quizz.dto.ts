@@ -84,10 +84,6 @@ export class CreateQuizzDto {
   @IsString({ message: 'ID phòng phải là chuỗi' })
   quiz_roomId: string;
 
-  @IsNotEmpty({ message: 'ID người tạo không để trống' })
-  @IsString({ message: 'ID người tạo phải là chuỗi' })
-  quiz_createdBy: string;
-
   @IsOptional()
   @IsEnum(['draft', 'active', 'completed', 'cancelled'], {
     message: 'Trạng thái không hợp lệ',
