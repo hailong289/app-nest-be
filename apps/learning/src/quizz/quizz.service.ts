@@ -19,7 +19,7 @@ export class QuizzService {
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
   ) {}
 
-  async createQuizz(data: CreateQuizzDto) {
+  async createQuizz(data: CreateQuizzDto & { quiz_createdBy: string }) {
     try {
       // Convert string IDs to ObjectId
       const quizData = {
