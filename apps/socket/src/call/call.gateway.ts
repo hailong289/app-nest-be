@@ -2098,7 +2098,9 @@ export class CallGateway
   ) {
     try {
       const user = await this.getUser(client);
-      const speaker = user.usr_fullname || data.speaker || 'Người tham gia';
+      const speakerUserId = data.speakerUserId || user.usr_id;
+      const speaker =
+        data.speaker || user.usr_fullname || 'Người tham gia';
       const language = data.language === 'en' ? 'en' : 'vi';
 
       if (!data.roomId || !data.audioChunk) {
@@ -2117,7 +2119,7 @@ export class CallGateway
           mimeType: data.mimeType || 'audio/webm',
           language,
           userId: user.usr_id,
-          speakerName: speaker,
+          speakerName: data.speaker || speaker,
         },
       )) as {
         statusCode?: number;
@@ -2145,9 +2147,9 @@ export class CallGateway
       if (result.statusCode === 200 && transcript) {
         const payload = {
           actionUserId: user.usr_id,
-          speakerUserId: user.usr_id,
+          speakerUserId,
           roomId: data.roomId,
-          speaker: result.metadata?.speakerName || speaker,
+          speaker: data.speaker || result.metadata?.speakerName || speaker,
           text: transcript,
           detectedLanguage: result.metadata?.detectedLanguage || language,
           timestamp: new Date().toLocaleTimeString('vi-VN', {
