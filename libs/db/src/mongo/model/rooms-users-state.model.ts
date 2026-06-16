@@ -17,14 +17,6 @@ export class RoomsUsersState {
   @Prop({ type: Date, default: null })
   last_read_at: Date | null;
 
-  /**
-   * HIGH-WATER-MARK đọc theo `seq`: seq của tin cuối user đã đọc trong phòng.
-   * FE suy ra mọi tin `msg_seq <= last_read_seq` là đã đọc (quét local, không
-   * cần read_by per-message). null nếu chưa đọc / tin không có seq.
-   */
-  @Prop({ type: Number, default: null })
-  last_read_seq: number | null;
-
   @Prop({ type: Number, default: 0, min: 0 })
   unread_count: number;
 

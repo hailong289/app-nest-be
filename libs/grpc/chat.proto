@@ -71,9 +71,6 @@ message SyncEventsOutput {
   bool requireFullResync = 4;
   // Seq toàn cục hiện tại — client đặt con trỏ sau cold-start.
   int64 currentSeq = 5;
-  // Batch rỗng nhưng currentSeq > nextSeq → outbox có thể đang lag → client nên
-  // RETRY-có-backoff thay vì chốt sổ (race "pointer out of sync").
-  bool mayHavePending = 6;
 }
 message inputPinnedRoom {
   string userId = 1;

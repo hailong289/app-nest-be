@@ -686,10 +686,13 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     /** 7) Project */
     {
       $project: {
-        // 🔥 roomDoc/otherMember đã bị bỏ lookup → $cond cũ luôn ra "" (rỗng).
-        // Lấy thẳng msg_roomId (Mongo _id) như Detail pipeline; FE tự chuẩn hoá
-        // về room.id local. Tránh roomId="" gây lưu sai index IndexedDB.
-        roomId: '$msg_roomId',
+        roomId: {
+          $cond: [
+            { $eq: ['$roomDoc.room_type', 'private'] },
+            '$otherMember.id',
+            '$roomDoc.room_id',
+          ],
+        },
 
         // message fields
         id: '$_id',
@@ -750,7 +753,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
         // read list
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
-        seq: '$msg_seq', // read-receipt HWM (null cho tin cũ)
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
         desk: buildFlashcardDeckProjection(),
@@ -1105,7 +1107,6 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
         // read list
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
-        seq: '$msg_seq', // read-receipt HWM (null cho tin cũ)
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
         desk: buildFlashcardDeckProjection(),
@@ -1458,7 +1459,6 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         // read list
         read_by: '$read_list',
         read_by_count: { $size: '$read_list' },
-        seq: '$msg_seq', // read-receipt HWM (null cho tin cũ)
         call_history: '$callHistoryDoc',
         quiz: buildQuizProjection(),
         desk: buildFlashcardDeckProjection(),

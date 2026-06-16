@@ -75,16 +75,6 @@ export class Message {
 
   @Prop({ type: Date, default: null })
   editedAt: Date | null;
-
-  /**
-   * Seq toàn cục (change-feed Redis INCR) cấp lúc tạo tin. Dùng cho read-receipt
-   * theo HIGH-WATER-MARK: tin có `msg_seq <= RoomsUsersState.last_read_seq` của
-   * một user => user đó đã đọc. null cho tin cũ / khi change-feed tắt (FE fallback
-   * về read_by). Xem plan message-status.
-   */
-  @Prop({ type: Number, default: null })
-  msg_seq: number | null;
-
   createdAt: Date;
   updatedAt: Date;
 }
@@ -92,7 +82,6 @@ export const MessageSchema = SchemaFactory.createForClass(Message);
 
 /** Indexes */
 MessageSchema.index({ msg_roomId: 1, createdAt: -1 });
-MessageSchema.index({ msg_roomId: 1, msg_seq: 1 });
 MessageSchema.index({ msg_sender: 1, createdAt: -1 });
 MessageSchema.index({ msg_roomId: 1, msg_content_norm: 1 });
 MessageSchema.index({ msg_roomId: 1, deletedAt: 1, createdAt: -1 });
