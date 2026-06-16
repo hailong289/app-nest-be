@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Kien truc tong quan IChat">
+    <mxGraphModel dx="1400" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1050" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- TITLE -->
+        <mxCell id="title" value="KIẾN TRÚC HỆ THỐNG iChat - 9 Microservices" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="350" y="10" width="700" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== CLIENT LAYER ===== -->
+        <mxCell id="client-swim" value="CLIENT LAYER" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;swimlaneFillColor=#fafafa;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="1320" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="web-client" value="🌐 Web App&#xa;Next.js 15 + React" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="client-swim">
+          <mxGeometry x="80" y="32" width="160" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="mobile-client" value="📱 Mobile App&#xa;React Native 0.82" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="client-swim">
+          <mxGeometry x="350" y="32" width="160" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="desktop-client" value="🖥️ Desktop App&#xa;Tauri 2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="client-swim">
+          <mxGeometry x="620" y="32" width="160" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext-client" value="🔌 External Clients&#xa;(REST API / Postman)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;dashed=1;" vertex="1" parent="client-swim">
+          <mxGeometry x="920" y="32" width="160" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Client → Gateway arrows -->
+        <mxCell id="e-c2g-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" edge="1" parent="1" source="web-client" target="gateway">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-c2g-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.45;entryY=0;" edge="1" parent="1" source="mobile-client" target="gateway">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-c2g-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.65;entryY=0;" edge="1" parent="1" source="desktop-client" target="gateway">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== API GATEWAY ===== -->
+        <mxCell id="gateway-swim" value="API GATEWAY" style="swimlane;startSize=25;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=13;swimlaneFillColor=#fff9f0;" vertex="1" parent="1">
+          <mxGeometry x="240" y="170" width="920" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="gateway" value="NestJS + Express&#xa;REST API + Auth Middleware (JWT) + Cookie Parser + CORS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;" vertex="1" parent="gateway-swim">
+          <mxGeometry x="200" y="28" width="520" height="28" as="geometry"/>
+        </mxCell>
+
+        <!-- Gateway → gRPC Services arrows -->
+        <mxCell id="e-g2a" value="gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.1;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;" edge="1" parent="1" source="gateway" target="svc-auth">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-g2c" value="gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;" edge="1" parent="1" source="gateway" target="svc-chat">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-g2f" value="gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.4;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;" edge="1" parent="1" source="gateway" target="svc-filesystem">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-g2ai" value="gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.55;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;" edge="1" parent="1" source="gateway" target="svc-ai">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-g2n" value="gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.7;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;" edge="1" parent="1" source="gateway" target="svc-notification">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-g2l" value="gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.85;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;" edge="1" parent="1" source="gateway" target="svc-learning">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== gRPC MICROSERVICES LAYER ===== -->
+        <mxCell id="svc-swim" value="gRPC MICROSERVICES" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;swimlaneFillColor=#f0f6ff;" vertex="1" parent="1">
+          <mxGeometry x="40" y="270" width="1320" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="svc-auth" value="🔐 Auth&#xa;JWT + OTP + Passport&#xa;Device Sessions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="svc-swim">
+          <mxGeometry x="30" y="30" width="180" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="svc-chat" value="💬 Chat&#xa;Messages + Rooms&#xa;Social Features" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="svc-swim">
+          <mxGeometry x="230" y="30" width="180" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="svc-filesystem" value="📁 Filesystem&#xa;S3/B2 Upload + Sharp&#xa;FFmpeg Processing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="svc-swim">
+          <mxGeometry x="430" y="30" width="180" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="svc-ai" value="🤖 AI&#xa;Gemini 2.5 Flash&#xa;Search + Translate + Quiz" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="svc-swim">
+          <mxGeometry x="630" y="30" width="180" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="svc-notification" value="🔔 Notification&#xa;FCM Push + Email&#xa;Nodemailer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="svc-swim">
+          <mxGeometry x="830" y="30" width="180" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="svc-learning" value="📚 Learning&#xa;Quiz + Flashcard&#xa;Todo/Project Mgmt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="svc-swim">
+          <mxGeometry x="1030" y="30" width="180" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- Kafka edges from services -->
+        <mxCell id="e-chat2k" value="Kafka" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.25;entryY=0;fontSize=9;fontColor=#d6b656;strokeColor=#d6b656;dashed=1;" edge="1" parent="1" source="svc-chat" target="kafka">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-file2k" value="Kafka" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.45;entryY=0;fontSize=9;fontColor=#d6b656;strokeColor=#d6b656;dashed=1;" edge="1" parent="1" source="svc-filesystem" target="kafka">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-noti2k" value="Kafka" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.65;entryY=0;fontSize=9;fontColor=#d6b656;strokeColor=#d6b656;dashed=1;" edge="1" parent="1" source="svc-notification" target="kafka">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== KAFKA EVENT BUS ===== -->
+        <mxCell id="kafka-swim" value="EVENT BUS — Async Messaging" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=13;swimlaneFillColor=#fffef5;" vertex="1" parent="1">
+          <mxGeometry x="240" y="400" width="920" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="kafka" value="Apache Kafka (Redpanda) — kafkajs&#xa;Topics: Message Store, Notification, Email, Push, Chat Events | 12 partitions cho Chat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;fontStyle=1;" vertex="1" parent="kafka-swim">
+          <mxGeometry x="80" y="28" width="760" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== SOCKET.IO LAYER ===== -->
+        <mxCell id="socket-swim" value="REAL-TIME LAYER — Socket.IO Server" style="swimlane;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;swimlaneFillColor=#f5fdf5;" vertex="1" parent="1">
+          <mxGeometry x="40" y="490" width="1320" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="socket-ns-chat" value="/chat namespace&#xa;Real-time messaging" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-swim">
+          <mxGeometry x="60" y="30" width="170" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="socket-ns-doc" value="/doc namespace&#xa;Yjs CRDT Collab Editing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-swim">
+          <mxGeometry x="260" y="30" width="170" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="socket-ns-call" value="/call namespace&#xa;Signaling for P2P + SFU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-swim">
+          <mxGeometry x="460" y="30" width="170" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="socket-redis" value="Redis Pub/Sub Adapter&#xa;Horizontal Scaling&#xa;(ioredis + @socket.io/redis-adapter)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-swim">
+          <mxGeometry x="680" y="30" width="190" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="socket-jwt" value="JWT Guard&#xa;ws-jwt.guard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-swim">
+          <mxGeometry x="910" y="30" width="140" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="socket-bull" value="Bull Queue&#xa;Call auto-miss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-swim">
+          <mxGeometry x="1080" y="30" width="140" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Socket → SFU arrow -->
+        <mxCell id="e-sock2sfu" value="gRPC Control" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.3;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#9673a6;strokeColor=#9673a6;" edge="1" parent="1" source="socket-swim" target="sfu-swim">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== SFU + INFRASTRUCTURE ===== -->
+        <mxCell id="sfu-swim" value="WebRTC SFU — mediasoup" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=13;swimlaneFillColor=#f8f0ff;" vertex="1" parent="1">
+          <mxGeometry x="40" y="610" width="650" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="sfu-codec" value="Audio: Opus 48kHz&#xa;Video: VP8 · VP9 · H.264&#xa;UDP 40000-49999 | Multi-worker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="sfu-swim">
+          <mxGeometry x="160" y="28" width="330" height="44" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="infra-swim" value="INFRASTRUCTURE — Data &amp; Storage" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;swimlaneFillColor=#fafafa;" vertex="1" parent="1">
+          <mxGeometry x="730" y="610" width="630" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="infra-mongo" value="🍃 MongoDB 7.0&#xa;Mongoose 8.x&#xa;23 Collections" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;size=10;" vertex="1" parent="infra-swim">
+          <mxGeometry x="20" y="25" width="130" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="infra-redis" value="⚡ Redis 7.2&#xa;ioredis&#xa;Cache + Pub/Sub + JTI Blacklist" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;size=10;" vertex="1" parent="infra-swim">
+          <mxGeometry x="170" y="25" width="140" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="infra-b2" value="☁️ Backblaze B2&#xa;S3-Compatible&#xa;File Storage" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;size=10;" vertex="1" parent="infra-swim">
+          <mxGeometry x="330" y="25" width="130" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="infra-fcm" value="🔥 Firebase&#xa;FCM Push&#xa;Notifications" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;size=10;" vertex="1" parent="infra-swim">
+          <mxGeometry x="480" y="25" width="120" height="48" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== LEGEND ===== -->
+        <mxCell id="legend-swim" value="CHÚ THÍCH" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#999999;fontStyle=1;fontSize=12;swimlaneFillColor=#fafafa;" vertex="1" parent="1">
+          <mxGeometry x="40" y="720" width="1320" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-http" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;" edge="1" parent="legend-swim">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="30" y="20" as="sourcePoint"/>
+            <mxPoint x="100" y="20" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg-http-label" value="HTTP REST" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="105" y="12" width="80" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-grpc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;" edge="1" parent="legend-swim">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="210" y="20" as="sourcePoint"/>
+            <mxPoint x="280" y="20" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg-grpc-label" value="gRPC" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="285" y="12" width="50" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-kafka" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d6b656;dashed=1;" edge="1" parent="legend-swim">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="360" y="20" as="sourcePoint"/>
+            <mxPoint x="430" y="20" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg-kafka-label" value="Kafka (Async)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="435" y="12" width="80" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-ws" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;" edge="1" parent="legend-swim">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="540" y="20" as="sourcePoint"/>
+            <mxPoint x="610" y="20" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg-ws-label" value="WebSocket" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="615" y="12" width="70" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-webrtc" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;" edge="1" parent="legend-swim">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="710" y="20" as="sourcePoint"/>
+            <mxPoint x="780" y="20" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg-webrtc-label" value="WebRTC (UDP)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="785" y="12" width="90" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-kcolor" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="900" y="30" width="20" height="10" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-kcolor-label" value="Gateway" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="925" y="27" width="55" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-bcolor" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="990" y="30" width="20" height="10" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-bcolor-label" value="Services" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="1015" y="27" width="50" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-gcolor" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="1075" y="30" width="20" height="10" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-gcolor-label" value="Real-time" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="1100" y="27" width="55" height="16" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-pcolor" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="1165" y="30" width="20" height="10" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg-pcolor-label" value="Auth/SFU" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="legend-swim">
+          <mxGeometry x="1190" y="27" width="50" height="16" as="geometry"/>
+        </mxCell>
+
+        <!-- Tech stack summary footer -->
+        <mxCell id="footer" value="NestJS 11 · TypeScript 5.9 · Node.js ES2023 · MongoDB · Redis · Kafka · gRPC · Socket.IO · mediasoup · Docker · Webpack · Jest · GitHub Actions" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=10;fontColor=#999999;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="100" y="810" width="1200" height="20" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

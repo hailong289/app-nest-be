@@ -1,0 +1,267 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Luong giao tiep IChat">
+    <mxGraphModel dx="1400" dy="950" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="950" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- TITLE -->
+        <mxCell id="title" value="LUỒNG GIAO TIẾP &amp; KIẾN TRÚC DỮ LIỆU HỆ THỐNG iChat" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="250" y="10" width="900" height="35" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== CLIENT COLUMN ===== -->
+        <mxCell id="client-box" value="CLIENTS" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=12;swimlaneFillColor=#fafafa;" vertex="1" parent="1">
+          <mxGeometry x="30" y="60" width="200" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="cl-web" value="🌐 Web App&#xa;Next.js 15" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="35" width="160" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="cl-mobile" value="📱 Mobile App&#xa;React Native 0.82" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="85" width="160" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="cl-desktop" value="🖥️ Desktop&#xa;Tauri 2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="135" width="160" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="cl-browser" value="🔗 WebRTC Browser&#xa;mediasoup-client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="client-box">
+          <mxGeometry x="20" y="185" width="160" height="35" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== API GATEWAY ===== -->
+        <mxCell id="gw-box" value="API GATEWAY" style="swimlane;startSize=25;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=12;swimlaneFillColor=#fff9f0;" vertex="1" parent="1">
+          <mxGeometry x="300" y="60" width="240" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw-rest" value="Express HTTP REST&#xa;auth/* chat/* ai/*&#xa;social/* filesystem/*&#xa;notifications/*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="gw-box">
+          <mxGeometry x="25" y="35" width="190" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw-middleware" value="🔒 Auth Middleware&#xa;JWT Verify + Redis Blacklist&#xa;Request Logger&#xa;cookie-parser + CORS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="gw-box">
+          <mxGeometry x="25" y="105" width="190" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="gw-sse" value="📡 SSE Streaming&#xa;/api/ai/stream/*&#xa;EventSource + ReadableStream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="gw-box">
+          <mxGeometry x="25" y="175" width="190" height="45" as="geometry"/>
+        </mxCell>
+
+        <!-- Client → Gateway connections -->
+        <mxCell id="e-cgw-http" value="① HTTP REST&#xa;Authorization: Bearer JWT&#xa;Cookie: tokens (HttpOnly)&#xa;withCredentials: true" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.3;entryX=0;entryY=0.2;fontSize=9;fontColor=#d79b00;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1" source="client-box" target="gw-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== SOCKET.IO SERVER ===== -->
+        <mxCell id="socket-box" value="SOCKET.IO SERVER" style="swimlane;startSize=25;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;swimlaneFillColor=#f5fdf5;" vertex="1" parent="1">
+          <mxGeometry x="610" y="60" width="300" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="sock-chat" value="/chat — Real-time Messages" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-box">
+          <mxGeometry x="20" y="35" width="260" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="sock-doc" value="/doc — Yjs CRDT Document Collab" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-box">
+          <mxGeometry x="20" y="78" width="260" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="sock-call" value="/call — WebRTC Signaling (P2P + SFU)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-box">
+          <mxGeometry x="20" y="121" width="260" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="sock-redis" value="Redis Pub/Sub Adapter (Scale NGANG)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="socket-box">
+          <mxGeometry x="20" y="165" width="260" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="sock-presence" value="Online Presence + Bull Job Queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="socket-box">
+          <mxGeometry x="20" y="208" width="260" height="28" as="geometry"/>
+        </mxCell>
+
+        <!-- Client → Socket.IO WebSocket connection -->
+        <mxCell id="e-cs-ws" value="② WebSocket (Socket.IO)&#xa;JWT Guard Authentication&#xa;Exponential Backoff Reconnect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.7;entryX=0;entryY=0.3;fontSize=9;fontColor=#82b366;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="client-box" target="socket-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== gRPC SERVICES ROW ===== -->
+        <mxCell id="grpc-row" value="gRPC BACKEND SERVICES" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;swimlaneFillColor=#f0f6ff;" vertex="1" parent="1">
+          <mxGeometry x="30" y="370" width="1340" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="grpc-auth" value="🔐 Auth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="grpc-row">
+          <mxGeometry x="25" y="32" width="110" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="grpc-chat" value="💬 Chat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="grpc-row">
+          <mxGeometry x="170" y="32" width="110" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="grpc-file" value="📁 File" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="grpc-row">
+          <mxGeometry x="315" y="32" width="110" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="grpc-ai" value="🤖 AI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="grpc-row">
+          <mxGeometry x="460" y="32" width="110" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="grpc-noti" value="🔔 Noti" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="grpc-row">
+          <mxGeometry x="605" y="32" width="110" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="grpc-learn" value="📚 Learn" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;" vertex="1" parent="grpc-row">
+          <mxGeometry x="750" y="32" width="110" height="42" as="geometry"/>
+        </mxCell>
+
+        <!-- Gateway → gRPC arrows -->
+        <mxCell id="e-gw-grpc" value="③ gRPC (Protobuf)&#xa;@grpc/grpc-js&#xa;13 .proto files&#xa;Dynamic Client Module" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.15;entryY=0;fontSize=9;fontColor=#6c8ebf;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="gw-box" target="grpc-row">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== KAFKA EVENT BUS ===== -->
+        <mxCell id="kafka-box" value="KAFKA EVENT BUS (Async)" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;swimlaneFillColor=#fffef5;" vertex="1" parent="1">
+          <mxGeometry x="260" y="490" width="880" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="kf-msg" value="MESSAGE_STORE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kafka-box">
+          <mxGeometry x="20" y="28" width="130" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="kf-persist" value="MESSAGE_PERSISTED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kafka-box">
+          <mxGeometry x="170" y="28" width="145" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="kf-outbox" value="OUTBOX_APPEND" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kafka-box">
+          <mxGeometry x="335" y="28" width="125" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="kf-noti" value="NOTIFICATION + EMAIL + PUSH" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kafka-box">
+          <mxGeometry x="480" y="28" width="185" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="kf-user" value="USER_EVENTS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kafka-box">
+          <mxGeometry x="685" y="28" width="110" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- Services → Kafka edges -->
+        <mxCell id="e-grpc-kf" value="④ Kafka Produce&#xa;kafkajs Producer&#xa;12 Chat Partitions&#xa;SASL/SSL Support" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.3;entryY=0;fontSize=9;fontColor=#d6b656;strokeColor=#d6b656;strokeWidth=2;dashed=1;" edge="1" parent="1" source="grpc-row" target="kafka-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== SFU ===== -->
+        <mxCell id="sfu-box" value="SFU — mediasoup" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;swimlaneFillColor=#f8f0ff;" vertex="1" parent="1">
+          <mxGeometry x="30" y="580" width="460" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="sfu-workers" value="Multi-Worker (N CPU cores)&#xa;UDP Transport: Port 40000-49999&#xa;Audio: Opus 48kHz | Video: VP8 · VP9 · H.264" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="sfu-box">
+          <mxGeometry x="35" y="35" width="390" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== INFRASTRUCTURE ===== -->
+        <mxCell id="infra-box" value="INFRASTRUCTURE &amp; EXTERNAL SERVICES" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=12;swimlaneFillColor=#fafafa;" vertex="1" parent="1">
+          <mxGeometry x="530" y="580" width="840" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="inf-mongo" value="MongoDB 7.0&#xa;23 Collections" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;size=8;" vertex="1" parent="infra-box">
+          <mxGeometry x="20" y="30" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="inf-redis" value="Redis 7.2&#xa;Cache + Pub/Sub" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;size=8;" vertex="1" parent="infra-box">
+          <mxGeometry x="160" y="30" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="inf-b2" value="Backblaze B2&#xa;S3 File Storage" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;size=8;" vertex="1" parent="infra-box">
+          <mxGeometry x="300" y="30" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="inf-fcm" value="Firebase FCM&#xa;Push Notify" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;size=8;" vertex="1" parent="infra-box">
+          <mxGeometry x="440" y="30" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="inf-gemini" value="Google Gemini&#xa;2.5 Flash Lite" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;size=8;" vertex="1" parent="infra-box">
+          <mxGeometry x="580" y="30" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="inf-email" value="SMTP Email&#xa;Nodemailer" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;size=8;" vertex="1" parent="infra-box">
+          <mxGeometry x="710" y="30" width="110" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- Socket → SFU gRPC -->
+        <mxCell id="e-sock-sfu" value="⑤ gRPC Control Plane&#xa;SFU Room Management&#xa;Transport Creation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.3;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#9673a6;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1" source="socket-box" target="sfu-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Client → SFU WebRTC -->
+        <mxCell id="e-cl-sfu" value="⑥ WebRTC Media (UDP)&#xa;SRTP Encrypted&#xa;ICE/DTLS Handshake&#xa;VP8/VP9/H.264 + Opus" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.3;exitY=1;entryX=0.2;entryY=0;fontSize=9;fontColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;dashed=1;" edge="1" parent="1" source="client-box" target="sfu-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="130" y="360"/>
+              <mxPoint x="122" y="360"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Services → Infrastructure -->
+        <mxCell id="e-svc-infra" value="⑦ External API Calls&#xa;MongoDB Driver (Mongoose)&#xa;Redis (ioredis)&#xa;S3 API (Backblaze B2)&#xa;FCM Admin SDK&#xa;Google Gemini API&#xa;SMTP Email" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.85;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#666666;strokeColor=#666666;strokeWidth=2;dashed=1;" edge="1" parent="1" source="grpc-row" target="infra-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Kafka → Notification consumer -->
+        <mxCell id="e-kf-noti" value="⑧ Kafka Consume&#xa;Batch Consumer&#xa;Auto Commit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=9;fontColor=#d6b656;strokeColor=#d6b656;strokeWidth=2;dashed=1;" edge="1" parent="1" source="kafka-box" target="infra-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== PROTOCOL LEGEND ===== -->
+        <mxCell id="legend-box" value="PROTOCOL LEGEND" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#999999;fontStyle=1;fontSize=11;swimlaneFillColor=#fafafa;" vertex="1" parent="1">
+          <mxGeometry x="30" y="720" width="1340" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="60" y="745" as="sourcePoint"/>
+            <mxPoint x="120" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg1-label" value="① HTTP REST" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="125" y="737" width="100" height="16" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="leg2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="250" y="745" as="sourcePoint"/>
+            <mxPoint x="310" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg2-label" value="② WebSocket" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="315" y="737" width="95" height="16" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="leg3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="435" y="745" as="sourcePoint"/>
+            <mxPoint x="495" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg3-label" value="③ gRPC" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="500" y="737" width="50" height="16" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="leg4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d6b656;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="580" y="745" as="sourcePoint"/>
+            <mxPoint x="640" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg4-label" value="④ Kafka" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="645" y="737" width="55" height="16" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="leg5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="730" y="745" as="sourcePoint"/>
+            <mxPoint x="790" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg5-label" value="⑤ gRPC (Control)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="795" y="737" width="95" height="16" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="leg6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#e1d5e7;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="915" y="745" as="sourcePoint"/>
+            <mxPoint x="975" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg6-label" value="⑥ WebRTC (UDP)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="980" y="737" width="100" height="16" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="leg7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;strokeWidth=2;dashed=1;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1100" y="745" as="sourcePoint"/>
+            <mxPoint x="1160" y="745" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="leg7-label" value="⑦ External API" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1165" y="737" width="90" height="16" as="geometry"/>
+        </mxCell>
+
+        <!-- ===== BOTTOM SUMMARY ===== -->
+        <mxCell id="bottom-summary" value="13 gRPC Proto Files | 5 Communication Protocols | 6 External Services | MongoDB 23 Collections | Redis Cache + Pub/Sub + Queue | Kafka 5+ Topics (12 Chat Partitions) | mediasoup SFU Multi-worker UDP | Yjs CRDT Document Sync" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=10;fontColor=#999999;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="50" y="795" width="1300" height="16" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
