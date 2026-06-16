@@ -178,6 +178,7 @@ export class UnifiedSignalHandler {
             sender: 'sfu',
             target: 'me',
             ok: true,
+            transportId: payload.transportId,
           });
           break;
         }
@@ -357,6 +358,7 @@ export class UnifiedSignalHandler {
         ok: false,
         message:
           error instanceof Error ? error.message : 'SFU operation failed',
+        ...(payload.transportId ? { transportId: payload.transportId } : {}),
       });
     }
   }

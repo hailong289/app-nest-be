@@ -11,6 +11,10 @@ import {
 } from '@nestjs/common';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { GatewayService } from '../gateway/gateway.service';
+import {
+  GuestCallLinkService,
+  type CreateGuestCallLinkDto,
+} from './guest-call-link.service';
 import { SERVICES } from '@app/constants/services';
 import {
   AddMemberRoomDto,
@@ -86,6 +90,7 @@ export class GatewayChatController {
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
     private readonly gatewayService: GatewayService,
+    private readonly guestCallLinkService: GuestCallLinkService,
   ) {}
   onModuleInit() {
     this.RoomGrpcService =
@@ -366,5 +371,29 @@ export class GatewayChatController {
       this.RoomGrpcService.getDocumentsFromRoom.bind(this.RoomGrpcService),
       data,
     );
+  }
+
+  /** Create signed guest call invite link (host only). */
+  @Post('call/guest-link')
+  async createGuestCallLink(
+    @Body() body: CreateGuestCallLinkDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.guestCallLinkService.createLink(req.user.usr_id, body);
+  }
+
+  /** Revoke a guest call invite link by jti. */
+  @Post('call/guest-link/revoke')
+  async revokeGuestCallLink(
+    @Body() body: { jti: string },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.guestCallLinkService.revokeLink(req.user.usr_id, body.jti);
+  }
+
+  /** Public verify endpoint for guest tokens before joining. */
+  @Get('call/guest-link/verify')
+  async verifyGuestCallLink(@Query('token') token: string) {
+    return this.guestCallLinkService.verifyToken(token);
   }
 }
