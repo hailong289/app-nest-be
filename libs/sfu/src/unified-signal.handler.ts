@@ -188,20 +188,21 @@ export class UnifiedSignalHandler {
             throw new Error('Missing produce parameters');
           }
 
+          const produceAppData = payload.appData ?? {};
           const { producerId } = await this.sfuRpc.produce(
             roomId,
             userId,
             payload.transportId,
             payload.kind,
             payload.rtpParameters,
+            produceAppData,
           );
 
           // Notify others about new producer. Forward `appData` (e.g.
           // { source: "screen" }) so the receiving FE can pre-flag this
           // producer as screen BEFORE consume() runs — otherwise the
           // screen track would be routed to the camera Map.
-          const broadcastAppData: Record<string, unknown> =
-            payload.appData ?? {};
+          const broadcastAppData: Record<string, unknown> = produceAppData;
           client.to(roomId).emit('signal', {
             type: 'produce',
             sender: 'sfu',

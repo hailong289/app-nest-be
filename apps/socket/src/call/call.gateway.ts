@@ -135,6 +135,30 @@ export class CallGateway
     return { ok: false, error: reason, forbidden: true };
   }
 
+  /**
+   * Resolve the canonical Socket.IO call room a client joined via call:join /
+   * call:request. The FE may still emit events with msg.roomId (Mongo ObjectId)
+   * while peers listen on room.room_id.
+   */
+  private resolveCallSocketRoom(
+    client: SocketWithUser,
+    hintedRoomId: string,
+  ): string {
+    if (hintedRoomId && client.rooms.has(hintedRoomId)) {
+      return hintedRoomId;
+    }
+    for (const socketRoom of client.rooms) {
+      if (
+        socketRoom !== client.id &&
+        socketRoom !== 'system' &&
+        !socketRoom.startsWith('client:')
+      ) {
+        return socketRoom;
+      }
+    }
+    return hintedRoomId;
+  }
+
   private assertGuestCanUseEvent(
     client: SocketWithUser,
     allowedEvents: string[],
@@ -2105,11 +2129,15 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
+      const hintedRoomId = data.roomId;
+      const targetRoomId = this.resolveCallSocketRoom(client, hintedRoomId);
+      data.roomId = targetRoomId;
+
       // Persist the toggle in Redis so a late-joiner reading callState in
       // call:join can render the screen-share UI without waiting for the
       // next toggle (which may never come during a stable share).
-      const sharingKey = this.key.CALL_SHARING(data.roomId);
-      const producerKey = this.key.CALL_SHARING_PRODUCER(data.roomId);
+      const sharingKey = this.key.CALL_SHARING(targetRoomId);
+      const producerKey = this.key.CALL_SHARING_PRODUCER(targetRoomId);
       if (data.isSharing) {
         await this.redis.sAdd(sharingKey, data.actionUserId);
         await this.redis.expire(sharingKey, REDIS_TTL.CALL_ACTIVE);
@@ -2124,7 +2152,10 @@ export class CallGateway
         await this.redis.hDel(producerKey, data.actionUserId);
       }
 
-      this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
+      client.to(targetRoomId).emit('call:share-screen', data);
+      if (hintedRoomId && hintedRoomId !== targetRoomId) {
+        client.to(hintedRoomId).emit('call:share-screen', data);
+      }
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error sharing screen:', error);
