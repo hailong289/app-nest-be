@@ -188,9 +188,9 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
   /** Tạo vector từ Google Gemini */
   async generateVector(text: string): Promise<number[]> {
     try {
-      // dùng 'text-embedding-004' nếu key mới hỗ trợ
+      // dùng 'gemini-embedding-2' nếu key mới hỗ trợ
       const model = this.gemini.getGenerativeModel({
-        model: 'text-embedding-004',
+        model: 'gemini-embedding-2',
       });
       const res = await model.embedContent(text);
       return res.embedding.values;
