@@ -69,6 +69,21 @@ export class FirebaseService {
     data?: Record<string, any>;
     skipSaveToDb?: boolean;
   }) {
+    // SANITIZE: loại token null/rỗng. CỰC KỲ QUAN TRỌNG — nếu để lọt `null`,
+    // truy vấn `{ tkn_fcmToken: { $in: [null] } }` bên dưới sẽ KHỚP MỌI device
+    // chưa đăng ký FCM của TOÀN BỘ user → tạo notification cho cả hệ thống
+    // (bug "gửi cho toàn bộ user"). Token rỗng cũng làm FCM multicast lỗi.
+    const tokens = [
+      ...new Set(
+        (fcmTokens || [])
+          .map((token) => (typeof token === 'string' ? token.trim() : ''))
+          .filter((token): token is string => token.length > 0),
+      ),
+    ];
+    if (tokens.length === 0) {
+      console.warn('pushNotification: không có FCM token hợp lệ → bỏ qua');
+      return true;
+    }
     /**
      * tạo notification cho người dùng (DB chết mà lỗi không làm chết service)
      */
@@ -159,10 +174,23 @@ export class FirebaseService {
     data?: Record<string, any>;
     saveToDb?: boolean;
   }) {
+    const targetUserIds = [
+      ...new Set(
+        (userIds || [])
+          .map((userId) => userId?.toString().trim())
+          .filter((userId): userId is string => !!userId),
+      ),
+    ];
+
+    if (targetUserIds.length === 0) {
+      console.warn('pushNotificationForUsers: không có userId hợp lệ → bỏ qua');
+      return true;
+    }
+
     // Save notification to DB for all users if requested
     if (saveToDb) {
       await Promise.all(
-        userIds.map((userId) =>
+        targetUserIds.map((userId) =>
           this.notificationService.createNotification({
             userId,
             push_type: (data?.push_type as NotificationType) || 'other',
@@ -177,7 +205,7 @@ export class FirebaseService {
     // get fctoken from redis, fallback to MongoDB if empty
     let fcms: string[] = [];
     const redisResults = await Promise.all(
-      userIds.map(async (u) => {
+      targetUserIds.map(async (u) => {
         try {
           return await this.redis.sMembers(this.key.USER_FCM_TOKENS(u));
         } catch (e) {
@@ -186,13 +214,28 @@ export class FirebaseService {
         }
       }),
     );
-    fcms = redisResults.flat();
+    fcms = [
+      ...new Set(
+        redisResults
+          .flat()
+          .map((token) => (typeof token === 'string' ? token.trim() : ''))
+          .filter((token): token is string => token.length > 0),
+      ),
+    ];
     if (fcms.length === 0) {
       // Fallback: fetch from MongoDB
       const mongoKeys = await this.keyModel
-        .find({ tkn_userId: { $in: userIds } }, 'tkn_fcmToken')
+        .find({ tkn_userId: { $in: targetUserIds } }, 'tkn_fcmToken')
         .lean();
-      fcms = mongoKeys.flatMap((k) => k.tkn_fcmToken || []);
+      fcms = [
+        ...new Set(
+          mongoKeys
+            .map((k) =>
+              typeof k.tkn_fcmToken === 'string' ? k.tkn_fcmToken.trim() : '',
+            )
+            .filter((token): token is string => token.length > 0),
+        ),
+      ];
     }
     if (fcms.length > 0) {
       await this.pushNotification({
@@ -203,5 +246,6 @@ export class FirebaseService {
         skipSaveToDb: true,
       });
     }
+    return true;
   }
 }
