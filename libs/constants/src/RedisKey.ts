@@ -342,20 +342,6 @@ export const REDISKEY = {
   CALL_PENDING_INVITES: (userId: string) =>
     `chat:user:${userId}:pending_invites`,
 
-  /**
-   * Guest call invite link metadata keyed by token jti.
-   * Format: chat:call:guest_link:{jti}
-   * Type: STRING (JSON GuestCallLinkMeta)
-   */
-  GUEST_CALL_LINK: (jti: string) => `chat:call:guest_link:${jti}`,
-
-  /**
-   * Revoked guest call invite jti marker.
-   * Format: chat:call:guest_link:revoked:{jti}
-   */
-  GUEST_CALL_LINK_REVOKED: (jti: string) =>
-    `chat:call:guest_link:revoked:${jti}`,
-
   // ==========================================
   // 📢 PUBSUB CHANNELS
   // ==========================================

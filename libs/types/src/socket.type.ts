@@ -24,15 +24,6 @@ export interface JwtPayload {
   createdAt?: string;
   updatedAt?: string;
   jti: string;
-  /** Guest call link session — no DB user */
-  isGuest?: boolean;
-  guestCall?: {
-    roomId: string;
-    callId: string;
-    callType: 'video' | 'audio';
-    callMode?: 'p2p' | 'sfu';
-    issuedBy: string;
-  };
   [key: string]: any;
 }
 

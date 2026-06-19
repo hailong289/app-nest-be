@@ -32,13 +32,6 @@ import {
   type AutoMissJobData,
 } from './call-auto-miss.constants';
 import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
-import {
-  buildGuestId,
-  guestTokenMatchesCall,
-  isGuestUserId,
-  verifyGuestCallToken,
-} from 'libs/helpers/src/guest-call-token';
-import type { GuestCallLinkMeta } from 'libs/types/guest-call.type';
 
 export interface ChatGrpcService {
   CreateNewMsg<T = any>(data: T): Observable<any>;
@@ -51,7 +44,6 @@ export interface ChatGrpcService {
   HandleDelete<T = any>(data: T): Observable<any>;
   RequestCall<T = any>(data: T): Observable<any>;
   AcceptCall<T = any>(data: T): Observable<any>;
-  GuestJoinCall<T = any>(data: T): Observable<any>;
   EndCall<T = any>(data: T): Observable<any>;
   GetCallStatus<T = any>(data: T): Observable<any>;
   SendCandidate<T = any>(data: T): Observable<any>;
@@ -115,140 +107,6 @@ export class CallGateway
     this.ChatGrpcService =
       this.chatClient.getService<ChatGrpcService>('ChatService');
     this.AiGrpcService = this.aiClient.getService<AiGrpcService>('AIService');
-  }
-
-  private getGuestCallSecret(): string {
-    return (
-      this.configService.get<string>('GUEST_CALL_JWT_SECRET') ||
-      this.configService.get<string>('GATEWAY_JWT_ACCESS_SECRET') ||
-      ''
-    );
-  }
-
-  private isGuestClient(client: SocketWithUser): boolean {
-    return (
-      client.user?.isGuest === true || isGuestUserId(client.user?.usr_id)
-    );
-  }
-
-  private guestForbidden(reason: string) {
-    return { ok: false, error: reason, forbidden: true };
-  }
-
-  /**
-   * Resolve the canonical Socket.IO call room a client joined via call:join /
-   * call:request. The FE may still emit events with msg.roomId (Mongo ObjectId)
-   * while peers listen on room.room_id.
-   */
-  private resolveCallSocketRoom(
-    client: SocketWithUser,
-    hintedRoomId: string,
-  ): string {
-    if (hintedRoomId && client.rooms.has(hintedRoomId)) {
-      return hintedRoomId;
-    }
-    for (const socketRoom of client.rooms) {
-      if (
-        socketRoom !== client.id &&
-        socketRoom !== 'system' &&
-        !socketRoom.startsWith('client:')
-      ) {
-        return socketRoom;
-      }
-    }
-    return hintedRoomId;
-  }
-
-  private assertGuestCanUseEvent(
-    client: SocketWithUser,
-    allowedEvents: string[],
-    eventName: string,
-  ) {
-    if (!this.isGuestClient(client)) return null;
-    if (allowedEvents.includes(eventName)) return null;
-    return this.guestForbidden('guest_event_not_allowed');
-  }
-
-  private async isGuestLinkRevoked(jti: string): Promise<boolean> {
-    const revoked = await this.redis.getData<string>(
-      this.key.GUEST_CALL_LINK_REVOKED(jti),
-    );
-    return !!revoked;
-  }
-
-  /** Returns true when guest token auth succeeded. */
-  private async tryAuthenticateGuest(
-    client: SocketWithUser,
-    token: string,
-  ): Promise<boolean> {
-    const secret = this.getGuestCallSecret();
-    if (!secret) return false;
-
-    let payload;
-    try {
-      payload = verifyGuestCallToken(this.jwtService, secret, token);
-    } catch {
-      return false;
-    }
-
-    if (await this.isGuestLinkRevoked(payload.jti)) {
-      client.emit('exception', {
-        status: 'error',
-        message: 'Link mời cuộc gọi đã bị thu hồi',
-      });
-      client.disconnect();
-      return true;
-    }
-
-    const meta = await this.redis.getData<GuestCallLinkMeta>(
-      this.key.GUEST_CALL_LINK(payload.jti),
-    );
-    if (!meta) {
-      client.emit('exception', {
-        status: 'error',
-        message: 'Link mời cuộc gọi không tồn tại hoặc đã hết hạn',
-      });
-      client.disconnect();
-      return true;
-    }
-
-    if (payload.callMode && payload.callMode !== 'sfu') {
-      client.emit('exception', {
-        status: 'error',
-        message: 'Link mời khách chỉ hỗ trợ cuộc gọi nhóm (SFU)',
-      });
-      client.disconnect();
-      return true;
-    }
-
-    const guestId = buildGuestId(payload.jti);
-    const guestUser: JwtPayload = {
-      _id: guestId,
-      usr_id: guestId,
-      usr_fullname: payload.guestName?.trim() || 'Khách',
-      usr_email: '',
-      usr_slug: guestId,
-      jti: payload.jti,
-      isGuest: true,
-      guestCall: {
-        roomId: payload.roomId,
-        callId: payload.callId,
-        callType: payload.callType,
-        callMode: 'sfu',
-        issuedBy: payload.issuedBy,
-      },
-    };
-
-    client.userId = guestId;
-    client.user = guestUser;
-
-    await client.join([this.key.ROOM_CLIENT(guestId), 'system']);
-    await this.presence.register('call', client.id, guestId);
-
-    this.logger.log(
-      `[CONNECT] Guest call ${guestUser.usr_fullname} (${guestId}) connected.`,
-    );
-    return true;
   }
 
   private getSttSubscriptionKey(roomId: string, speakerUserId: string) {
@@ -887,11 +745,6 @@ export class CallGateway
         token = token.replace('Bearer ', '');
       }
 
-      const guestAuth = await this.tryAuthenticateGuest(client, token);
-      if (guestAuth) {
-        return;
-      }
-
       const jwtSecret = this.configService.get<string>(
         'GATEWAY_JWT_ACCESS_SECRET',
       );
@@ -1179,9 +1032,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_request_call');
-      }
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
@@ -1360,7 +1210,6 @@ export class CallGateway
       return {
         ok: true,
         room: { room_id: room.room_id },
-        callId: history.call_id,
         startedAt: history.started_at,
         busyMembers: Array.from(busyTargets.entries()).map(
           ([userId, callId]) => ({ userId, callId }),
@@ -1442,9 +1291,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_accept_call');
-      }
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
@@ -1645,9 +1491,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_answer_call');
-      }
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       const targetSocketId = this.key.ROOM_CLIENT(data.targetUserId);
@@ -1677,50 +1520,12 @@ export class CallGateway
       actionUserId?: string;
       roomId: string;
       callId: string;
-      guestName?: string;
     },
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-
-      if (this.isGuestClient(client)) {
-        const displayName = data.guestName?.trim() || user.usr_fullname;
-        if (displayName && displayName !== user.usr_fullname) {
-          user.usr_fullname = displayName;
-        }
-        const guestCall = user.guestCall;
-        if (
-          !guestCall ||
-          !guestTokenMatchesCall(
-            {
-              type: 'guest_call',
-              jti: user.jti,
-              roomId: guestCall.roomId,
-              callId: guestCall.callId,
-              callType: guestCall.callType,
-              callMode: guestCall.callMode,
-              issuedBy: guestCall.issuedBy,
-            },
-            data.roomId,
-            data.callId,
-          )
-        ) {
-          client.emit('error', {
-            message: 'Token không khớp cuộc gọi',
-            error: 'guest_scope_mismatch',
-          });
-          return { ok: false, reason: 'guest_scope_mismatch' };
-        }
-        if (guestCall.callMode !== 'sfu') {
-          client.emit('error', {
-            message: 'Link mời khách chỉ hỗ trợ cuộc gọi nhóm (SFU)',
-            error: 'guest_sfu_only',
-          });
-          return { ok: false, reason: 'guest_sfu_only' };
-        }
-      }
 
       // Server-side guard: reject join ONLY if user is in a DIFFERENT
       // active call. Same callId is allowed (multi-device join → handoff).
@@ -1753,24 +1558,14 @@ export class CallGateway
       );
 
       // Cập nhật trạng thái thành viên sang 'started' qua gRPC
-      const joinRequest = this.isGuestClient(client)
-        ? (d: unknown) => this.ChatGrpcService.GuestJoinCall(d)
-        : (d: unknown) => this.ChatGrpcService.AcceptCall(d);
-
-      const joinPayload = this.isGuestClient(client)
-        ? {
-            guestId: data.actionUserId,
-            guestName: data.guestName?.trim() || user.usr_fullname,
-            roomId: data.roomId,
-            callId: data.callId,
-          }
-        : {
-            actionUserId: data.actionUserId,
-            roomId: data.roomId,
-            callId: data.callId,
-          };
-
-      const result = (await Utils.dispatchGrpcRequest(joinRequest, joinPayload)) as ChatGatewayCallResponse;
+      const result = (await Utils.dispatchGrpcRequest(
+        (d) => this.ChatGrpcService.AcceptCall(d),
+        {
+          actionUserId: data.actionUserId,
+          roomId: data.roomId,
+          callId: data.callId,
+        },
+      )) as ChatGatewayCallResponse;
 
       if (!result || result.statusCode !== 200) {
         const errorMessage = Array.isArray(result?.message)
@@ -1824,18 +1619,7 @@ export class CallGateway
       // come during a stable call).
       const callState = await this.getCallState(room.room_id);
 
-      const callMode =
-        (history as { call_mode?: 'p2p' | 'sfu' })?.call_mode ?? 'sfu';
-
-      if (callMode === 'sfu') {
-        await this.addCallParticipant(
-          data.actionUserId,
-          'sfu',
-          data.callId,
-        );
-      }
-
-      return { ok: true, history, room, callState, callMode };
+      return { ok: true, history, room, callState };
     } catch (error) {
       this.logger.error('[CALL] Error joining call:', error);
       client.emit('error', {
@@ -1905,52 +1689,6 @@ export class CallGateway
   // ========================================================
   // 🟢 LEGACY CALL HANDLERS (P2P)
   // ========================================================
-  private async handleGuestLeave(
-    client: SocketWithUser,
-    data: { roomId: string; callId: string; actionUserId?: string },
-  ) {
-    const user = client.user;
-    if (!user) return { ok: false, error: 'unauthorized' };
-
-    const guestId = user.usr_id;
-    data.actionUserId = guestId;
-
-    await this.cleanupSttSubscriptionsForUser(guestId);
-
-    for (const socketRoom of client.rooms) {
-      if (socketRoom === client.id) continue;
-      try {
-        if (await this.sfuRpc.roomExists(socketRoom)) {
-          await this.sfuRpc.leaveRoom(socketRoom, guestId);
-        }
-      } catch {
-        // best effort
-      }
-    }
-
-    await Promise.all([
-      this.redis.delKey(this.key.USER_IN_CALL(guestId)),
-      this.redis.delKey(this.key.USER_CALL_SOCKET(guestId)),
-    ]);
-
-    this.io.to(data.roomId).except(client.id).emit('call:member-left', {
-      actionUserId: guestId,
-      roomId: data.roomId,
-      callId: data.callId,
-      isGuest: true,
-    });
-
-    client.emit('call:end', {
-      roomId: data.roomId,
-      actionUserId: guestId,
-      status: 'ended',
-      callId: data.callId,
-      forceEnd: true,
-    });
-
-    return { ok: true, guestLeft: true };
-  }
-
   @SubscribeMessage('call:end')
   async handleEnd(
     @MessageBody()
@@ -1965,11 +1703,6 @@ export class CallGateway
     try {
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
-
-      if (this.isGuestClient(client)) {
-        return this.handleGuestLeave(client, data);
-      }
-
       await this.cleanupSttSubscriptionsForUser(user.usr_id);
       // kết thúc cuộc gọi qua gRPC và tạo lịch sử cuộc gọi
       const result = (await Utils.dispatchGrpcRequest(
@@ -2069,22 +1802,16 @@ export class CallGateway
       );
 
       // Use client.to() (not this.io.to()) so the broadcast excludes the sender.
-      // Emit to canonical room_id — guests join that socket room via call:join
-      // but may not be in room.room_members, and data.roomId can be stale.
-      const endPayload = {
+      // this.io.to() would echo call:end back to the caller, causing their
+      // beforeunload handler to fire and re-emit call:end again.
+      client.to(data.roomId).emit('call:end', {
         members: history.members,
         roomId: room.room_id,
         actionUserId: data.actionUserId,
         status: data.status,
         history: history,
         callId: data.callId,
-        forceEnd: !stillActive,
-        callMode: history?.call_mode,
-      };
-      client.to(room.room_id).emit('call:end', endPayload);
-      if (data.roomId && data.roomId !== room.room_id) {
-        client.to(data.roomId).emit('call:end', endPayload);
-      }
+      });
       const roomClients = room.room_members.map((m) =>
         this.key.ROOM_CLIENT(m.id),
       );
@@ -2129,15 +1856,11 @@ export class CallGateway
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
 
-      const hintedRoomId = data.roomId;
-      const targetRoomId = this.resolveCallSocketRoom(client, hintedRoomId);
-      data.roomId = targetRoomId;
-
       // Persist the toggle in Redis so a late-joiner reading callState in
       // call:join can render the screen-share UI without waiting for the
       // next toggle (which may never come during a stable share).
-      const sharingKey = this.key.CALL_SHARING(targetRoomId);
-      const producerKey = this.key.CALL_SHARING_PRODUCER(targetRoomId);
+      const sharingKey = this.key.CALL_SHARING(data.roomId);
+      const producerKey = this.key.CALL_SHARING_PRODUCER(data.roomId);
       if (data.isSharing) {
         await this.redis.sAdd(sharingKey, data.actionUserId);
         await this.redis.expire(sharingKey, REDIS_TTL.CALL_ACTIVE);
@@ -2152,10 +1875,7 @@ export class CallGateway
         await this.redis.hDel(producerKey, data.actionUserId);
       }
 
-      client.to(targetRoomId).emit('call:share-screen', data);
-      if (hintedRoomId && hintedRoomId !== targetRoomId) {
-        client.to(hintedRoomId).emit('call:share-screen', data);
-      }
+      this.io.to(data.roomId).except(client.id).emit('call:share-screen', data);
       return { ok: true };
     } catch (error) {
       this.logger.error('[CALL] Error sharing screen:', error);
@@ -2249,9 +1969,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_control_stt');
-      }
       const user = await this.getUser(client);
       const requesterUserId = user.usr_id;
 
@@ -2342,9 +2059,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_use_stt');
-      }
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       data.speakerUserId = user.usr_id;
@@ -2383,9 +2097,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_use_stt');
-      }
       const user = await this.getUser(client);
       const speakerUserId = data.speakerUserId || user.usr_id;
       const speaker =
@@ -2490,9 +2201,6 @@ export class CallGateway
     @ConnectedSocket() client: SocketWithUser,
   ) {
     try {
-      if (this.isGuestClient(client)) {
-        return this.guestForbidden('guest_cannot_send_candidate');
-      }
       const user = await this.getUser(client);
       data.actionUserId = user.usr_id;
       this.io.to(data.roomId).except(client.id).emit('call:candidate', data);
@@ -2522,50 +2230,10 @@ export class CallGateway
           if (token.startsWith('Bearer ')) {
             token = token.replace('Bearer ', '');
           }
-
-          const guestSecret = this.getGuestCallSecret();
-          if (guestSecret) {
-            try {
-              const guestPayload = verifyGuestCallToken(
-                this.jwtService,
-                guestSecret,
-                token,
-              );
-              if (!(await this.isGuestLinkRevoked(guestPayload.jti))) {
-                if (
-                  guestPayload.callMode &&
-                  guestPayload.callMode !== 'sfu'
-                ) {
-                  return;
-                }
-                const guestId = buildGuestId(guestPayload.jti);
-                client.user = {
-                  _id: guestId,
-                  usr_id: guestId,
-                  usr_fullname: guestPayload.guestName?.trim() || 'Khách',
-                  usr_email: '',
-                  usr_slug: guestId,
-                  jti: guestPayload.jti,
-                  isGuest: true,
-                  guestCall: {
-                    roomId: guestPayload.roomId,
-                    callId: guestPayload.callId,
-                    callType: guestPayload.callType,
-                    callMode: 'sfu',
-                    issuedBy: guestPayload.issuedBy,
-                  },
-                };
-                client.userId = guestId;
-              }
-            } catch {
-              // not a guest token — fall through to access JWT
-            }
-          }
-
           const jwtSecret = this.configService.get<string>(
             'GATEWAY_JWT_ACCESS_SECRET',
           );
-          if (!client.user && jwtSecret) {
+          if (jwtSecret) {
             const payload = this.jwtService.verify<JwtPayload>(token, {
               secret: jwtSecret,
             });

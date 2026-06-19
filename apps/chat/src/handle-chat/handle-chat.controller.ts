@@ -142,19 +142,6 @@ export class HandleChatController {
     return result;
   }
 
-  @GrpcMethod('ChatService', 'GuestJoinCall')
-  async GuestJoinCall(
-    @Body()
-    payload: {
-      guestId: string;
-      guestName?: string;
-      roomId: string;
-      callId: string;
-    },
-  ) {
-    return await this.hdChat.guestJoinCall(payload);
-  }
-
   @GrpcMethod('ChatService', 'EndCall')
   async EndCall(
     @Body()

@@ -29,7 +29,6 @@ service ChatService {
   // Call
   rpc RequestCall(RequestCallInput)returns(outputCall);
   rpc AcceptCall(AcceptCallInput)returns(outputCall);
-  rpc GuestJoinCall(GuestJoinCallInput)returns(outputCall);
   rpc EndCall(EndCallInput)returns(outputCall);
   rpc GetCallStatus(GetCallStatusInput)returns(GetCallStatusOutput);
   rpc GetCallHistory(GetCallHistoryInput)returns(outputCall);
@@ -551,13 +550,6 @@ message RequestCallInput{
 message AcceptCallInput{
   string actionUserId = 1;
   repeated string membersIds = 2;
-  string roomId = 3;
-  string callId = 4;
-}
-
-message GuestJoinCallInput{
-  string guestId = 1;
-  string guestName = 2;
   string roomId = 3;
   string callId = 4;
 }
