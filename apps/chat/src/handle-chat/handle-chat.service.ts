@@ -760,21 +760,13 @@ export class HandleChatService {
     const check = await this.roomService.checkExistedMemberRoom(userId, roomId);
     if (!check) {
       this.log.error('User không thuộc room:', { userId, roomId });
-      return {
-        msgId: null,
-        members: [],
-        roomId: null,
-      };
+      return Response.success([], 'Không có quyền truy cập phòng');
     }
     //check user
     const userInfo = await this.roomService.getUserInfo(userId);
     if (!userInfo) {
       this.log.error('Người dùng không tồn tại:', userId);
-      return {
-        msgId: null,
-        members: [],
-        roomId: null,
-      };
+      return Response.success([], 'Người dùng không tồn tại');
     }
 
     // get info room
@@ -786,24 +778,27 @@ export class HandleChatService {
       throw new NotAcceptableException('Phòng không tồn taij');
     }
 
-    // Build comparison filter based on pagination type
+    // Build comparison filter based on pagination type.
+    // `type=new` without a valid message ObjectId → latest `limit` messages
+    // (initial load). `type=new` + msgId → delta sync (_id > msgId).
     const compare: Record<string, any> = {};
-    if (type && msgId && Types.ObjectId.isValid(msgId)) {
-      const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
-      if (type === 'new') {
-        // Load tin nhắn mới hơn msgId (để load real-time updates)
-        compare._id = { $gt: msgObjectId };
-      } else if (type === 'old') {
-        // Load tin nhắn cũ hơn msgId (để pagination lùi về quá khứ)
-        compare._id = { $lt: msgObjectId };
-      }
+    const pivotId = typeof msgId === 'string' ? msgId.trim() : '';
+    const hasPivot = /^[a-f0-9]{24}$/i.test(pivotId);
+
+    if (type === 'new' && hasPivot) {
+      compare._id = { $gt: this.utils.convertToObjectIdMongoose(pivotId) };
+    } else if (type === 'old' && hasPivot) {
+      compare._id = { $lt: this.utils.convertToObjectIdMongoose(pivotId) };
     }
 
+    const roomMongoId = this.utils.convertToObjectIdMongoose(
+      String(roomInfo._id),
+    );
     const pipeLine = buildMessageCorePipeline(userId);
     const result = await this.messageModel.aggregate([
       {
         $match: {
-          msg_roomId: roomInfo._id,
+          msg_roomId: roomMongoId,
           ...compare,
         },
       },
@@ -1383,6 +1378,122 @@ export class HandleChatService {
     } catch (error) {
       console.log('🚀 ~ HandleChatService ~ acceptCall ~ error:', error);
       return Response.badRequest('Không trả lời được cuộc gọi');
+    }
+  }
+
+  /** Guest (no DB user) joins an active call via invite link. */
+  async guestJoinCall({
+    guestId,
+    guestName,
+    roomId,
+    callId,
+  }: {
+    guestId: string;
+    guestName?: string;
+    roomId: string;
+    callId: string;
+  }) {
+    try {
+      if (!guestId || !roomId || !callId) {
+        return Response.badRequest('Thiếu thông tin tham gia cuộc gọi');
+      }
+
+      const room = await this.roomModel.findOne({
+        $or: [
+          { room_id: roomId },
+          ...(Types.ObjectId.isValid(roomId)
+            ? [{ _id: new Types.ObjectId(roomId) }]
+            : []),
+        ],
+      });
+      if (!room) {
+        throw new NotFoundException('Phòng gọi không tồn tại');
+      }
+
+      const callHistory = await this.callHistoryModel.findOne({
+        room_id: room._id,
+        call_id: callId,
+      });
+
+      if (!callHistory) {
+        throw new BadRequestException('Không tìm thấy lịch sử cuộc gọi');
+      }
+
+      if (callHistory.ended_at) {
+        throw new BadRequestException('Cuộc gọi đã kết thúc');
+      }
+
+      if (callHistory.call_mode !== 'sfu') {
+        throw new BadRequestException(
+          'Link mời khách chỉ hỗ trợ cuộc gọi nhóm (SFU)',
+        );
+      }
+
+      const TERMINAL = new Set<MemberStatus>([
+        'ended',
+        'cancelled',
+        'rejected',
+        'missed',
+      ]);
+      const hasActiveMember = callHistory.members.some(
+        (m) => m.status === 'started' && !TERMINAL.has(m.status),
+      );
+      if (!hasActiveMember) {
+        throw new BadRequestException(
+          'Cuộc gọi chưa bắt đầu — không thể tham gia bằng link khách',
+        );
+      }
+
+      const historyObj = {
+        ...(callHistory.toObject() as unknown as Record<string, unknown>),
+      };
+      const members = Array.isArray(callHistory.members)
+        ? callHistory.members.map((m) => ({
+            id: m.id,
+            user_id: m.user_id?.toString?.() ?? m.user_id,
+            fullname: m.fullname,
+            avatar: m.avatar ?? '',
+            is_caller: m.is_caller,
+            status: m.status,
+          }))
+        : [];
+
+      const guestMember = {
+        id: guestId,
+        user_id: guestId,
+        fullname: (guestName || 'Khách').trim() || 'Khách',
+        avatar: '',
+        is_caller: false,
+        status: 'started' as MemberStatus,
+      };
+
+      historyObj.members = [...members, guestMember];
+
+      let msg: Record<string, unknown> = {};
+      if (callHistory.message_id) {
+        const msgAgg = await this.messageModel.aggregate(
+          buildMessageDetailPipeline(callHistory.message_id.toString()),
+        );
+        msg = this.serializeRoomEvent(msgAgg[0] as Record<string, any>);
+      }
+
+      return Response.success(
+        {
+          history: historyObj,
+          room,
+          msg,
+          callMode: callHistory.call_mode,
+        },
+        'Khách đã tham gia cuộc gọi',
+      );
+    } catch (error) {
+      this.log.error(
+        `[guestJoinCall] ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      return Response.badRequest('Không thể tham gia cuộc gọi bằng link khách');
     }
   }
 

@@ -5,4 +5,5 @@
  */
 export * from './auth-cookie.helper';
 export * from './device-context.helper';
+export * from './guest-call-token';
 export { default as Utils } from './utils';
