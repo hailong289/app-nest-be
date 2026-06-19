@@ -98,9 +98,7 @@ export class SocialService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION,
         {
-          fcmTokens: fcmTokens
-            .map((token) => token.tkn_fcmToken)
-            .filter((t): t is string => !!t),
+          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
           title: `${user.usr_fullname} đã gửi lời mời kết bạn`,
           message: 'Bạn có một lời mời kết bạn mới',
           data: {
@@ -191,9 +189,7 @@ export class SocialService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION,
         {
-          fcmTokens: fcmTokens
-            .map((token) => token.tkn_fcmToken)
-            .filter((t): t is string => !!t),
+          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
           title: `${user1.usr_fullname} đã chấp nhận lời mời kết bạn`,
           message: 'Bạn đã được kết bạn với người dùng',
           data: {
@@ -302,9 +298,7 @@ export class SocialService {
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION,
         {
-          fcmTokens: fcmTokens
-            .map((token) => token.tkn_fcmToken)
-            .filter((t): t is string => !!t),
+          fcmTokens: fcmTokens.map((token) => token.tkn_fcmToken),
           title: `${user1.usr_fullname} đã từ chối lời mời kết bạn`,
           message: 'Bạn đã bị từ chối kết bạn với người dùng',
           data: {

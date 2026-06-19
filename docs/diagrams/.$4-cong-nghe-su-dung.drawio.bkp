@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Cong nghe BE">
+    <mxGraphModel dx="1000" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="t" value="CÔNG NGHỆ SỬ DỤNG — BACKEND iChat" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="200" y="10" width="600" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== RUNTIME ====== -->
+        <mxCell id="cat1" value="Runtime &amp; Framework" style="text;html=1;strokeColor=none;fillColor=#6c8ebf;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="65" width="920" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="r1" value="Node.js + TypeScript" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="98" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="NestJS Microservices" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="280" y="98" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="r3" value="Express — HTTP Server" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="510" y="98" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="r4" value="RxJS + Webpack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="98" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== GIAO THỨC ====== -->
+        <mxCell id="cat2" value="Giao thức &amp; Truyền thông" style="text;html=1;strokeColor=none;fillColor=#d79b00;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="152" width="920" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="g1" value="gRPC — Giao Tiếp Nội Bộ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="185" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="g2" value="Kafka — Sự Kiện Bất Đồng Bộ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="280" y="185" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="g3" value="Socket.IO — Real-time" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="510" y="185" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="g4" value="mediasoup — WebRTC SFU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="185" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="g5" value="SSE Streaming" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="50" y="232" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="g6" value="Yjs — Soạn Thảo Cộng Tác (CRDT)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="232" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="g7" value="Bull — Job Queue (Redis)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="510" y="232" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="g8" value="WebRTC (P2P)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="232" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== DATABASE ====== -->
+        <mxCell id="cat3" value="Database &amp; Lưu trữ" style="text;html=1;strokeColor=none;fillColor=#82b366;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="286" width="920" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="d1" value="MongoDB — Database Chính" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="319" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="d2" value="Mongoose — ODM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="319" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="d3" value="Redis — Cache / Presence / Pub-Sub" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="510" y="319" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="d4" value="Backblaze B2 (S3) — Lưu Trữ File" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="319" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== AUTH ====== -->
+        <mxCell id="cat4" value="Xác thực &amp; Bảo mật" style="text;html=1;strokeColor=none;fillColor=#9673a6;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="373" width="920" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="au1" value="JWT + Passport — Xác Thực" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="406" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="au2" value="bcrypt + crypto-js — Mã Hoá" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="406" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="au3" value="Redis JTI Blacklist" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="510" y="406" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="au4" value="cookie-parser + CORS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="406" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== AI & MEDIA ====== -->
+        <mxCell id="cat5" value="AI &amp; Xử lý Media" style="text;html=1;strokeColor=none;fillColor=#b85450;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="460" width="920" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai1" value="Google Gemini — AI / Dịch / Quiz" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="493" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai2" value="Sharp + FFmpeg — Xử Lý Media" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="493" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai3" value="Firebase — Push Notification (FCM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="510" y="493" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai4" value="Nodemailer — Gửi Email (SMTP)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="493" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ai5" value="Multer — Upload File" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="50" y="542" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai6" value="Handlebars — Email Template" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="542" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai7" value="AI Embeddings — Vector Search" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="510" y="542" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="ai8" value="cheerio — HTML Parsing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="542" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+        <!-- ====== DEVOPS ====== -->
+        <mxCell id="cat6" value="DevOps &amp; Testing" style="text;html=1;strokeColor=none;fillColor=#666666;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;fontColor=#ffffff;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="596" width="920" height="26" as="geometry"/>
+        </mxCell>
+        <mxCell id="do1" value="Docker + Docker Compose" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="629" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="do2" value="GitHub Actions — CI/CD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="280" y="629" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="do3" value="Jest + Supertest — Testing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="510" y="629" width="215" height="38" as="geometry"/>
+        </mxCell>
+        <mxCell id="do4" value="ESLint + Prettier — Lint/Format" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="740" y="629" width="215" height="38" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

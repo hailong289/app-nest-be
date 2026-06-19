@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   GoogleGenerativeAI,
   GenerativeModel,
+  SchemaType,
   type GenerateContentRequest,
   type Part,
 } from '@google/generative-ai';
@@ -13,7 +14,7 @@ import { Observable } from 'rxjs';
 import {
   generateFlashcardPrompt,
   generateQuizzPrompt,
-  speechToTextPrompt,
+  speechToTextSystemInstruction,
   suggestPrompt,
   summaryDocumentPrompt,
   translationPrompt,
@@ -313,6 +314,33 @@ export class GoogleModerationProvider {
       .join('');
   }
 
+  /** Strip codec params — Gemini inlineData expects base mime e.g. audio/webm */
+  private normalizeAudioMimeType(mimeType: string): string {
+    const base = (mimeType || 'audio/webm').split(';')[0].trim().toLowerCase();
+    if (base === 'audio/mpeg' || base === 'audio/mpga') return 'audio/mp3';
+    if (base.startsWith('audio/')) return base;
+    return 'audio/webm';
+  }
+
+  /** Detect model echoing STT instructions instead of real speech */
+  private isSttPromptLeakage(text: string): boolean {
+    const normalized = text.toLowerCase();
+    const markers = [
+      'hệ thống nhận dạng giọng nói',
+      'nhận dạng giọng nói chuyên nghiệp',
+      'nhiệm vụ của tôi',
+      'đoạn âm thanh đính kèm',
+      'đoạn audio đính kèm',
+      'không paraphrase',
+      'transcript rỗng',
+      'speech recognition system',
+      'my task is to listen',
+      'attached audio',
+      'do not paraphrase',
+    ];
+    return markers.some((m) => normalized.includes(m));
+  }
+
   /**
    * Safely parse JSON without throwing; returns fallback on error.
    */
@@ -525,7 +553,8 @@ export class GoogleModerationProvider {
       );
     }
 
-    const prompt = speechToTextPrompt(language);
+    const normalizedMime = this.normalizeAudioMimeType(mimeType);
+    const systemInstruction = speechToTextSystemInstruction(language);
     const start = Date.now();
 
     try {
@@ -533,14 +562,15 @@ export class GoogleModerationProvider {
       // (text) model — `this.generateContent(...)` would route through
       // `this.model` which may not accept `inlineData` audio.
       const result = await this.audioModel.generateContent({
+        systemInstruction,
         contents: [
           {
             role: 'user',
             parts: [
-              { text: prompt },
+              { text: 'Transcribe the attached audio.' },
               {
                 inlineData: {
-                  mimeType,
+                  mimeType: normalizedMime,
                   data: buffer.toString('base64'),
                 },
               },
@@ -549,8 +579,15 @@ export class GoogleModerationProvider {
         ],
         generationConfig: {
           responseMimeType: 'application/json',
-          // Lower temperature → more faithful transcription, less paraphrasing.
-          temperature: 0.1,
+          responseSchema: {
+            type: SchemaType.OBJECT,
+            properties: {
+              transcript: { type: SchemaType.STRING },
+              detectedLanguage: { type: SchemaType.STRING },
+            },
+            required: ['transcript', 'detectedLanguage'],
+          },
+          temperature: 0,
         },
       });
       const latencyMs = Date.now() - start;
@@ -569,6 +606,29 @@ export class GoogleModerationProvider {
         tokenInput && tokenOutput
           ? (tokenInput / 1_000_000) * 0.075 + (tokenOutput / 1_000_000) * 0.3
           : 0;
+
+      const parsed = parsedResult as {
+        transcript?: unknown;
+        detectedLanguage?: unknown;
+        detected_language?: unknown;
+      };
+
+      let transcript =
+        typeof parsed.transcript === 'string' ? parsed.transcript.trim() : '';
+      const detectedLanguage =
+        typeof parsed.detectedLanguage === 'string'
+          ? parsed.detectedLanguage
+          : typeof parsed.detected_language === 'string'
+            ? parsed.detected_language
+            : language;
+
+      if (transcript && this.isSttPromptLeakage(transcript)) {
+        this.logger.warn(
+          `STT prompt leakage detected (${normalizedMime}, ${buffer.length} bytes) — treating as empty`,
+        );
+        transcript = '';
+      }
+
       await this.aiLogUseService.createLogUsage(
         'google',
         this.audioModelName,
@@ -579,23 +639,8 @@ export class GoogleModerationProvider {
         latencyMs,
         costUsd,
         'success',
-        parsedResult,
+        { transcript, detectedLanguage, mimeType: normalizedMime },
       );
-
-      const parsed = parsedResult as {
-        transcript?: unknown;
-        detectedLanguage?: unknown;
-        detected_language?: unknown;
-      };
-
-      const transcript =
-        typeof parsed.transcript === 'string' ? parsed.transcript.trim() : '';
-      const detectedLanguage =
-        typeof parsed.detectedLanguage === 'string'
-          ? parsed.detectedLanguage
-          : typeof parsed.detected_language === 'string'
-            ? parsed.detected_language
-            : language;
 
       return Response.success(
         { transcript, detectedLanguage },

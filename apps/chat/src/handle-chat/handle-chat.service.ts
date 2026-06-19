@@ -9,7 +9,6 @@ import {
   RequestCallDto,
   AcceptCallDto,
   EndCallDto,
-  MessageStoreRecord,
 } from '@app/dto';
 import Utils from '@app/helpers/utils';
 import {
@@ -19,7 +18,6 @@ import {
   Logger,
   NotAcceptableException,
   NotFoundException,
-  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import {
@@ -39,7 +37,7 @@ import {
   Document,
   Quiz,
 } from 'libs/db/src';
-import { HydratedDocument, Model, Types } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { RoomCacheRepository } from '../rooms/room-cache.repository';
 import {
@@ -73,7 +71,7 @@ import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
 type CachedRoom = Room & { _id: Types.ObjectId };
 
 @Injectable()
-export class HandleChatService implements OnModuleInit {
+export class HandleChatService {
   private readonly utils = Utils;
   private readonly key = REDISKEY;
 
@@ -121,39 +119,6 @@ export class HandleChatService implements OnModuleInit {
   ) {}
 
   /**
-   * Dọn index LEGACY `uniq_1` trên MessageReads — di tích schema per-message cũ,
-   * KHÔNG còn trong model hiện tại (giờ là per-room read pointer). Index unique
-   * này gây E11000 khi mark-read (uniq=msgId:userId trùng doc cũ) → từng làm vỡ
-   * mark-read. Drop 1 lần lúc khởi động (idempotent — không có thì bỏ qua).
-   */
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.messageReadModel.collection.dropIndex('uniq_1');
-      this.log.warn('[startup] Đã drop index legacy MessageReads.uniq_1');
-    } catch {
-      /* index không tồn tại / đã drop → bỏ qua */
-    }
-  }
-
-  /**
-   * Write-behind: bật → ghi message qua Kafka (Storage consumer bulkWrite) thay
-   * vì findOneAndUpdate đồng bộ trên hot-path, để chịu burst lớn. Mặc định TẮT
-   * (an toàn). Khi tắt hoặc message loại "rich" → chạy đường ghi đồng bộ cũ.
-   */
-  private readonly writeBehind =
-    process.env.CHAT_WRITE_BEHIND_ENABLED === 'true';
-
-  /** Loại message "đơn giản" dựng payload realtime in-memory không cần đọc DB. */
-  private static readonly SIMPLE_TYPES = new Set([
-    'text',
-    'image',
-    'file',
-    'video',
-    'audio',
-    'gif',
-  ]);
-
-  /**
    * Convert `room_event.payload` (arbitrary object) to `payloadJson` (string)
    * so it survives gRPC serialization (proto schema only has `payloadJson`).
    * The realtime Socket.IO path doesn't need this — it carries raw JSON —
@@ -181,32 +146,9 @@ export class HandleChatService implements OnModuleInit {
   }
 
   /**
-   * Broadcast realtime `MSGUPSERT` THẲNG qua Redis adapter tới room cá nhân của
-   * từng member — KHÔNG đi vòng gRPC response → gateway → emit (bỏ 1 hop). Dùng
-   * chung cho react/pin/recall/mark-read. KHÔNG ném lỗi ra mutation gốc.
-   * @param recipients danh sách user business id (`m.id`) cần nhận.
-   */
-  private broadcastMsgUpsert(
-    recipients: string[],
-    msg: Record<string, any>,
-  ): void {
-    try {
-      if (!recipients.length) return;
-      const rooms = recipients.map((id) => this.key.ROOM_CLIENT(id));
-      this.emitter.broadcastTo('/chat', rooms, socketEvent.MSGUPSERT, msg);
-    } catch (err) {
-      this.log.error(
-        `[broadcastMsgUpsert] lỗi broadcast: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
-
-  /**
    * Catch-up `message.updated` (fat) cho TOÀN member của phòng + gắn `seq` vào
-   * `msg`. Dùng cho react / pin / recall — các thay đổi message hiển thị cho mọi
-   * người. Đồng thời BROADCAST live ngay (qua Redis adapter) để bỏ hop gRPC.
+   * `msg` để live (gateway broadcast) dùng CHUNG seq với catch-up. Dùng cho
+   * react / pin / recall — các thay đổi message hiển thị cho mọi người.
    * No-op khi không có msg/recipient. KHÔNG ném lỗi (outbox là phụ).
    */
   private async emitMsgUpdated(
@@ -223,11 +165,6 @@ export class HandleChatService implements OnModuleInit {
       seq = 0;
     }
     if (seq) msg.seq = seq;
-    // Live broadcast NGAY (gắn seq xong) — không đợi trả gRPC về gateway.
-    this.broadcastMsgUpsert(
-      finInfo.room_members.map((m) => m.id),
-      msg,
-    );
     await this.changeFeed.emitWithSeq(seq, {
       type: ChangeEventType.MESSAGE_UPDATED,
       roomId: finInfo._id.toString(),
@@ -238,111 +175,6 @@ export class HandleChatService implements OnModuleInit {
         msg,
       },
     });
-  }
-
-  /**
-   * Dựng payload realtime (MSGUPSERT) IN-MEMORY cho write-behind — KHỚP shape
-   * output của `buildMessageDetailPipeline` nhưng KHÔNG ghi/đọc message row cho
-   * tin text thuần. Chỉ lookup nhẹ khi có `attachments` (resolve metadata) hoặc
-   * `replyTo` (preview). Dùng ObjectId/Date như aggregate để JSON-serialize ra
-   * client giống hệt. Xem plan write-behind (A3) + getMsg.ts:1046-1117.
-   */
-  private async buildRealtimePayload(
-    messageId: Types.ObjectId,
-    createdAt: Date,
-    userInfo: User & { _id: Types.ObjectId },
-    finInfo: CachedRoom,
-    payload: CreateMessage,
-  ): Promise<Record<string, any>> {
-    const { type, content, attachments, replyTo, documentId } = payload;
-
-    // Attachments: resolve metadata (summary backfill sau ở history → null ở đây).
-    let attachmentsOut: Record<string, any>[] = [];
-    if (Array.isArray(attachments) && attachments.length) {
-      const ids = attachments.map((i) =>
-        this.utils.convertToObjectIdMongoose(i),
-      );
-      const docs = await this.attachmentModel
-        .find({ _id: { $in: ids } })
-        .select(
-          '_id kind url name size mimeType thumbUrl width height duration status',
-        )
-        .lean();
-      attachmentsOut = docs.map((d) => ({ ...d, summary: null }));
-    }
-
-    // Reply preview: 1 findById message + 1 lookup sender (chỉ khi có replyTo).
-    let reply: Record<string, any> | null = null;
-    if (replyTo) {
-      const replyDoc = await this.messageModel
-        .findById(this.utils.convertToObjectIdMongoose(replyTo))
-        .select('_id msg_type msg_content createdAt msg_sender deletedAt')
-        .lean();
-      if (replyDoc) {
-        const replySender = await this.userModel
-          .findById(replyDoc.msg_sender)
-          .select('_id usr_fullname')
-          .lean();
-        reply = {
-          _id: replyDoc._id,
-          type: replyDoc.msg_type,
-          content: replyDoc.msg_content,
-          createdAt: replyDoc.createdAt,
-          sender: {
-            _id: replySender?._id ?? null,
-            name: replySender?.usr_fullname ?? null,
-          },
-          isDelete: !!replyDoc.deletedAt,
-          hiddenBy: [], // hot-path: bỏ qua per-user hides (mặc định an toàn)
-        };
-      }
-    }
-
-    return {
-      roomId: finInfo._id, // = msg_roomId trong pipeline
-      id: messageId,
-      type,
-      content: content || '',
-      createdAt,
-      editedAt: null,
-      deletedAt: null,
-      isDeleted: false,
-      pinned: false,
-      placeholder: null,
-      sender: {
-        _id: userInfo._id,
-        fullname: userInfo.usr_fullname,
-        avatar: userInfo.usr_avatar,
-        id: userInfo.usr_id,
-      },
-      attachments: attachmentsOut,
-      reactions: [],
-      reply,
-      hiddenBy: [],
-      documentId: documentId
-        ? this.utils.convertToObjectIdMongoose(documentId)
-        : null,
-      read_by: [],
-      read_by_count: 0,
-      call_history: null,
-      quiz: null,
-      desk: null,
-      todoProject: null,
-      room_event: null,
-      summary: null,
-    };
-  }
-
-  /**
-   * Lấy message cho các MUTATION (markRead/react/pin/recall...). KHÔNG chặn/đợi:
-   * write-behind có gap đọc-sau-ghi nhưng FE đã chặn các action này khi tin chưa
-   * `sent` (xem message status), nên khi mutation tới thì tin đã persist. Trả null
-   * an toàn (caller xử lý mềm, không throw 500) nếu tin thật sự không tồn tại.
-   */
-  private async loadMessageForMutation(
-    id: string,
-  ): Promise<HydratedDocument<Message> | null> {
-    return this.messageModel.findById(this.utils.convertToObjectIdMongoose(id));
   }
 
   async createMessage(payload: CreateMessage) {
@@ -420,7 +252,6 @@ export class HandleChatService implements OnModuleInit {
       quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
       desk_id: desk_id ? this.utils.convertToObjectIdMongoose(desk_id) : null,
       todo_project_id: null as Types.ObjectId | null,
-      msg_seq: null as number | null,
     };
 
     if (todoProjectId) {
@@ -431,38 +262,6 @@ export class HandleChatService implements OnModuleInit {
         throw new NotFoundException('Dự án không tồn tại');
       }
       updatePayload.todo_project_id = todoProject._id;
-    }
-
-    // Cấp `seq` change-feed SỚM (1 lần, dùng chung cả 2 đường) để: (1) gắn vào
-    // MSGUPSERT realtime, (2) PERSIST `msg_seq` lên message phục vụ read-receipt
-    // HWM, (3) truyền sang tail. Lỗi cấp seq KHÔNG chặn create (→ 0/null).
-    let changeSeq = 0;
-    try {
-      changeSeq = await this.changeFeed.nextSeq();
-    } catch {
-      changeSeq = 0;
-    }
-    updatePayload.msg_seq = changeSeq || null;
-
-    // ── WRITE-BEHIND ────────────────────────────────────────────────────────
-    // Tách ghi DB khỏi hot-path để chịu burst. CHỈ áp cho tin "đơn giản" (không
-    // quiz/desk/todo/document) — loại rich vẫn ghi ĐỒNG BỘ để row tồn tại trước
-    // broadcast. Cờ tắt → bỏ qua, chạy đường cũ.
-    const isSimple =
-      HandleChatService.SIMPLE_TYPES.has(type) &&
-      !quizId &&
-      !desk_id &&
-      !todoProjectId &&
-      !documentId;
-    if (this.writeBehind && isSimple) {
-      return this.createMessageWriteBehind(
-        payload,
-        userInfo,
-        finInfo,
-        messageId,
-        updatePayload,
-        changeSeq,
-      );
     }
 
     // Upsert message: if an _id is provided and exists, update it; otherwise insert new
@@ -493,7 +292,16 @@ export class HandleChatService implements OnModuleInit {
     const serializedMsg = this.serializeRoomEvent(
       msg[0] as Record<string, any>,
     );
-    // `changeSeq` đã cấp sớm ở trên (dùng chung MSGUPSERT + msg_seq + tail).
+    // Cấp `seq` change-feed SỚM để gắn vào payload realtime (MSGUPSERT). Cùng
+    // `seq` này được truyền sang tail `handleMessagePersisted` để ghi outbox
+    // `room.newmsgs` → live + catch-up dùng CHUNG một seq, client tiến con trỏ
+    // nhất quán. Lỗi cấp seq không được chặn create path.
+    let changeSeq = 0;
+    try {
+      changeSeq = await this.changeFeed.nextSeq();
+    } catch {
+      changeSeq = 0;
+    }
     if (changeSeq) serializedMsg.seq = changeSeq;
     const memberClientRooms = finInfo.room_members.map((m) =>
       this.key.ROOM_CLIENT(m.id),
@@ -536,142 +344,11 @@ export class HandleChatService implements OnModuleInit {
         serializedMsg,
         changeSeq,
       },
-      // Key theo room → cùng phòng cùng partition → tail giữ thứ tự (topic
-      // MESSAGE_PERSISTED nay nhiều partition).
-      finInfo._id.toString(),
     );
 
     return Response.success(
       {
         msgId: createNewMsg._id.toString(),
-        members: finInfo.room_members,
-        roomId: finInfo.room_id,
-        msg: serializedMsg,
-      },
-      'Tin nhắn mới thành công',
-    );
-  }
-
-  /**
-   * Đường WRITE-BEHIND của createMessage: KHÔNG ghi Mongo đồng bộ. Dựng payload
-   * realtime in-memory → broadcast NGAY → produce `chat.messageStore` (Storage
-   * consumer bulkWrite). Nếu produce lỗi → FALLBACK ghi thẳng Mongo (không mất
-   * tin). Tail side-effect (`MESSAGE_PERSISTED`) giữ nguyên. Xem plan A3.
-   */
-  private async createMessageWriteBehind(
-    payload: CreateMessage,
-    userInfo: User & { _id: Types.ObjectId },
-    finInfo: CachedRoom,
-    messageId: Types.ObjectId,
-    updatePayload: {
-      msg_roomId: Types.ObjectId;
-      msg_sender: Types.ObjectId;
-      msg_content: string;
-      reply_to: Types.ObjectId | null;
-      attachment_ids: Types.ObjectId[];
-      msg_type: string;
-      document_id: Types.ObjectId | null;
-      quiz_id: Types.ObjectId | null;
-      desk_id: Types.ObjectId | null;
-      todo_project_id: Types.ObjectId | null;
-      msg_seq: number | null;
-    },
-    changeSeq: number,
-  ) {
-    const { userId, type, content, documentId } = payload;
-    const roomMongoId = finInfo._id.toString();
-    // createdAt sinh in-process → broadcast & row dùng CHUNG mốc thời gian.
-    const createdAt = new Date();
-
-    const serializedMsg = await this.buildRealtimePayload(
-      messageId,
-      createdAt,
-      userInfo,
-      finInfo,
-      payload,
-    );
-
-    // `changeSeq` cấp sẵn ở createMessage (dùng chung MSGUPSERT + msg_seq + tail).
-    if (changeSeq) serializedMsg.seq = changeSeq;
-    this.serializeRoomEvent(serializedMsg);
-
-    // Broadcast realtime NGAY (trước Kafka/DB) — UI thấy tin tức thì; FE lưu IDB
-    // (cache) nên reload vẫn thấy kể cả khi chat-storage chưa kịp ghi.
-    this.broadcastMsgUpsert(
-      finInfo.room_members.map((m) => m.id),
-      serializedMsg,
-    );
-
-    // WRITE-BEHIND cho 1 TRIỆU tin/lúc: KHÔNG ghi từng row đồng bộ (sẽ hạ Mongo) —
-    // produce record sang chat-storage để BULK insertMany. Key=room → cùng partition,
-    // giữ thứ tự. Kafka (acks=all, idempotent) là lớp DURABLE; chat-storage là writer
-    // DUY NHẤT, drain robust (commit SAU khi ghi + retry) → không mất, không đua E11000.
-    // Produce LỖI (Kafka rớt) → fallback ghi Mongo để KHÔNG mất tin.
-    const record: MessageStoreRecord = {
-      _id: messageId.toString(),
-      msg_roomId: roomMongoId,
-      msg_sender: updatePayload.msg_sender.toString(),
-      msg_content: updatePayload.msg_content,
-      reply_to: updatePayload.reply_to?.toString() ?? null,
-      attachment_ids: updatePayload.attachment_ids.map((i) => i.toString()),
-      msg_type: updatePayload.msg_type,
-      document_id: updatePayload.document_id?.toString() ?? null,
-      quiz_id: updatePayload.quiz_id?.toString() ?? null,
-      desk_id: updatePayload.desk_id?.toString() ?? null,
-      todo_project_id: updatePayload.todo_project_id?.toString() ?? null,
-      createdAt: createdAt.toISOString(),
-      seq: changeSeq || undefined,
-    };
-    const res = await this.utils.dispatchEventKafka(
-      this.chatClient,
-      KafkaEvent.MESSAGE_STORE,
-      record,
-      roomMongoId,
-    );
-    const sc = (res as { statusCode?: number })?.statusCode;
-    if (sc && sc >= 400) {
-      this.log.warn(
-        `[write-behind] produce messageStore FAIL → fallback ghi Mongo (msg=${record._id})`,
-      );
-      await this.messageModel.updateOne(
-        { _id: messageId },
-        { $set: { ...updatePayload, createdAt } },
-        { upsert: true },
-      );
-    }
-
-    // Tail side-effect (giữ nguyên semantics) — key theo room.
-    const otherMemberIds = finInfo.room_members
-      .filter((i) => i.user_id.toString() !== userInfo._id.toString())
-      .map((i) => i.user_id.toString());
-
-    await this.utils.dispatchEventKafka(
-      this.chatClient,
-      KafkaEvent.MESSAGE_PERSISTED,
-      {
-        messageId: messageId.toString(),
-        createdAt: createdAt.toISOString(),
-        roomMongoId,
-        roomCustomId: finInfo.room_id,
-        senderId: userId,
-        type,
-        content: content || '',
-        documentId: documentId || null,
-        room_type: finInfo.room_type,
-        room_name: finInfo.room_name,
-        sender_fullname: userInfo.usr_fullname,
-        otherMemberIds,
-        serializedMsg,
-        changeSeq,
-        // Row ĐÃ ghi đồng bộ ở createMessageWriteBehind → tail KHÔNG cần persist
-        // lại (bỏ `record`). Tail chỉ lo side-effects: RoomsState/unread/push/...
-      },
-      roomMongoId,
-    );
-
-    return Response.success(
-      {
-        msgId: messageId.toString(),
         members: finInfo.room_members,
         roomId: finInfo.room_id,
         msg: serializedMsg,
@@ -742,17 +419,14 @@ export class HandleChatService implements OnModuleInit {
       changeSeq,
     } = payload;
 
-    const roomObjId = this.utils.convertToObjectIdMongoose(roomMongoId);
-    const senderObjId = this.utils.convertToObjectIdMongoose(senderId);
-    const msgObjId = this.utils.convertToObjectIdMongoose(messageId);
-
-    // GHI ROW: chat-storage là writer DUY NHẤT (bulk upsert) → tail KHÔNG ghi row
-    // nữa (hết đua E11000). Tail chỉ lo side-effects: RoomsState/unread/push/...
-
-    // Dedupe: phần KHÔNG idempotent (unread $inc) chỉ chạy 1 lần / message.
+    // Dedupe: mỗi message chỉ chạy tail 1 lần.
     const processedKey = this.key.MSG_PROCESSED(messageId);
     if (await this.redis.getData<string>(processedKey)) return;
     await this.redis.setData(processedKey, '1', 24 * 60 * 60);
+
+    const roomObjId = this.utils.convertToObjectIdMongoose(roomMongoId);
+    const senderObjId = this.utils.convertToObjectIdMongoose(senderId);
+    const msgObjId = this.utils.convertToObjectIdMongoose(messageId);
     const readAt = createdAt ? new Date(createdAt) : new Date();
     const contentSnap = this.buildContentSnap(type, content);
 
@@ -991,8 +665,9 @@ export class HandleChatService implements OnModuleInit {
     // get info room
 
     const [messgeInfo, roomInfro] = await Promise.all([
-      // Retry ngắn để phủ gap đọc-sau-ghi của write-behind.
-      this.loadMessageForMutation(lastMessageId),
+      this.messageModel.findById(
+        this.utils.convertToObjectIdMongoose(lastMessageId),
+      ),
       this.roomCache.getByPairOrRoomId(
         roomId,
         this.utils.pairRoomId(userInfo.usr_id, roomId),
@@ -1003,70 +678,22 @@ export class HandleChatService implements OnModuleInit {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
     if (!messgeInfo) {
-      // Write-behind: tin VỪA gửi có thể CHƯA được chat-storage ghi vào Mongo →
-      // findById trả null. KHÔNG throw (sẽ thành gRPC 500 → socket
-      // "Service unavailable"). No-op mềm: read-state tự bù ở lần đọc/tin kế.
-      // mark-read KHÔNG được làm vỡ socket (xem commit 8223df3 + R4 write-behind).
-      this.log.warn(
-        `[markRead] message chưa tồn tại (có thể write-behind lag) lastMessageId=${lastMessageId} room=${roomId}`,
-      );
-      return { msgId: null, members: [], roomId: null };
+      throw new NotAcceptableException('tin nhắn không tồn tại');
     }
-
-    // Tin của CHÍNH người gọi → BỎ QUA đánh dấu đã đọc. Khi gửi, tail
-    // `handleMessagePersisted` đã set read-state cho người gửi (MessageRead +
-    // RoomsUsersState.unread=0 + Redis). Mark lại chỉ thừa và gây đua E11000 trên
-    // `uniq_1`. Trả no-op thành công (msg=null → gateway không broadcast lại).
-    if (messgeInfo.msg_sender?.toString() === userInfo._id.toString()) {
-      return Response.success(
-        {
-          msgId: messgeInfo._id.toString(),
-          members: roomInfro.room_members,
-          roomId: roomInfro.room_id,
-          msg: null,
-        },
-        'Tin của chính bạn — không cần đánh dấu đã đọc',
-      );
-    }
-
     const readAt = new Date();
-    // Upsert MessageRead AN TOÀN với race: 2 mark:read đồng thời cùng (room,user)
-    // → cả 2 cùng insert → 1 cái E11000 trên unique index (uniq / room_id+user_id),
-    // làm markReadUpTo throw → gateway "Service unavailable". Retry 1 lần: lần 2
-    // doc đã tồn tại → updateOne (không insert) → hết dup key, idempotent.
-    const markMessageRead = async () => {
-      const filter = { room_id: roomInfro._id, user_id: userInfo._id };
-      const update = {
-        msg_id: messgeInfo._id,
-        uniq: `${messgeInfo._id.toString()}:${userId}`,
-        readAt,
-      };
-      try {
-        await this.messageReadModel.findOneAndUpdate(filter, update, {
-          upsert: true,
-        });
-      } catch (err) {
-        // E11000 từ index LEGACY `uniq_1` (schema per-message cũ) khi `uniq` trùng
-        // doc cũ. Read-receipt (MessageReads) là BEST-EFFORT — nguồn CHÂN LÝ của
-        // trạng thái đọc là RoomsUsersState.last_read_seq (cập nhật song song bên
-        // dưới). TUYỆT ĐỐI KHÔNG để vỡ mark-read (Promise.all reject → gateway
-        // "Service unavailable"). Nuốt 11000, chỉ log; lỗi khác cũng không chặn.
-        const code = (err as { code?: number })?.code;
-        if (code === 11000) {
-          this.log.warn(
-            `[mark-read] MessageReads uniq trùng (index legacy uniq_1) msg=${messgeInfo._id.toString()} user=${userId} → bỏ qua`,
-          );
-        } else {
-          this.log.error(
-            `[mark-read] MessageReads upsert lỗi (bỏ qua): ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        }
-      }
-    };
     await Promise.all([
-      markMessageRead(),
+      this.messageReadModel.findOneAndUpdate(
+        {
+          room_id: roomInfro._id,
+          user_id: userInfo._id,
+        },
+        {
+          msg_id: messgeInfo._id,
+          uniq: `${messgeInfo._id.toString()}:${userId}`,
+          readAt: readAt,
+        },
+        { upsert: true },
+      ),
       this.RoomsUsersState.findOneAndUpdate(
         {
           room_id: roomInfro._id,
@@ -1075,8 +702,6 @@ export class HandleChatService implements OnModuleInit {
         {
           last_read_msg_id: messgeInfo._id,
           last_read_at: readAt,
-          // HWM đọc theo seq (read-receipt): seq của tin cuối đã đọc.
-          last_read_seq: messgeInfo.msg_seq ?? null,
           // Reader has caught up to "now" → unread resets to 0. Previously
           // this fanned out an exact recompute for EVERY room member (N heavy
           // aggregates per read), but one user reading never changes another
@@ -1114,35 +739,6 @@ export class HandleChatService implements OnModuleInit {
       },
     });
     if (readSeq && serializedMsg) serializedMsg.seq = readSeq;
-    // Broadcast live NGAY qua Redis — bỏ hop gRPC-return→gateway→emit.
-    if (serializedMsg) {
-      this.broadcastMsgUpsert(
-        roomInfro.room_members.map((m) => m.id),
-        serializedMsg,
-      );
-    }
-    // Read-receipt HWM: báo con trỏ đọc của reader cho CÁC member khác để họ tô
-    // "đã xem" mọi tin `seq <= lastReadSeq` (quét local, không re-fetch). Chỉ khi
-    // tin có seq (tin cũ → FE fallback read_by từ broadcast trên).
-    const otherMembers = roomInfro.room_members.filter(
-      (m) => m.user_id.toString() !== userInfo._id.toString(),
-    );
-    if (otherMembers.length && messgeInfo.msg_seq) {
-      this.emitter.broadcastTo(
-        '/chat',
-        otherMembers.map((m) => this.key.ROOM_CLIENT(m.id)),
-        socketEvent.MSGSTATUS,
-        {
-          roomId: roomInfro.room_id,
-          roomMongoId: roomInfro._id.toString(),
-          readerId: userInfo.usr_id,
-          status: 'read',
-          lastReadSeq: messgeInfo.msg_seq,
-          lastReadMsgId: messgeInfo._id.toString(),
-          lastReadAt: readAt,
-        },
-      );
-    }
     return Response.success(
       {
         msgId: messgeInfo._id.toString(),
@@ -1190,29 +786,19 @@ export class HandleChatService implements OnModuleInit {
       throw new NotAcceptableException('Phòng không tồn taij');
     }
 
-    // Keyset pagination theo `createdAt` SERVER (KHÔNG dùng `_id`): `_id` của tin
-    // có thể do CLIENT sinh (optimistic) → lệch đồng hồ → so sánh `_id` bỏ sót tin
-    // server (call/system có _id nhỏ hơn). Lấy mốc createdAt thật của cursor từ DB
-    // rồi lọc theo createdAt → không bỏ sót, không phụ thuộc nguồn id.
+    // Build comparison filter based on pagination type
     const compare: Record<string, any> = {};
     if (type && msgId && Types.ObjectId.isValid(msgId)) {
-      const cursor = await this.messageModel
-        .findById(this.utils.convertToObjectIdMongoose(msgId))
-        .select('createdAt')
-        .lean();
-      const cursorTs = (cursor as { createdAt?: Date } | null)?.createdAt;
-      if (cursorTs) {
-        compare.createdAt =
-          type === 'new' ? { $gt: cursorTs } : { $lt: cursorTs };
+      const msgObjectId = this.utils.convertToObjectIdMongoose(msgId);
+      if (type === 'new') {
+        // Load tin nhắn mới hơn msgId (để load real-time updates)
+        compare._id = { $gt: msgObjectId };
+      } else if (type === 'old') {
+        // Load tin nhắn cũ hơn msgId (để pagination lùi về quá khứ)
+        compare._id = { $lt: msgObjectId };
       }
     }
 
-    // LUÔN lấy N tin MỚI NHẤT của tập đã lọc: DESC + limit rồi đảo về ASC cho FE.
-    // - type='new' (createdAt > cursor): N tin MỚI NHẤT sau cursor → mở phòng hiện
-    //   ĐÚNG tin mới nhất kể cả cache cũ (gap giữa cursor↔mới nhất tải sau bằng
-    //   type='old' khi cuộn lên). KHÔNG dùng ASC (sẽ trả cửa sổ giữa, kẹt ở tin cũ).
-    // - type='old' (createdAt < cursor): N tin gần nhất trong quá khứ (pagination lùi).
-    // - null: N tin mới nhất toàn phòng.
     const pipeLine = buildMessageCorePipeline(userId);
     const result = await this.messageModel.aggregate([
       {
@@ -1222,9 +808,9 @@ export class HandleChatService implements OnModuleInit {
         },
       },
       ...pipeLine,
-      { $sort: { createdAt: -1 } }, // mới nhất trước
-      { $limit: Number(limit) },
-      { $sort: { createdAt: 1 } }, // đảo về ASC (cũ → mới) cho FE render
+      { $sort: { createdAt: -1 } }, // Sắp xếp giảm dần (mới nhất lên đầu)
+      { $limit: Number(limit) }, // Giới hạn số lượng
+      { $sort: { createdAt: 1 } }, // Đảo lại thứ tự tăng dần (cũ → mới)
     ]);
     // Stringify each message's room_event.payload so it survives gRPC.
     const serialized = (result as Record<string, any>[]).map((m) =>
@@ -1252,11 +838,9 @@ export class HandleChatService implements OnModuleInit {
     if (!finInfo) {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
-    // Retry ngắn phủ gap đọc-sau-ghi của write-behind (tin vừa gửi chưa persist).
-    const findMsg = await this.loadMessageForMutation(msgId);
+    const findMsg = await this.messageModel.findById(msgId);
     if (!findMsg) {
-      // Trả lỗi MỀM (không throw) để gateway không vỡ thành "Service unavailable".
-      return Response.error('Tin nhắn không tồn tại', 400);
+      throw new NotAcceptableException('Tin nhắn không tồn tại');
     }
     let contentSnap: string;
     switch (findMsg?.msg_type) {
@@ -1353,11 +937,6 @@ export class HandleChatService implements OnModuleInit {
     // Use $each inside $addToSet to avoid potential issues inserting a single value
     // and ensure we convert the incoming msgId to ObjectId consistently.
     const objectId = this.utils.convertToObjectIdMongoose(msgId);
-    // Đợi message persist (write-behind gap) trước khi ghim; lỗi mềm nếu không có.
-    const pinMsg = await this.loadMessageForMutation(msgId);
-    if (!pinMsg) {
-      return Response.error('Tin nhắn không tồn tại', 404);
-    }
     const updateQuery = pinned
       ? { $addToSet: { room_ghim: { $each: [objectId] } } }
       : { $pull: { room_ghim: objectId } };
@@ -1467,13 +1046,6 @@ export class HandleChatService implements OnModuleInit {
     });
     if (hideSeq && Array.isArray(msgs) && msgs[0])
       (msgs[0] as Record<string, any>).seq = hideSeq;
-    // Broadcast live NGAY — ẩn-cho-tôi là PER-USER nên CHỈ bắn tới các thiết bị
-    // của chính user này (ROOM_CLIENT(usr_id)), KHÔNG bắn cả phòng.
-    if (Array.isArray(msgs)) {
-      for (const m of msgs) {
-        this.broadcastMsgUpsert([userInfo.usr_id], m as Record<string, any>);
-      }
-    }
     return Response.success(
       {
         msgs,
@@ -1509,15 +1081,12 @@ export class HandleChatService implements OnModuleInit {
       throw new NotAcceptableException('Phòng không tồn tại');
     }
 
-    // Check permission: Only Sender or Admin can delete.
-    // Retry ngắn phủ gap đọc-sau-ghi của write-behind; lỗi mềm (không throw 500).
-    const targetMsg = await this.loadMessageForMutation(msgId);
-    if (
-      !targetMsg ||
-      targetMsg.msg_roomId?.toString() !== finInfo._id.toString()
-    ) {
-      return Response.error('Tin nhắn không tồn tại', 404);
-    }
+    // Check permission: Only Sender or Admin can delete
+    const targetMsg = await this.messageModel.findOne({
+      _id: this.utils.convertToObjectIdMongoose(msgId),
+      msg_roomId: finInfo._id,
+    });
+    if (!targetMsg) throw new NotFoundException('Tin nhắn không tồn tại');
 
     const isSender =
       targetMsg.msg_sender.toString() === userInfo._id.toString();

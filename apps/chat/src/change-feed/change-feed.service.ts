@@ -57,9 +57,6 @@ export class ChangeFeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    this.logger.log(
-      `[CF] ChangeFeedService init — enabled=${this.enabled} (CHANGEFEED_ENABLED=${process.env.CHANGEFEED_ENABLED ?? 'unset→default true'})`,
-    );
     if (!this.enabled) {
       this.logger.warn('Change-feed DISABLED (CHANGEFEED_ENABLED=false)');
     }
@@ -112,20 +109,9 @@ export class ChangeFeedService implements OnModuleInit {
     },
   ): Promise<void> {
     const { type, roomId, recipients, payload } = params;
-    if (!recipients?.length || !seq) {
-      this.logger.debug(
-        `[CF] emitWithSeq skip type=${type} seq=${seq} recipients=${recipients?.length ?? 0}`,
-      );
-      return;
-    }
+    if (!recipients?.length || !seq) return;
     try {
-      this.logger.log(
-        `[CF] → dispatch OUTBOX_APPEND type=${type} seq=${seq} room=${roomId} recipients=${recipients.length}`,
-      );
-      // QUAN TRỌNG: dispatchEventKafka KHÔNG throw khi produce lỗi — nó TRẢ VỀ
-      // Response.error. Trước đây ta bỏ qua giá trị này → nuốt lỗi âm thầm.
-      // Giờ log thẳng kết quả để thấy produce có thành công không.
-      const res = await Utils.dispatchEventKafka(
+      await Utils.dispatchEventKafka(
         this.chatClient,
         KafkaEvent.OUTBOX_APPEND,
         {
@@ -135,26 +121,12 @@ export class ChangeFeedService implements OnModuleInit {
           recipients,
           payload,
         } satisfies OutboxAppendPayload,
-        // Key theo room → cùng phòng cùng partition → consumer ghi outbox theo
-        // đúng thứ tự seq (topic OUTBOX_APPEND nay nhiều partition). Tránh HWM
-        // `room.newmsgs` bị seq cũ ghi đè seq mới.
-        roomId,
       );
-      const sc = (res as { statusCode?: number })?.statusCode;
-      if (sc && sc >= 400) {
-        this.logger.error(
-          `[CF] ✗ dispatch OUTBOX_APPEND FAILED type=${type} seq=${seq}: ${JSON.stringify(res)}`,
-        );
-      } else {
-        this.logger.log(
-          `[CF] ✓ dispatch OUTBOX_APPEND OK type=${type} seq=${seq} (statusCode=${sc ?? 'n/a'})`,
-        );
-      }
     } catch (err) {
       // Outbox là phần CATCH-UP — lỗi ở đây KHÔNG được làm hỏng mutation gốc
       // (đã commit + emit realtime). Client vẫn nhận live; lần sync sau bù.
       this.logger.error(
-        `[CF] ✗ dispatch OUTBOX_APPEND THREW type=${type} seq=${seq}: ${
+        `[change-feed] emit ${type} seq=${seq} failed: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
@@ -185,9 +157,6 @@ export class ChangeFeedService implements OnModuleInit {
    */
   async handleOutboxAppend(data: OutboxAppendPayload): Promise<void> {
     const { seq, type, roomId, recipients, payload } = data;
-    this.logger.log(
-      `[CF] ← CONSUME OUTBOX_APPEND type=${type} seq=${seq} room=${roomId} recipients=${recipients?.length ?? 0}`,
-    );
     if (!recipients?.length) return;
 
     const roomObjId = Utils.convertToObjectIdMongoose(roomId);
@@ -221,37 +190,10 @@ export class ChangeFeedService implements OnModuleInit {
       };
     });
 
-    try {
-      const result = await this.changeEventModel.bulkWrite(ops, {
-        ordered: false,
-      });
-      this.logger.log(
-        `[CF] ✓ WROTE outbox type=${type} seq=${seq} inserted=${result.insertedCount} upserted=${result.upsertedCount} modified=${result.modifiedCount}`,
-      );
-    } catch (err) {
-      this.logger.error(
-        `[CF] ✗ bulkWrite FAILED type=${type} seq=${seq}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-      throw err; // để onOutboxAppend log + Kafka retry
-    }
+    await this.changeEventModel.bulkWrite(ops, { ordered: false });
 
     // Đánh dấu user "dirty" để job trim cap chỉ xử lý user có thay đổi (mục 5a).
     await this.redis.sAdd(REDISKEY.CHANGEFEED_DIRTY(), ...recipients);
-
-    // Nâng watermark "đã ghi" = max(hiện tại, seq) → syncEvents phân biệt được
-    // "lag thật" vs "user chỉ tụt sau seq toàn cục của người khác". Get-set
-    // (không atomic, chấp nhận vì chỉ là HINT cho retry). Lỗi → bỏ qua.
-    try {
-      const curRaw = await this.redis.client.get(REDISKEY.CHANGE_WRITTEN_SEQ());
-      const cur = Number(curRaw) || 0;
-      if (seq > cur) {
-        await this.redis.client.set(REDISKEY.CHANGE_WRITTEN_SEQ(), String(seq));
-      }
-    } catch {
-      /* hint-only, bỏ qua lỗi */
-    }
   }
 
   /**
@@ -298,7 +240,6 @@ export class ChangeFeedService implements OnModuleInit {
     hasMore: boolean;
     requireFullResync: boolean;
     currentSeq: number;
-    mayHavePending: boolean;
   }> {
     const userId = new Types.ObjectId(params.userId);
     const sinceSeq = Number(params.sinceSeq ?? 0);
@@ -349,35 +290,6 @@ export class ChangeFeedService implements OnModuleInit {
       currentSeq = 0;
     }
 
-    // `mayHavePending`: batch rỗng NHƯNG consumer outbox ĐANG LAG (đã cấp seq
-    // nhưng CHƯA ghi xong) → có thể có event của user này đang kẹt → client
-    // RETRY-có-backoff thay vì "chốt sổ" hụt tin (race pointer out-of-sync).
-    // So `currentSeq` (đã cấp) với `writtenSeq` (đã ghi) — KHÔNG so với `nextSeq`
-    // của user (sai vì seq toàn cục → luôn > nextSeq do event người khác →
-    // false-positive). Đã ghi đủ (written>=current) → KHÔNG retry.
-    let writtenSeq = 0;
-    try {
-      const raw = await this.redis.client.get(REDISKEY.CHANGE_WRITTEN_SEQ());
-      const parsed = Number(raw);
-      writtenSeq = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-    } catch {
-      writtenSeq = 0;
-    }
-    // writtenSeq=0 = chưa khởi tạo (vừa deploy / chưa ghi outbox nào) → KHÔNG
-    // claim pending (tránh false-positive bootstrap); chỉ xét khi đã có watermark.
-    const mayHavePending =
-      events.length === 0 &&
-      currentSeq > 0 &&
-      writtenSeq > 0 &&
-      currentSeq > writtenSeq;
-
-    return {
-      events,
-      nextSeq,
-      hasMore,
-      requireFullResync,
-      currentSeq,
-      mayHavePending,
-    };
+    return { events, nextSeq, hasMore, requireFullResync, currentSeq };
   }
 }
