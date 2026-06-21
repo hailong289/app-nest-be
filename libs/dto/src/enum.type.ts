@@ -68,10 +68,6 @@ export enum KafkaEvent {
   CREATE_ROOMS = 'create_rooms',
   SHARE_DOC_FOR_ROOM = 'document.shareforRoom',
 
-  // Chat — Kafka ingest path (Phase 1 high-throughput). Socket produce với
-  // key=roomId; chat consume rồi micro-batch + bulkWrite upsert. Gated bởi
-  // CHAT_INGEST_MODE=kafka (default grpc → path này không dùng).
-  CHAT_INBOUND = 'chat.inbound',
   // Chat — tail bất đồng bộ sau khi đã tạo message (chat tự consume)
   MESSAGE_PERSISTED = 'chat.messagePersisted',
   // Chat — ghi outbox change-feed (catch-up sync). Chat tự consume rồi bulkWrite

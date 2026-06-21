@@ -5,7 +5,7 @@
   "monorepo": true,
   "root": "apps/api-gateway",
   "compilerOptions": {
-    "deleteOutDir": false,
+    "deleteOutDir": true,
     "webpack": true,
     "tsConfigPath": "apps/api-gateway/tsconfig.app.json",
     "watchAssets": true,
