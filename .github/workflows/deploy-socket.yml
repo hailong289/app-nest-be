@@ -31,12 +31,12 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --min-instances=0 \
-            --max-instances=10 \
+            --max-instances=40 \
             --cpu=1 \
             --memory=4Gi \
             --port=8080 \
             --timeout=3600s \
-            --concurrency=1000 \
+            --concurrency=250 \
             --set-env-vars NODE_ENV=${{ secrets.NODE_ENV }} \
             --set-env-vars REDIS_HOST=${{ secrets.REDIS_HOST }} \
             --set-env-vars REDIS_PORT=${{ secrets.REDIS_PORT }} \
@@ -63,4 +63,12 @@ jobs:
             --set-env-vars SFU_INTERNAL_SECRET=${{ secrets.SFU_INTERNAL_SECRET }} \
             --set-env-vars GATEWAY_AI_HOST=${{ secrets.GATEWAY_AI_HOST }} \
             --set-env-vars GATEWAY_AI_PORT=${{ secrets.GATEWAY_AI_PORT }} \
-            --set-env-vars GATEWAY_AI_PROTO_PATH=${{ secrets.GATEWAY_AI_PROTO_PATH }}
+            --set-env-vars GATEWAY_AI_PROTO_PATH=${{ secrets.GATEWAY_AI_PROTO_PATH }} \
+            --set-env-vars CHAT_INGEST_MODE=kafka \
+            --set-env-vars KAFKA_AUTO_CREATE_TOPICS=true \
+            --set-env-vars KAFKA_HOST=${{ secrets.KAFKA_HOST }} \
+            --set-env-vars KAFKA_PORT=${{ secrets.KAFKA_PORT }} \
+            --set-env-vars KAFKA_SASL=${{ secrets.KAFKA_SASL }} \
+            --set-env-vars KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }} \
+            --set-env-vars KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }} \
+            --set-env-vars KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }}

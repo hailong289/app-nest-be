@@ -50,6 +50,10 @@ export class HandleChatController {
     }
   }
 
+  // Phase 1 — `chat.inbound` ingest is now handled by ChatInboundConsumer
+  // (raw kafkajs `eachBatch`), NOT a NestJS @EventPattern. The old
+  // @EventPattern(CHAT_INBOUND) + enqueueInbound buffer were removed.
+
   /**
    * Consumer ghi outbox change-feed (catch-up sync). Tách khỏi mutation path:
    * `emit()` chỉ INCR seq + dispatch, việc bulkWrite per-recipient chạy ở đây.
@@ -66,6 +70,16 @@ export class HandleChatController {
         }`,
       );
     }
+  }
+
+  /**
+   * Keep-warm ping (Cloud Run cost optimization). Socket gọi định kỳ khi còn
+   * user online để GIỮ chat instance sống → consumer Kafka chat.inbound (chạy
+   * nền) không bị scale-to-0 làm chết. Trả về ngay, không side-effect.
+   */
+  @GrpcMethod('ChatService', 'KeepWarm')
+  KeepWarm() {
+    return { ok: true };
   }
 
   @GrpcMethod('ChatService', 'GetOneMsg')

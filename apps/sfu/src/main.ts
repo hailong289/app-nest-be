@@ -31,7 +31,19 @@ async function bootstrap() {
     },
   });
 
-  await app.startAllMicroservices();
+  try {
+    await app.startAllMicroservices();
+  } catch (error) {
+    const msg = (error as Error).message;
+    logger.error(`❌ SFU microservice bind FAILED: ${msg}`);
+    if (/EADDRINUSE/i.test(msg)) {
+      logger.error(
+        '   → Port đã bị chiếm. Dọn process cũ: `yarn clean:ports` (pkill -f "nest start"), rồi chạy lại.',
+      );
+    }
+    await app.close().catch(() => {});
+    process.exit(1);
+  }
   await app.init();
 
   logger.log(`SFU gRPC microservice listening on ${host}:${port}`);
