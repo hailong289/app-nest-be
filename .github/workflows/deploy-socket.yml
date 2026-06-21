@@ -64,7 +64,7 @@ jobs:
             --set-env-vars GATEWAY_AI_HOST=${{ secrets.GATEWAY_AI_HOST }} \
             --set-env-vars GATEWAY_AI_PORT=${{ secrets.GATEWAY_AI_PORT }} \
             --set-env-vars GATEWAY_AI_PROTO_PATH=${{ secrets.GATEWAY_AI_PROTO_PATH }} \
-            --set-env-vars CHAT_INGEST_MODE=kafka \
+            --set-env-vars CHAT_INGEST_MODE=grpc \
             --set-env-vars KAFKA_AUTO_CREATE_TOPICS=true \
             --set-env-vars KAFKA_HOST=${{ secrets.KAFKA_HOST }} \
             --set-env-vars KAFKA_PORT=${{ secrets.KAFKA_PORT }} \

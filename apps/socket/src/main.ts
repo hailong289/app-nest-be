@@ -1,5 +1,5 @@
-// Redeploy trigger: Cloud Run memory quota fix (4Gi→1Gi) — chạm apps/socket/**
-// để paths-filter của deploy.yml kích hoạt deploy-socket với config đã sửa.
+// Redeploy trigger: chuyển CHAT_INGEST_MODE=grpc (độ trễ tin lẻ thấp hơn kafka
+// trên Cloud Run) — chạm apps/socket/** để paths-filter kích hoạt deploy-socket.
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { useSharedRedisAdapter } from './ws';
