@@ -40,9 +40,6 @@ service ChatService {
   rpc SyncUserRooms(SyncUserRoomsInput) returns (SyncUserRoomsOutput);
   // Catch-up sync: pull change-feed (outbox per-user) kể từ con trỏ sinceSeq.
   rpc SyncEvents(SyncEventsInput) returns (SyncEventsOutput);
-  // Keep-warm: request rỗng socket gọi để GIỮ chat instance sống (Cloud Run) khi
-  // còn user online → consumer Kafka chat.inbound không bị scale-to-0 làm chết.
-  rpc KeepWarm(KeepWarmInput) returns (KeepWarmOutput);
 
 }
 // Requests and Responses
@@ -52,11 +49,6 @@ message SyncUserRoomsInput {
 }
 message SyncUserRoomsOutput {
   repeated string roomIds = 1;
-}
-
-message KeepWarmInput {}
-message KeepWarmOutput {
-  bool ok = 1;
 }
 
 message SyncEventsInput {

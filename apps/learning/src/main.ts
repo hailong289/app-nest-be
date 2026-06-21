@@ -39,18 +39,8 @@ async function bootstrap() {
   try {
     await app.startAllMicroservices();
   } catch (error) {
-    const msg = (error as Error).message;
-    console.error(`❌ Microservice bind FAILED: ${msg}`);
-    if (/EADDRINUSE/i.test(msg)) {
-      console.error(
-        '   → Port đã bị chiếm. Dọn process cũ: `yarn clean:ports` (pkill -f "nest start"), rồi chạy lại.',
-      );
-    }
-    console.error(
-      '   → gRPC sẽ KHÔNG phục vụ (gateway nhận ECONNREFUSED). Thoát process.',
-    );
-    await app.close().catch(() => {});
-    process.exit(1);
+    console.error('Error starting microservices:', (error as Error).message);
+    console.log('Some microservices may not be available, but continuing...');
   }
   await app.init();
 

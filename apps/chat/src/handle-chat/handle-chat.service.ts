@@ -37,7 +37,7 @@ import {
   Document,
   Quiz,
 } from 'libs/db/src';
-import { AnyBulkWriteOperation, Model, Types } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
 import { RoomCacheRepository } from '../rooms/room-cache.repository';
 import {
@@ -70,40 +70,12 @@ import { TodoProject } from 'libs/db/src/mongo/model/todo-project.model';
  */
 type CachedRoom = Room & { _id: Types.ObjectId };
 
-/**
- * Shape of a message produced to Kafka `chat.inbound` by the socket gateway
- * (CHAT_INGEST_MODE=kafka). Mirrors CreateMessage plus the gateway-supplied
- * `id` (client id or snowflake) used as the idempotency `_id`.
- */
-export interface InboundChatItem {
-  id?: string;
-  roomId: string;
-  userId: string;
-  type: string;
-  content?: string | null;
-  attachments?: string[];
-  replyTo?: string | null;
-  documentId?: string | null;
-  quizId?: string | null;
-  desk_id?: string | null;
-  todoProjectId?: string | null;
-}
-
 @Injectable()
 export class HandleChatService {
   private readonly utils = Utils;
   private readonly key = REDISKEY;
 
   private readonly log = new Logger();
-
-  // ──────────────────────────────────────────────────────────────────────
-  // Phase 1 — Kafka ingest (CHAT_INGEST_MODE=kafka)
-  // ──────────────────────────────────────────────────────────────────────
-  // Batching now happens in ChatInboundConsumer via a raw kafkajs `eachBatch`
-  // consumer (real broker-side batches + offset/heartbeat control). The old
-  // app-level setInterval buffer (`enqueueInbound`/`flushInbound`) was removed
-  // — handleInboundBatch() below is invoked directly by that consumer.
-
   constructor(
     @InjectModel(Room.name) private readonly roomModel: Model<Room>,
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
@@ -307,27 +279,30 @@ export class HandleChatService {
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
-    // SONG SONG hoá 2 round-trip cloud ĐỘC LẬP: enrich message (Mongo aggregate)
-    // và cấp `seq` change-feed (Redis INCR). Trước đây chạy NỐI TIẾP nên 2
-    // round-trip cộng dồn vào độ trễ broadcast; giờ overlap → chỉ tốn ~1. Lỗi
-    // cấp seq không chặn create path (fallback 0). Cùng `seq` này được truyền
-    // sang tail MESSAGE_PERSISTED để outbox `room.newmsgs` dùng CHUNG con trỏ.
-    const [msg, changeSeq] = await Promise.all([
-      this.messageModel.aggregate(
-        buildMessageDetailPipeline(createNewMsg._id.toString()),
-      ),
-      this.changeFeed.nextSeq().catch(() => 0),
-    ]);
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(createNewMsg._id.toString()),
+    );
 
+    // Phát realtime NGAY khi payload đã đầy đủ — KHÔNG chờ tail side-effect
+    // (Kafka embedding, push notification, bulkWrite unread) ở dưới, và KHÔNG
+    // đi vòng gRPC response → gateway → emit. Bắn thẳng qua Redis adapter:
+    // chat service → Redis → apps/socket → client. Nhắm tới room cá nhân của
+    // từng thành viên (ROOM_CLIENT) — đúng semantics gateway đang dùng, room
+    // này luôn được join lúc connect nên không phụ thuộc trạng thái join roomId.
     const serializedMsg = this.serializeRoomEvent(
       msg[0] as Record<string, any>,
     );
+    // Cấp `seq` change-feed SỚM để gắn vào payload realtime (MSGUPSERT). Cùng
+    // `seq` này được truyền sang tail `handleMessagePersisted` để ghi outbox
+    // `room.newmsgs` → live + catch-up dùng CHUNG một seq, client tiến con trỏ
+    // nhất quán. Lỗi cấp seq không được chặn create path.
+    let changeSeq = 0;
+    try {
+      changeSeq = await this.changeFeed.nextSeq();
+    } catch {
+      changeSeq = 0;
+    }
     if (changeSeq) serializedMsg.seq = changeSeq;
-
-    // BẮN realtime NGAY khi đã có payload đầy đủ — thẳng qua Redis adapter:
-    // chat service → Redis → apps/socket → client. KHÔNG đi vòng gRPC response,
-    // KHÔNG chờ tail. Nhắm room cá nhân từng thành viên (ROOM_CLIENT) luôn được
-    // join lúc connect nên không phụ thuộc trạng thái join roomId.
     const memberClientRooms = finInfo.room_members.map((m) =>
       this.key.ROOM_CLIENT(m.id),
     );
@@ -338,19 +313,19 @@ export class HandleChatService {
       serializedMsg,
     );
 
-    // Tail (RoomsState/MessageRead/RoomsUsersState + unread + downstream
-    // embedding/link/share/push + outbox catch-feed) chạy trong consumer
-    // MESSAGE_PERSISTED. FIRE-AND-FORGET: KHÔNG await → ACK người gửi trả về
-    // ngay sau emit, không cộng thêm 1 round-trip Kafka cloud. Đánh đổi: nếu
-    // process chết ngay sau emit mà produce chưa xong thì mất event tail của
-    // tin đó (unread lệch/không push/không embedding) — chấp nhận để ưu tiên
-    // độ trễ; muốn bền tuyệt đối thì chuyển sang transactional-outbox.
+    // Toàn bộ "tail" (cập nhật RoomsState/MessageRead/RoomsUsersState + unread +
+    // emit downstream embedding/link/share/push) được ĐẨY SANG consumer
+    // MESSAGE_PERSISTED của chính chat service. Create path chỉ emit MỘT event
+    // rồi trả về — không chặn bởi N-write Mongo, không bị bão write làm nghẽn DB.
+    // Consumer group đóng vai trò điều tiết để Mongo nhận tải đều.
     const otherMemberIds = finInfo.room_members
       .filter((i) => i.user_id.toString() !== userInfo._id.toString())
       .map((i) => i.user_id.toString());
 
-    void this.utils
-      .dispatchEventKafka(this.chatClient, KafkaEvent.MESSAGE_PERSISTED, {
+    await this.utils.dispatchEventKafka(
+      this.chatClient,
+      KafkaEvent.MESSAGE_PERSISTED,
+      {
         messageId: createNewMsg._id.toString(),
         createdAt:
           createNewMsg.createdAt instanceof Date
@@ -368,14 +343,8 @@ export class HandleChatService {
         otherMemberIds,
         serializedMsg,
         changeSeq,
-      })
-      .catch((err: unknown) =>
-        this.log.error(
-          `dispatchEventKafka MESSAGE_PERSISTED failed: ${
-            (err as Error)?.message ?? String(err)
-          }`,
-        ),
-      );
+      },
+    );
 
     return Response.success(
       {
@@ -386,194 +355,6 @@ export class HandleChatService {
       },
       'Tin nhắn mới thành công',
     );
-  }
-
-  // ──────────────────────────────────────────────────────────────────────
-  // Phase 1 — Kafka ingest
-  // ──────────────────────────────────────────────────────────────────────
-
-  /**
-   * Xử lý 1 batch inbound: validate member qua room cache → bulkWrite upsert
-   * keyed on `_id` (idempotent, redeliver = no dup) → enrich + serialize 1
-   * aggregate/flush → broadcast realtime → fire-and-forget MESSAGE_PERSISTED
-   * tail per-msg (tái dùng pipeline cũ). Batch form của createMessage().
-   *
-   * PUBLIC: gọi trực tiếp từ ChatInboundConsumer (raw kafkajs eachBatch) — nó
-   * đã tự gom batch + group theo roomId nên không còn qua buffer app-level.
-   */
-  async handleInboundBatch(items: InboundChatItem[]): Promise<void> {
-    // 1) Resolve room + sender info cho từng item (cache hit là chính). Validate
-    //    member; item lỗi (không phải member / phòng/người không tồn tại / bị
-    //    chặn) bị loại bỏ, KHÔNG làm hỏng cả batch.
-    type Prepared = {
-      item: InboundChatItem;
-      messageId: Types.ObjectId;
-      finInfo: CachedRoom;
-      userInfo: NonNullable<
-        Awaited<ReturnType<RoomsService['getUserInfo']>>
-      >;
-    };
-    const prepared: Prepared[] = [];
-
-    await Promise.all(
-      items.map(async (item) => {
-        try {
-          const { roomId, userId, id } = item;
-          const check = await this.roomService.checkExistedMemberRoom(
-            userId,
-            roomId,
-          );
-          if (!check) return;
-          const userInfo = await this.roomService.getUserInfo(userId);
-          if (!userInfo) return;
-          const finInfo = (await this.roomCache.getByPairOrRoomId(
-            roomId,
-            this.utils.pairRoomId(userInfo.usr_id, roomId),
-          )) as CachedRoom | null;
-          if (!finInfo) return;
-
-          // Chặn (private blocked / guest) — giống createMessage.
-          if (finInfo.room_type === 'private') {
-            const ids = finInfo.room_members.map((m) => m.id);
-            const frp_id = this.utils.pairRoomId(ids[0], ids[1]);
-            const blocked = await this.friendshipModel.findOne({
-              frp_id,
-              frp_status: 'BLOCKED',
-            });
-            if (blocked) return;
-          } else {
-            const checkGuest = finInfo.room_members.find(
-              (m) =>
-                m.user_id.toString() === userInfo._id.toString() &&
-                m.role === 'guest',
-            );
-            if (checkGuest) return;
-          }
-
-          const messageId = id
-            ? this.utils.convertToObjectIdMongoose(id)
-            : new Types.ObjectId();
-
-          prepared.push({ item, messageId, finInfo, userInfo });
-        } catch (err) {
-          this.log.error(
-            `[CHAT_INBOUND] prepare item failed: ${
-              (err as Error)?.message ?? String(err)
-            }`,
-          );
-        }
-      }),
-    );
-
-    if (prepared.length === 0) return;
-
-    // 2) bulkWrite upsert keyed on _id (ordered:false). Idempotent: redeliver
-    //    cùng _id → cùng doc → không tạo bản sao trong shard.
-    const ops: AnyBulkWriteOperation<Message>[] = prepared.map((p) => {
-      const { item, messageId, finInfo, userInfo } = p;
-      const set: Record<string, unknown> = {
-        msg_roomId: finInfo._id,
-        msg_sender: this.utils.convertToObjectIdMongoose(userInfo._id.toString()),
-        msg_content: item.content || '',
-        reply_to: item.replyTo
-          ? this.utils.convertToObjectIdMongoose(item.replyTo)
-          : null,
-        attachment_ids: Array.isArray(item.attachments)
-          ? item.attachments.map((i) =>
-              this.utils.convertToObjectIdMongoose(i),
-            )
-          : [],
-        msg_type: item.type,
-        document_id: item.documentId
-          ? this.utils.convertToObjectIdMongoose(item.documentId)
-          : null,
-        quiz_id: item.quizId
-          ? this.utils.convertToObjectIdMongoose(item.quizId)
-          : null,
-        desk_id: item.desk_id
-          ? this.utils.convertToObjectIdMongoose(item.desk_id)
-          : null,
-      };
-      return {
-        updateOne: {
-          filter: { _id: messageId },
-          update: { $set: set },
-          upsert: true,
-        },
-      } as AnyBulkWriteOperation<Message>;
-    });
-
-    await this.messageModel.bulkWrite(ops, { ordered: false });
-
-    // 3) Enrich tất cả message của batch trong 1 aggregate ($in ids) — tránh N
-    //    round-trip Mongo. Cấp seq change-feed song song (1 INCR/msg).
-    const ids = prepared.map((p) => p.messageId.toString());
-    const [detailRows, seqs] = await Promise.all([
-      this.messageModel.aggregate(buildMessagesDetailPipeline(ids)),
-      Promise.all(
-        prepared.map(() => this.changeFeed.nextSeq().catch(() => 0)),
-      ),
-    ]);
-
-    // Index enriched rows theo id để map về đúng prepared item.
-    const rowById = new Map<string, Record<string, any>>();
-    for (const row of detailRows as Record<string, any>[]) {
-      const rid = (row?.id ?? row?._id)?.toString?.();
-      if (rid) rowById.set(rid, row);
-    }
-
-    // 4) Broadcast + fire-and-forget tail per msg (giữ thứ tự = thứ tự bulk).
-    prepared.forEach((p, idx) => {
-      const { item, messageId, finInfo, userInfo } = p;
-      const enriched = rowById.get(messageId.toString());
-      if (!enriched) return;
-
-      const serializedMsg = this.serializeRoomEvent(enriched);
-      const changeSeq = seqs[idx] || 0;
-      if (changeSeq) serializedMsg.seq = changeSeq;
-
-      const memberClientRooms = finInfo.room_members.map((m) =>
-        this.key.ROOM_CLIENT(m.id),
-      );
-      this.emitter.broadcastTo(
-        '/chat',
-        memberClientRooms,
-        socketEvent.MSGUPSERT,
-        serializedMsg,
-      );
-
-      const otherMemberIds = finInfo.room_members
-        .filter((i) => i.user_id.toString() !== userInfo._id.toString())
-        .map((i) => i.user_id.toString());
-
-      void this.utils
-        .dispatchEventKafka(this.chatClient, KafkaEvent.MESSAGE_PERSISTED, {
-          messageId: messageId.toString(),
-          createdAt:
-            (enriched.createdAt as Date | string | undefined) instanceof Date
-              ? (enriched.createdAt as Date).toISOString()
-              : (enriched.createdAt as string | null) ?? null,
-          roomMongoId: finInfo._id.toString(),
-          roomCustomId: finInfo.room_id,
-          senderId: item.userId,
-          type: item.type,
-          content: item.content || '',
-          documentId: item.documentId || null,
-          room_type: finInfo.room_type,
-          room_name: finInfo.room_name,
-          sender_fullname: userInfo.usr_fullname,
-          otherMemberIds,
-          serializedMsg,
-          changeSeq,
-        })
-        .catch((err: unknown) =>
-          this.log.error(
-            `[CHAT_INBOUND] dispatch MESSAGE_PERSISTED failed: ${
-              (err as Error)?.message ?? String(err)
-            }`,
-          ),
-        );
-    });
   }
 
   /** Preview text của tin nhắn cho last_message / push theo loại. */

@@ -3,16 +3,13 @@ import { HandleChatService } from './handle-chat.service';
 import { RoomsModule } from '../rooms/rooms.module';
 import { HandleChatController } from './handle-chat.controller';
 import { UnreadFlushService } from './unread-flush.service';
-import { ChatInboundConsumer } from './chat-inbound.consumer';
 import { ChangeFeedModule } from '../change-feed/change-feed.module';
 import { SERVICES } from '@app/constants';
 import { SharedKafkaClientModule } from 'libs/kafka';
 
 @Module({
   controllers: [HandleChatController],
-  // ChatInboundConsumer: raw kafkajs `eachBatch` consumer for `chat.inbound`.
-  // No-op unless CHAT_INGEST_MODE=kafka (gated in its onModuleInit).
-  providers: [HandleChatService, UnreadFlushService, ChatInboundConsumer],
+  providers: [HandleChatService, UnreadFlushService],
   imports: [
     RoomsModule,
     // ChangeFeedService + ClientKafka SERVICES.CHAT (chat tự emit cho chính nó)
