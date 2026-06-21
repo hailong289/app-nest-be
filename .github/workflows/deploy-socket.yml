@@ -33,7 +33,7 @@ jobs:
             --min-instances=0 \
             --max-instances=40 \
             --cpu=1 \
-            --memory=4Gi \
+            --memory=1Gi \
             --port=8080 \
             --timeout=3600s \
             --concurrency=250 \
