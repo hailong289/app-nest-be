@@ -32,7 +32,13 @@ jobs:
           service: chat-service
           image: asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/chat:latest
           region: asia-southeast1
-          flags: '--allow-unauthenticated --min-instances=0 --max-instances=10 --cpu=1 --memory=4Gi --port=8080 --timeout=60s --concurrency=1000 --use-http2'
+          # COST-OPTIMIZED: min-instances=0 → chat NGỦ (scale 0) khi KHÔNG có user
+          # online → tiết kiệm. Khi có user, socket gọi gRPC KeepWarm (wake-on-
+          # connect + heartbeat) giữ chat sống. --no-cpu-throttling BẮT BUỘC: khi
+          # instance sống, CPU phải always-on để consumer eachBatch chat.inbound
+          # poll liên tục (chỉ "thức" instance là chưa đủ — throttle CPU thì
+          # consumer vẫn đứng). Hết user → hết ping → chat idle → scale 0.
+          flags: '--allow-unauthenticated --min-instances=0 --max-instances=10 --cpu=1 --memory=4Gi --port=8080 --timeout=60s --concurrency=1000 --use-http2 --no-cpu-throttling'
           env_vars: |-
             NODE_ENV=${{ secrets.NODE_ENV }}
             HOST=${{ secrets.HOST }}
@@ -54,3 +60,5 @@ jobs:
             KAFKA_SASL_USERNAME=${{ secrets.KAFKA_SASL_USERNAME }}
             KAFKA_SASL_PASSWORD=${{ secrets.KAFKA_SASL_PASSWORD }}
             KAFKA_SASL_MECHANISM=${{ secrets.KAFKA_SASL_MECHANISM }}
+            CHAT_INGEST_MODE=kafka
+            KAFKA_AUTO_CREATE_TOPICS=true
