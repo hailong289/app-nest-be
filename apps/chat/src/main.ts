@@ -1,3 +1,5 @@
+// Redeploy trigger: chat min-instances=1 (consumer eachBatch luôn ấm) — chạm
+// apps/chat/** để paths-filter của deploy.yml kích hoạt deploy-chat.
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
