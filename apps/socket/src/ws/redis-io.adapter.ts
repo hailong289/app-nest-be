@@ -78,6 +78,18 @@ export class RedisIoAdapter extends IoAdapter {
       cors: { origin: '*', credentials: true },
       transports: ['websocket', 'polling'],
       allowEIO3: true,
+      // Nới slack ping cho TẢI CAO: khi nhiều connect đồng loạt, event loop /
+      // handshake bận → nếu pong trễ quá pingTimeout, server ĐÁ client → reconnect
+      // storm. Tăng pingTimeout giúp client trụ qua lúc server bận.
+      pingInterval: 25000,
+      pingTimeout: 45000,
+      // RESUME session khi reconnect (mất mạng ngắn / scale / server bận): khôi
+      // phục rooms + packet lỡ, KHÔNG chạy lại full handshake nặng → CHẶN reconnect
+      // storm (gốc của "rớt lên rớt xuống" ở tải cao).
+      connectionStateRecovery: {
+        maxDisconnectionDuration: 2 * 60 * 1000,
+        skipMiddlewares: true,
+      },
       ...options,
     }) as Server;
 

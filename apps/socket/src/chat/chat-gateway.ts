@@ -7,17 +7,24 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Inject, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Server } from 'socket.io';
 import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { CallHistory, RedisService } from 'libs/db/src';
 import { REDISKEY } from '@app/constants/RedisKey';
-import type { ClientGrpc } from '@nestjs/microservices';
+import type { ClientGrpc, ClientKafka } from '@nestjs/microservices';
 import { SERVICES } from '@app/constants';
-import { socketEvent } from 'libs/dto/src/enum.type';
+import { KafkaEvent, socketEvent } from 'libs/dto/src/enum.type';
 import Utils from 'libs/helpers/src/utils';
+import { generateSnowflakeId } from 'libs/helpers/src/snowflake';
+import { CHAT_KAFKA_PRODUCER } from './chat.tokens';
 import { PresenceService } from '../ws/presence.service';
 import type { JwtPayload, SocketWithUser } from '../ws/socket-user.types';
 
@@ -35,6 +42,7 @@ export interface ChatGrpcService {
   EndCall<T = any>(data: T): Observable<any>;
   SendCandidate<T = any>(data: T): Observable<any>;
   SyncUserRooms<T = any>(data: T): Observable<{ roomIds: string[] }>;
+  KeepWarm<T = any>(data: T): Observable<{ ok: boolean }>;
 }
 
 @WebSocketGateway({
@@ -47,7 +55,11 @@ export interface ChatGrpcService {
   allowEIO3: true,
 })
 export class ChatGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+  implements
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleInit,
+    OnModuleDestroy
 {
   @WebSocketServer() io!: Server;
   public get server(): Server {
@@ -56,8 +68,12 @@ export class ChatGateway
   private readonly logger = new Logger(ChatGateway.name);
   private readonly key = REDISKEY;
   private ChatGrpcService!: ChatGrpcService;
+  /** Timer keep-warm (Cloud Run cost optimization) — xem onModuleInit. */
+  private keepWarmTimer?: ReturnType<typeof setInterval>;
   constructor(
     @Inject(SERVICES.CHAT) private readonly chatClient: ClientGrpc,
+    @Inject(CHAT_KAFKA_PRODUCER)
+    private readonly chatKafka: ClientKafka,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
@@ -70,6 +86,58 @@ export class ChatGateway
     // Other namespaces (/call, /doc) call PresenceService too but emit
     // events through here so the FE only has to subscribe in one place.
     this.presence.setChatServer(this.io);
+    // Kafka ingest là MẶC ĐỊNH (luôn chạy). Chỉ tắt (về gRPC) khi đặt rõ
+    // CHAT_INGEST_MODE=grpc. emit() là fire-and-forget producer nên không cần
+    // subscribe reply topic.
+    if (process.env.CHAT_INGEST_MODE !== 'grpc') {
+      this.chatKafka.connect().catch((err: unknown) =>
+        this.logger.error(
+          `[CHAT_INBOUND] Kafka producer connect failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        ),
+      );
+
+      // KEEP-WARM (Cloud Run cost optimization): chừng nào instance socket này
+      // còn user /chat online → ping gRPC chat định kỳ để GIỮ chat instance sống
+      // → consumer Kafka chat.inbound (chạy nền) không bị scale-to-0 làm chết.
+      // Hết sạch user (mọi socket instance về 0) → không ai ping → chat tự idle
+      // → scale 0 → ngủ (tiết kiệm). Chỉ chạy ở kafka mode.
+      const everyMs = Number(process.env.CHAT_KEEPWARM_MS || 5 * 60 * 1000);
+      this.keepWarmTimer = setInterval(() => {
+        if (this.liveConns() > 0) this.keepWarm();
+      }, everyMs);
+      this.keepWarmTimer.unref?.();
+    }
+  }
+
+  async onModuleDestroy() {
+    if (this.keepWarmTimer) clearInterval(this.keepWarmTimer);
+  }
+
+  /** Số connection /chat còn sống TRÊN INSTANCE NÀY (local, không tính remote). */
+  private liveConns(): number {
+    try {
+      const io = this.io as unknown as {
+        sockets?: Map<string, unknown> | { sockets?: Map<string, unknown> };
+        of?: (ns: string) => { sockets: Map<string, unknown> };
+      };
+      if (io.sockets instanceof Map) return io.sockets.size;
+      if (typeof io.of === 'function') return io.of('/chat').sockets.size;
+      const inner = (io.sockets as { sockets?: Map<string, unknown> })?.sockets;
+      return inner instanceof Map ? inner.size : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Ping gRPC KeepWarm (fire-and-forget) — giữ chat instance sống cho consumer. */
+  private keepWarm(): void {
+    if (!this.ChatGrpcService) return;
+    void Utils.dispatchGrpcRequest(
+      this.ChatGrpcService.KeepWarm.bind(this.ChatGrpcService),
+      {},
+    ).catch(() => undefined);
   }
 
   // ========================================================
@@ -134,21 +202,27 @@ export class ChatGateway
         }
       }
 
-      // tham gia vào các room của hệ thống
-      await client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']);
       client.userId = payload._id;
       client.user = payload;
 
-      // Delegate online tracking to PresenceService — it handles the
-      // multi-tab / multi-namespace bookkeeping and only broadcasts
-      // STATUS on the 0→1 transition (no spam when a 2nd tab opens).
-      await this.presence.register('chat', client.id, payload.usr_id);
+      // SONG SONG HOÁ 3 IO độc lập của handshake: join system room + presence
+      // register + đọc USER_ROOMS. Trước đây 3 `await` tuần tự, mỗi cái 1
+      // round-trip Redis WAN → khi ~1000 connect đồng loạt, handshake đình trệ
+      // vượt pingTimeout → server đá client → reconnect storm. Gộp Promise.all →
+      // còn ~1 round-trip-time. (PresenceService chỉ broadcast STATUS ở 0→1.)
+      const [, , roomIdsInit] = await Promise.all([
+        client.join([this.key.ROOM_CLIENT(payload.usr_id), 'system']),
+        this.presence.register('chat', client.id, payload.usr_id),
+        this.redis.sMembers(this.key.USER_ROOMS(client.userId)),
+      ]);
+      let roomIds = roomIdsInit;
+
+      // Wake chat NGAY khi user vừa online (mặc định kafka) → consumer Kafka sẵn
+      // sàng trước khi user kịp gửi tin đầu (giảm cold-start cho tin đầu tiên).
+      if (process.env.CHAT_INGEST_MODE !== 'grpc') this.keepWarm();
 
       this.logger.log(
         `[CONNECT] User ${payload.usr_fullname} (${payload._id}) connected.`,
-      );
-      let roomIds = await this.redis.sMembers(
-        this.key.USER_ROOMS(client.userId),
       );
       // Cache lạnh (Redis vừa flush / lần đầu) → nhờ chat service rebuild từ
       // Mongo (lazy-sync) rồi trả lại danh sách phòng để auto-join.
@@ -265,6 +339,23 @@ export class ChatGateway
 
     data.userId = user._id;
     try {
+      // ── Phase 1: Kafka ingest path (CHAT_INGEST_MODE=kafka) ────────────
+      // Produce thẳng vào topic `chat.inbound` với key=roomId (ordering theo
+      // phòng) rồi ACK người gửi NGAY (optimistic). Chat service consume +
+      // micro-batch bulkWrite. msgId = client `id` nếu có (idempotency), nếu
+      // không thì sinh snowflake k-sortable. MẶC ĐỊNH = kafka; đặt
+      // CHAT_INGEST_MODE=grpc để quay lại gRPC sync (fallback).
+      if (process.env.CHAT_INGEST_MODE !== 'grpc') {
+        const msgId = data.id ?? generateSnowflakeId();
+        const payload = { ...data, userId: user._id, msgId, id: msgId };
+        // emit({ key, value }) → ClientKafka set partition key = roomId.
+        this.chatKafka.emit(KafkaEvent.CHAT_INBOUND, {
+          key: data.roomId,
+          value: payload,
+        });
+        return { ok: true, data: { msgId } };
+      }
+
       // Tạo message qua gRPC. Việc phát 'message:upsert' tới các thành viên
       // KHÔNG còn diễn ra ở đây nữa — chat service đã bắn thẳng qua Redis
       // adapter ngay sau khi dựng xong payload (giảm độ trễ, bỏ vòng gRPC về
