@@ -106,6 +106,9 @@ export class Attachment {
 
 export const AttachmentSchema = SchemaFactory.createForClass(Attachment);
 
+// Search semantic lấy danh sách file của room: find({ room_id }).distinct('_id').
+AttachmentSchema.index({ room_id: 1 });
+
 export default {
   name: 'Attachment',
   schema: AttachmentSchema,

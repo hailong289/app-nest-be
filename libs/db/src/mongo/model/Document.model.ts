@@ -106,6 +106,9 @@ export class Document {
 
 export const DocumentSchema = SchemaFactory.createForClass(Document);
 
+// Search semantic lấy danh sách doc của room: find({ roomIds }).distinct('_id').
+DocumentSchema.index({ roomIds: 1 });
+
 export default {
   name: 'Document',
   schema: DocumentSchema,
