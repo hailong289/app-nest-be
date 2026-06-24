@@ -365,7 +365,10 @@ export class HandleChatService {
       .filter((i) => i.user_id.toString() !== userInfo._id.toString())
       .map((i) => i.user_id.toString());
 
-    await this.utils.dispatchEventKafka(
+    // KHÔNG await: realtime đã broadcast ở trên, ack không nên chờ Kafka tail.
+    // Tail (RoomsState/unread/last_message) do consumer MESSAGE_PERSISTED xử lý
+    // bất đồng bộ; await ở đây chỉ kéo độ trễ broker vào ack. Fire-and-forget.
+    void this.utils.dispatchEventKafka(
       this.chatClient,
       KafkaEvent.MESSAGE_PERSISTED,
       {
@@ -391,7 +394,15 @@ export class HandleChatService {
       // (RoomsState/unread/last_message) xử lý ĐÚNG THỨ TỰ trong room dù
       // MESSAGE_PERSISTED đã tăng lên nhiều partition.
       finInfo._id.toString(),
-    );
+    ).catch((err) => {
+      // dispatchEventKafka tự nuốt lỗi (trả Response.error, không throw);
+      // .catch chỉ phòng hờ tránh unhandled rejection.
+      this.log.warn(
+        `[MESSAGE_PERSISTED] dispatch failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    });
 
     return Response.success(
       {
