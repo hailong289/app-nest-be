@@ -361,6 +361,7 @@ message MessageReply {
   ReplySender sender = 5;
   bool isDelete=7;
   repeated string hiddenBy=8;
+  repeated FilePreview attachments = 9; // đính kèm tin được reply (render thumbnail trong quote)
 }
 
 message ReadByUser {
