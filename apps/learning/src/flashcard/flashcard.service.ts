@@ -155,6 +155,7 @@ export class FlashcardService {
 
     return Response.success({
       ...deck,
+      _id: deck._id.toString(),
       total_cards,
       progress,
     });
@@ -235,6 +236,7 @@ export class FlashcardService {
 
           return {
             ...deck,
+            id: deck._id.toString(),
             total_cards,
             progress,
           };
