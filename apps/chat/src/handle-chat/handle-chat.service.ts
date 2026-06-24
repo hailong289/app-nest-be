@@ -23,6 +23,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import {
   Room,
   Message,
+  MessageDocument,
   RoomsState,
   MessageRead,
   RoomsUsersState,
@@ -143,6 +144,30 @@ export class HandleChatService {
       }
     }
     return msg;
+  }
+
+  /**
+   * Re-fetch một message (pipeline đã join summary mới từ aiembeddings) rồi
+   * broadcast MSGUPSERT để FE cập nhật bong bóng realtime sau khi AI tóm tắt
+   * xong file đính kèm. Bắn thẳng qua Redis adapter tới room channel — clients
+   * join roomId lúc connect/mở phòng (xem rooms.service `room:update`).
+   * No-op khi message không tồn tại. Không ném lỗi (side-effect phụ).
+   */
+  async broadcastFileSummary(messageId: string): Promise<void> {
+    if (!messageId) return;
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(messageId),
+    );
+    const doc = msg?.[0] as Record<string, any> | undefined;
+    if (!doc) return;
+    const roomId = doc.roomId ? String(doc.roomId) : '';
+    if (!roomId) return;
+    this.emitter.broadcastTo(
+      '/chat',
+      roomId,
+      socketEvent.MSGUPSERT,
+      this.serializeRoomEvent(doc),
+    );
   }
 
   /**
@@ -279,9 +304,32 @@ export class HandleChatService {
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
-    const msg = await this.messageModel.aggregate(
-      buildMessageDetailPipeline(createNewMsg._id.toString()),
-    );
+
+    // Chia sẻ tài liệu vào hội thoại: cấp quyền cho room NGAY (đồng bộ) TRƯỚC
+    // khi broadcast. Trước đây roomIds được set qua tail Kafka (MESSAGE_PERSISTED
+    // → SHARE_DOC_FOR_ROOM → filesystem) nên người nhận bấm sớm bị "truy cập bị
+    // từ chối" (DB chưa kịp cập nhật). Chat ghi thẳng documentModel (cùng Mongo).
+    // Match kèm ownerId → chỉ owner share được (non-owner no-op, giữ semantics cũ).
+    if (documentId) {
+      try {
+        await this.documentModel.updateOne(
+          {
+            _id: this.utils.convertToObjectIdMongoose(documentId),
+            ownerId: userInfo._id,
+          },
+          {
+            $addToSet: { roomIds: finInfo._id },
+            $set: { updatedAt: new Date() },
+          },
+        );
+      } catch (err) {
+        this.log.warn(
+          `[DOC_SHARE] cấp quyền room cho doc ${documentId} thất bại: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
 
     // Phát realtime NGAY khi payload đã đầy đủ — KHÔNG chờ tail side-effect
     // (Kafka embedding, push notification, bulkWrite unread) ở dưới, và KHÔNG
@@ -289,9 +337,42 @@ export class HandleChatService {
     // chat service → Redis → apps/socket → client. Nhắm tới room cá nhân của
     // từng thành viên (ROOM_CLIENT) — đúng semantics gateway đang dùng, room
     // này luôn được join lúc connect nên không phụ thuộc trạng thái join roomId.
-    const serializedMsg = this.serializeRoomEvent(
-      msg[0] as Record<string, any>,
-    );
+    //
+    // HOT PATH: tin TEXT thuần (không attachment/reply/quiz/desk/todo/doc) —
+    // chiếm phần lớn lưu lượng burst — KHÔNG cần aggregate ~13 \$lookup. Dựng
+    // payload realtime ngay trong code, GIỮ NGUYÊN shape mà
+    // buildMessageDetailPipeline trả về (FE upsetMsg không phải đổi). Các loại
+    // tin còn lại vẫn đi aggregate đã kiểm chứng.
+    // Fast-path cho tin KHÔNG reply/quiz/desk/todo/doc — gồm cả tin có
+    // attachment (burst ảnh/file/voice). Chỉ tốn tối đa 1 query lấy attachment
+    // docs thay vì aggregate ~13 lookup. Tin reply / loại đặc biệt vẫn đi
+    // aggregate đã kiểm chứng.
+    const isFastPath =
+      !createNewMsg.reply_to &&
+      !createNewMsg.quiz_id &&
+      !createNewMsg.desk_id &&
+      !createNewMsg.todo_project_id &&
+      !createNewMsg.document_id;
+
+    let serializedMsg: Record<string, any>;
+    if (isFastPath) {
+      const attachmentList = await this.fetchRealtimeAttachments(
+        createNewMsg.attachment_ids,
+      );
+      serializedMsg = this.buildRealtimeMessagePayload(
+        createNewMsg,
+        userInfo,
+        attachmentList,
+      );
+    } else {
+      serializedMsg = this.serializeRoomEvent(
+        (
+          await this.messageModel.aggregate(
+            buildMessageDetailPipeline(createNewMsg._id.toString()),
+          )
+        )[0] as Record<string, any>,
+      );
+    }
     // Cấp `seq` change-feed SỚM để gắn vào payload realtime (MSGUPSERT). Cùng
     // `seq` này được truyền sang tail `handleMessagePersisted` để ghi outbox
     // `room.newmsgs` → live + catch-up dùng CHUNG một seq, client tiến con trỏ
@@ -322,7 +403,10 @@ export class HandleChatService {
       .filter((i) => i.user_id.toString() !== userInfo._id.toString())
       .map((i) => i.user_id.toString());
 
-    await this.utils.dispatchEventKafka(
+    // KHÔNG await: realtime đã broadcast ở trên, ack không nên chờ Kafka tail.
+    // Tail (RoomsState/unread/last_message) do consumer MESSAGE_PERSISTED xử lý
+    // bất đồng bộ; await ở đây chỉ kéo độ trễ broker vào ack. Fire-and-forget.
+    void this.utils.dispatchEventKafka(
       this.chatClient,
       KafkaEvent.MESSAGE_PERSISTED,
       {
@@ -344,7 +428,19 @@ export class HandleChatService {
         serializedMsg,
         changeSeq,
       },
-    );
+      // key=roomMongoId → mọi tin cùng room về cùng partition: consumer tail
+      // (RoomsState/unread/last_message) xử lý ĐÚNG THỨ TỰ trong room dù
+      // MESSAGE_PERSISTED đã tăng lên nhiều partition.
+      finInfo._id.toString(),
+    ).catch((err) => {
+      // dispatchEventKafka tự nuốt lỗi (trả Response.error, không throw);
+      // .catch chỉ phòng hờ tránh unhandled rejection.
+      this.log.warn(
+        `[MESSAGE_PERSISTED] dispatch failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    });
 
     return Response.success(
       {
@@ -355,6 +451,90 @@ export class HandleChatService {
       },
       'Tin nhắn mới thành công',
     );
+  }
+
+  /**
+   * Lấy attachment docs cho payload realtime, map ĐÚNG shape mà
+   * buildMessageDetailPipeline project (getMsg: _id, kind, url, name, size,
+   * mimeType, thumbUrl, width, height, duration, status, summary). `summary`
+   * luôn null cho tin mới (aiembeddings chưa có — embedding chạy ở tail). Giữ
+   * thứ tự theo attachment_ids. No-op khi không có attachment.
+   */
+  private async fetchRealtimeAttachments(
+    ids: Types.ObjectId[] | undefined,
+  ): Promise<Record<string, any>[]> {
+    if (!ids?.length) return [];
+    const docs = await this.attachmentModel
+      .find({ _id: { $in: ids } })
+      .lean<Array<Record<string, any>>>();
+    const byId = new Map(docs.map((a) => [String(a._id), a]));
+    return ids
+      .map((id) => byId.get(String(id)))
+      .filter((a): a is Record<string, any> => !!a)
+      .map((a) => ({
+        _id: a._id,
+        kind: a.kind,
+        url: a.url,
+        name: a.name,
+        size: a.size,
+        mimeType: a.mimeType,
+        thumbUrl: a.thumbUrl,
+        width: a.width,
+        height: a.height,
+        duration: a.duration,
+        status: a.status,
+        summary: null,
+      }));
+  }
+
+  /**
+   * Dựng payload realtime, KHỚP TỪNG FIELD với output của
+   * buildMessageDetailPipeline (đường aggregate) để FE không phải đổi. Chỉ gọi
+   * khi tin không có reply/quiz/desk/todo/doc — nên các field còn lại đều
+   * rỗng/null như pipeline trả về cho tin mới:
+   *   reactions/read_by/hiddenBy = [], read_by_count = 0,
+   *   reply/call_history/quiz/desk/todoProject/room_event/summary = null.
+   * `attachments` truyền vào (đã map shape, [] nếu không có).
+   * editedAt/deletedAt/placeholder để nguyên (undefined → bị bỏ khi JSON hoá,
+   * giống pipeline bỏ field không tồn tại).
+   */
+  private buildRealtimeMessagePayload(
+    msg: MessageDocument,
+    sender: User & { _id: Types.ObjectId },
+    attachments: Record<string, any>[] = [],
+  ): Record<string, any> {
+    return {
+      _id: msg._id,
+      roomId: msg.msg_roomId,
+      id: msg._id,
+      type: msg.msg_type,
+      content: msg.msg_content,
+      createdAt: msg.createdAt,
+      editedAt: msg.editedAt,
+      deletedAt: msg.deletedAt,
+      isDeleted: !!msg.deletedAt,
+      pinned: msg.pinned,
+      placeholder: msg.placeholder,
+      sender: {
+        _id: sender._id,
+        fullname: sender.usr_fullname,
+        avatar: sender.usr_avatar,
+        id: sender.usr_id,
+      },
+      attachments,
+      reactions: [],
+      reply: null,
+      hiddenBy: [],
+      documentId: null,
+      read_by: [],
+      read_by_count: 0,
+      call_history: null,
+      quiz: null,
+      desk: null,
+      todoProject: null,
+      room_event: null,
+      summary: null,
+    };
   }
 
   /** Preview text của tin nhắn cho last_message / push theo loại. */
@@ -496,20 +676,8 @@ export class HandleChatService {
             ),
           ]
         : []),
-      ...(documentId
-        ? [
-            this.utils.dispatchEventKafka(
-              this.fileClient,
-              KafkaEvent.SHARE_DOC_FOR_ROOM,
-              {
-                roomId: roomCustomId,
-                userId: senderId,
-                docId: documentId,
-                messageId,
-              },
-            ),
-          ]
-        : []),
+      // SHARE_DOC_FOR_ROOM đã được làm ĐỒNG BỘ ở createMessage (cấp roomIds
+      // trước broadcast) để tránh race "truy cập bị từ chối". Bỏ emit tail.
       this.utils.dispatchEventKafka(
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION_USERS,

@@ -156,6 +156,9 @@ function buildTodoProjectProjection() {
     $cond: [
       { $ifNull: ['$todoProjectDoc', false] },
       {
+        // Mongo _id (quy chuẩn id) — đồng bộ với quiz/flashcard projection,
+        // để FE gửi _id khi join (addProjectMember accept cả _id lẫn project_id).
+        id: { $toString: '$todoProjectDoc._id' },
         project_id: '$todoProjectDoc.project_id',
         project_name: '$todoProjectDoc.project_name',
         project_description: '$todoProjectDoc.project_description',
@@ -636,50 +639,6 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
     },
     { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
 
-    /** 7.1b) Flashcard Deck */
-    {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
-      },
-    },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard Deck */
-    {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
-      },
-    },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1040,6 +999,28 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
+    /** 7.1b) Flashcard Deck */
+    {
+      $lookup: {
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
+        foreignField: '_id',
+        as: 'deskDoc',
+      },
+    },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1391,6 +1372,28 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
         quizDoc: { $first: '$quizDoc' },
       },
     },
+
+    /** 7.1b) Flashcard Deck */
+    {
+      $lookup: {
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
+        foreignField: '_id',
+        as: 'deskDoc',
+      },
+    },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
 
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),

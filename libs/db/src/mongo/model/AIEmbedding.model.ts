@@ -27,8 +27,9 @@ export class AIEmbedding {
   @Prop({ index: true }) // Index để tìm nhanh lịch sử của user
   userId?: string;
 
-  // Metadata để filter (Hybrid Search)
-  @Prop({ index: true })
+  // Metadata để filter (Hybrid Search). Index đơn bỏ đi vì đã có compound
+  // { contextType, contextId } bên dưới (prefix phủ luôn query chỉ theo contextType).
+  @Prop()
   contextType?: AIEmbeddingContextType; // 'room' | ...
 
   @Prop({ type: Types.ObjectId, default: null })
@@ -39,6 +40,11 @@ export class AIEmbedding {
 }
 
 export const AIEmbeddingSchema = SchemaFactory.createForClass(AIEmbedding);
+
+// Search semantic lọc embedding theo contextType + contextId ($in) — đặc biệt
+// ở fallback cosine/keyword (find({ $or: [{contextType, contextId}, ...] })).
+// Compound index phục vụ cả query chỉ theo contextType (prefix).
+AIEmbeddingSchema.index({ contextType: 1, contextId: 1 });
 
 export default {
   name: 'AIEmbedding',
