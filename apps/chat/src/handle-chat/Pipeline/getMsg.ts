@@ -462,6 +462,28 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
+    // Đính kèm (slim) của tin được reply → FE render thumbnail ảnh/file trong
+    // ô quote thay vì chỉ chữ "Ảnh", giúp biết đang reply tin nào (nhiều file).
+    {
+      $lookup: {
+        from: 'Attachments',
+        localField: 'reply_doc.attachment_ids',
+        foreignField: '_id',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              kind: 1,
+              url: 1,
+              name: 1,
+              thumbUrl: 1,
+              mimeType: 1,
+            },
+          },
+        ],
+        as: 'reply_attachments',
+      },
+    },
 
     /** 5.1) Reply hidden (All user) */
     {
@@ -682,6 +704,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
+              attachments: { $ifNull: ['$reply_attachments', []] },
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
@@ -844,6 +867,28 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
+    // Đính kèm (slim) của tin được reply → FE render thumbnail ảnh/file trong
+    // ô quote thay vì chỉ chữ "Ảnh", giúp biết đang reply tin nào (nhiều file).
+    {
+      $lookup: {
+        from: 'Attachments',
+        localField: 'reply_doc.attachment_ids',
+        foreignField: '_id',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              kind: 1,
+              url: 1,
+              name: 1,
+              thumbUrl: 1,
+              mimeType: 1,
+            },
+          },
+        ],
+        as: 'reply_attachments',
+      },
+    },
 
     /** 3.1) Reply hidden (All users) */
     {
@@ -1058,6 +1103,7 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
+              attachments: { $ifNull: ['$reply_attachments', []] },
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
@@ -1218,6 +1264,28 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
+    // Đính kèm (slim) của tin được reply → FE render thumbnail ảnh/file trong
+    // ô quote thay vì chỉ chữ "Ảnh", giúp biết đang reply tin nào (nhiều file).
+    {
+      $lookup: {
+        from: 'Attachments',
+        localField: 'reply_doc.attachment_ids',
+        foreignField: '_id',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              kind: 1,
+              url: 1,
+              name: 1,
+              thumbUrl: 1,
+              mimeType: 1,
+            },
+          },
+        ],
+        as: 'reply_attachments',
+      },
+    },
 
     /** 3.1) Reply hidden (All users) */
     {
@@ -1432,6 +1500,7 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
+              attachments: { $ifNull: ['$reply_attachments', []] },
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
