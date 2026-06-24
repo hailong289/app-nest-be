@@ -126,8 +126,9 @@ function buildFlashcardDeckProjection() {
         deck_name: '$deskDoc.deck_name',
         deck_description: '$deskDoc.deck_description',
         deck_image: '$deskDoc.deck_image',
-        deck_totalCards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
-        total_cards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
+        // Dùng số đếm thật (deskCardCount) thay deck_totalCards lưu (hay lệch 0).
+        deck_totalCards: { $ifNull: ['$deskCardCount', 0] },
+        total_cards: { $ifNull: ['$deskCardCount', 0] },
         deck_level: { $ifNull: ['$deskDoc.deck_level', ''] },
         createdAt: toIso('$deskDoc.createdAt'),
         updatedAt: toIsoIfNotNull('$deskDoc.updatedAt'),
@@ -649,6 +650,25 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
     { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+    // Đếm số thẻ THẬT của bộ (Flashcards theo card_deckId) — deck_totalCards
+    // lưu trên deck thường lệch (0 với bộ tạo trước khi maintain). card_deckId
+    // có index nên count rẻ; non-flashcard (deskDoc null) → count 0, bị bỏ qua.
+    {
+      $lookup: {
+        from: 'Flashcards',
+        let: { deckId: '$deskDoc._id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$card_deckId', '$$deckId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'deskCardCount',
+      },
+    },
+    {
+      $addFields: {
+        deskCardCount: { $ifNull: [{ $first: '$deskCardCount.count' }, 0] },
+      },
+    },
 
     /** 7.1c) Todo project */
     {
@@ -1054,6 +1074,25 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
     { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+    // Đếm số thẻ THẬT của bộ (Flashcards theo card_deckId) — deck_totalCards
+    // lưu trên deck thường lệch (0 với bộ tạo trước khi maintain). card_deckId
+    // có index nên count rẻ; non-flashcard (deskDoc null) → count 0, bị bỏ qua.
+    {
+      $lookup: {
+        from: 'Flashcards',
+        let: { deckId: '$deskDoc._id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$card_deckId', '$$deckId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'deskCardCount',
+      },
+    },
+    {
+      $addFields: {
+        deskCardCount: { $ifNull: [{ $first: '$deskCardCount.count' }, 0] },
+      },
+    },
 
     /** 7.1c) Todo project */
     {
@@ -1451,6 +1490,25 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
     { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+    // Đếm số thẻ THẬT của bộ (Flashcards theo card_deckId) — deck_totalCards
+    // lưu trên deck thường lệch (0 với bộ tạo trước khi maintain). card_deckId
+    // có index nên count rẻ; non-flashcard (deskDoc null) → count 0, bị bỏ qua.
+    {
+      $lookup: {
+        from: 'Flashcards',
+        let: { deckId: '$deskDoc._id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$card_deckId', '$$deckId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'deskCardCount',
+      },
+    },
+    {
+      $addFields: {
+        deskCardCount: { $ifNull: [{ $first: '$deskCardCount.count' }, 0] },
+      },
+    },
 
     /** 7.1c) Todo project */
     {
