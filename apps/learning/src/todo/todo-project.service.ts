@@ -94,16 +94,23 @@ export class TodoProjectService {
   }
 
   async getProjectById(project_id: string, userId?: string) {
-    const filter: Record<string, any> = { project_id };
+    // Chấp nhận CẢ Mongo _id (quy chuẩn) lẫn project_id custom. Gộp điều kiện
+    // id và điều kiện quyền bằng $and để 2 nhóm $or không đè nhau.
+    const idOr = Types.ObjectId.isValid(project_id)
+      ? [{ project_id }, { _id: new Types.ObjectId(project_id) }]
+      : [{ project_id }];
+    const and: Record<string, any>[] = [{ $or: idOr }];
     if (userId && Types.ObjectId.isValid(userId)) {
       const userObjectId = new Types.ObjectId(userId);
-      filter.$or = [
-        { project_createdBy: userObjectId },
-        { project_members: userObjectId },
-      ];
+      and.push({
+        $or: [
+          { project_createdBy: userObjectId },
+          { project_members: userObjectId },
+        ],
+      });
     }
 
-    const project = await this.todoProjectModel.findOne(filter).lean();
+    const project = await this.todoProjectModel.findOne({ $and: and }).lean();
     if (!project) {
       return Response.error('Project not found', 404, 'NOT_FOUND');
     }
