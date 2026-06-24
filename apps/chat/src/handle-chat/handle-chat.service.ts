@@ -146,6 +146,30 @@ export class HandleChatService {
   }
 
   /**
+   * Re-fetch một message (pipeline đã join summary mới từ aiembeddings) rồi
+   * broadcast MSGUPSERT để FE cập nhật bong bóng realtime sau khi AI tóm tắt
+   * xong file đính kèm. Bắn thẳng qua Redis adapter tới room channel — clients
+   * join roomId lúc connect/mở phòng (xem rooms.service `room:update`).
+   * No-op khi message không tồn tại. Không ném lỗi (side-effect phụ).
+   */
+  async broadcastFileSummary(messageId: string): Promise<void> {
+    if (!messageId) return;
+    const msg = await this.messageModel.aggregate(
+      buildMessageDetailPipeline(messageId),
+    );
+    const doc = msg?.[0] as Record<string, any> | undefined;
+    if (!doc) return;
+    const roomId = doc.roomId ? String(doc.roomId) : '';
+    if (!roomId) return;
+    this.emitter.broadcastTo(
+      '/chat',
+      roomId,
+      socketEvent.MSGUPSERT,
+      this.serializeRoomEvent(doc),
+    );
+  }
+
+  /**
    * Catch-up `message.updated` (fat) cho TOÀN member của phòng + gắn `seq` vào
    * `msg` để live (gateway broadcast) dùng CHUNG seq với catch-up. Dùng cho
    * react / pin / recall — các thay đổi message hiển thị cho mọi người.

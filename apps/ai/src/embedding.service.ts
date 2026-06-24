@@ -296,6 +296,9 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       messageId: string;
       createdAt: Date;
       score: number;
+      // Phạm vi (scope) của kết quả: 'room' = tin nhắn chat, 'file' = tệp
+      // đính kèm, 'doc' = tài liệu. FE dùng để hiển thị nguồn của hit.
+      contextType?: string;
     };
     const roomObjectId = Utils.convertToObjectIdMongoose(roomId);
 
@@ -342,6 +345,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
             _id: 0,
             text: 1,
             contextId: 1,
+            contextType: 1,
             messageId: 1,
             createdAt: 1,
             score: { $meta: 'vectorSearchScore' },
@@ -383,7 +387,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
                   { contextType: 'doc', contextId: { $in: docIds } },
                 ],
               })
-              .select('text contextId messageId createdAt vector')
+              .select('text contextId contextType messageId createdAt vector')
               .lean()
               .exec();
 
@@ -399,7 +403,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         this.embedModel
           .find(keywordQuery)
           .limit(limit)
-          .select('-_id text contextId messageId createdAt')
+          .select('-_id text contextId contextType messageId createdAt')
           .lean()
           .exec()
           .then((docs) => {
@@ -516,6 +520,8 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       return docs.map((d) => ({
         text: d.msg_content ?? '',
         contextId: String(d.msg_roomId),
+        // Hit từ Messages collection = tin nhắn chat → scope 'room'.
+        contextType: 'room',
         messageId: String(d._id),
         createdAt: d.createdAt,
         // Lower than vector hits (≥0) and lower than embedding-keyword hits
