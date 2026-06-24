@@ -329,17 +329,14 @@ export class HandleChatService {
     }
 
     // Chia sẻ tài liệu vào hội thoại: cấp quyền cho room NGAY (đồng bộ) TRƯỚC
-    // khi broadcast. Trước đây roomIds được set qua tail Kafka (MESSAGE_PERSISTED
-    // → SHARE_DOC_FOR_ROOM → filesystem) nên người nhận bấm sớm bị "truy cập bị
-    // từ chối" (DB chưa kịp cập nhật). Chat ghi thẳng documentModel (cùng Mongo).
-    // Match kèm ownerId → chỉ owner share được (non-owner no-op, giữ semantics cũ).
+    // khi broadcast → MỌI THÀNH VIÊN room truy cập được (checkDocAccess cho phép
+    // nếu user thuộc 1 room trong doc.roomIds). KHÔNG gate theo owner: ai gửi
+    // được tin kèm documentId (đang có quyền tham chiếu tài liệu) thì chia sẻ
+    // vào room là hợp lệ. $addToSet idempotent nên gọi lại vô hại.
     if (documentId) {
       try {
         await this.documentModel.updateOne(
-          {
-            _id: this.utils.convertToObjectIdMongoose(documentId),
-            ownerId: userInfo._id,
-          },
+          { _id: this.utils.convertToObjectIdMongoose(documentId) },
           {
             $addToSet: { roomIds: finInfo._id },
             $set: { updatedAt: new Date() },
