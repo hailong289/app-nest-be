@@ -317,24 +317,36 @@ export class HandleChatService {
     // payload realtime ngay trong code, GIỮ NGUYÊN shape mà
     // buildMessageDetailPipeline trả về (FE upsetMsg không phải đổi). Các loại
     // tin còn lại vẫn đi aggregate đã kiểm chứng.
-    const isPlainText =
-      createNewMsg.msg_type === 'text' &&
-      (createNewMsg.attachment_ids?.length ?? 0) === 0 &&
+    // Fast-path cho tin KHÔNG reply/quiz/desk/todo/doc — gồm cả tin có
+    // attachment (burst ảnh/file/voice). Chỉ tốn tối đa 1 query lấy attachment
+    // docs thay vì aggregate ~13 lookup. Tin reply / loại đặc biệt vẫn đi
+    // aggregate đã kiểm chứng.
+    const isFastPath =
       !createNewMsg.reply_to &&
       !createNewMsg.quiz_id &&
       !createNewMsg.desk_id &&
       !createNewMsg.todo_project_id &&
       !createNewMsg.document_id;
 
-    const serializedMsg = isPlainText
-      ? this.buildRealtimeTextPayload(createNewMsg, userInfo)
-      : this.serializeRoomEvent(
-          (
-            await this.messageModel.aggregate(
-              buildMessageDetailPipeline(createNewMsg._id.toString()),
-            )
-          )[0] as Record<string, any>,
-        );
+    let serializedMsg: Record<string, any>;
+    if (isFastPath) {
+      const attachmentList = await this.fetchRealtimeAttachments(
+        createNewMsg.attachment_ids,
+      );
+      serializedMsg = this.buildRealtimeMessagePayload(
+        createNewMsg,
+        userInfo,
+        attachmentList,
+      );
+    } else {
+      serializedMsg = this.serializeRoomEvent(
+        (
+          await this.messageModel.aggregate(
+            buildMessageDetailPipeline(createNewMsg._id.toString()),
+          )
+        )[0] as Record<string, any>,
+      );
+    }
     // Cấp `seq` change-feed SỚM để gắn vào payload realtime (MSGUPSERT). Cùng
     // `seq` này được truyền sang tail `handleMessagePersisted` để ghi outbox
     // `room.newmsgs` → live + catch-up dùng CHUNG một seq, client tiến con trỏ
@@ -416,18 +428,54 @@ export class HandleChatService {
   }
 
   /**
-   * Dựng payload realtime cho tin TEXT thuần, KHỚP TỪNG FIELD với output của
+   * Lấy attachment docs cho payload realtime, map ĐÚNG shape mà
+   * buildMessageDetailPipeline project (getMsg: _id, kind, url, name, size,
+   * mimeType, thumbUrl, width, height, duration, status, summary). `summary`
+   * luôn null cho tin mới (aiembeddings chưa có — embedding chạy ở tail). Giữ
+   * thứ tự theo attachment_ids. No-op khi không có attachment.
+   */
+  private async fetchRealtimeAttachments(
+    ids: Types.ObjectId[] | undefined,
+  ): Promise<Record<string, any>[]> {
+    if (!ids?.length) return [];
+    const docs = await this.attachmentModel
+      .find({ _id: { $in: ids } })
+      .lean<Array<Record<string, any>>>();
+    const byId = new Map(docs.map((a) => [String(a._id), a]));
+    return ids
+      .map((id) => byId.get(String(id)))
+      .filter((a): a is Record<string, any> => !!a)
+      .map((a) => ({
+        _id: a._id,
+        kind: a.kind,
+        url: a.url,
+        name: a.name,
+        size: a.size,
+        mimeType: a.mimeType,
+        thumbUrl: a.thumbUrl,
+        width: a.width,
+        height: a.height,
+        duration: a.duration,
+        status: a.status,
+        summary: null,
+      }));
+  }
+
+  /**
+   * Dựng payload realtime, KHỚP TỪNG FIELD với output của
    * buildMessageDetailPipeline (đường aggregate) để FE không phải đổi. Chỉ gọi
-   * khi tin chắc chắn không có attachment/reply/quiz/desk/todo/doc — nên mọi
-   * field phụ đều là rỗng/null như pipeline trả về cho tin mới:
-   *   reactions/read_by/hiddenBy/attachments = [], read_by_count = 0,
+   * khi tin không có reply/quiz/desk/todo/doc — nên các field còn lại đều
+   * rỗng/null như pipeline trả về cho tin mới:
+   *   reactions/read_by/hiddenBy = [], read_by_count = 0,
    *   reply/call_history/quiz/desk/todoProject/room_event/summary = null.
+   * `attachments` truyền vào (đã map shape, [] nếu không có).
    * editedAt/deletedAt/placeholder để nguyên (undefined → bị bỏ khi JSON hoá,
    * giống pipeline bỏ field không tồn tại).
    */
-  private buildRealtimeTextPayload(
+  private buildRealtimeMessagePayload(
     msg: MessageDocument,
     sender: User & { _id: Types.ObjectId },
+    attachments: Record<string, any>[] = [],
   ): Record<string, any> {
     return {
       _id: msg._id,
@@ -447,7 +495,7 @@ export class HandleChatService {
         avatar: sender.usr_avatar,
         id: sender.usr_id,
       },
-      attachments: [],
+      attachments,
       reactions: [],
       reply: null,
       hiddenBy: [],
