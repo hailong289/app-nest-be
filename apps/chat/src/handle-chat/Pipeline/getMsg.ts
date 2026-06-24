@@ -126,8 +126,9 @@ function buildFlashcardDeckProjection() {
         deck_name: '$deskDoc.deck_name',
         deck_description: '$deskDoc.deck_description',
         deck_image: '$deskDoc.deck_image',
-        deck_totalCards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
-        total_cards: { $ifNull: ['$deskDoc.deck_totalCards', 0] },
+        // Dùng số đếm thật (deskCardCount) thay deck_totalCards lưu (hay lệch 0).
+        deck_totalCards: { $ifNull: ['$deskCardCount', 0] },
+        total_cards: { $ifNull: ['$deskCardCount', 0] },
         deck_level: { $ifNull: ['$deskDoc.deck_level', ''] },
         createdAt: toIso('$deskDoc.createdAt'),
         updatedAt: toIsoIfNotNull('$deskDoc.updatedAt'),
@@ -156,6 +157,9 @@ function buildTodoProjectProjection() {
     $cond: [
       { $ifNull: ['$todoProjectDoc', false] },
       {
+        // Mongo _id (quy chuẩn id) — đồng bộ với quiz/flashcard projection,
+        // để FE gửi _id khi join (addProjectMember accept cả _id lẫn project_id).
+        id: { $toString: '$todoProjectDoc._id' },
         project_id: '$todoProjectDoc.project_id',
         project_name: '$todoProjectDoc.project_name',
         project_description: '$todoProjectDoc.project_description',
@@ -459,6 +463,28 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
+    // Đính kèm (slim) của tin được reply → FE render thumbnail ảnh/file trong
+    // ô quote thay vì chỉ chữ "Ảnh", giúp biết đang reply tin nào (nhiều file).
+    {
+      $lookup: {
+        from: 'Attachments',
+        localField: 'reply_doc.attachment_ids',
+        foreignField: '_id',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              kind: 1,
+              url: 1,
+              name: 1,
+              thumbUrl: 1,
+              mimeType: 1,
+            },
+          },
+        ],
+        as: 'reply_attachments',
+      },
+    },
 
     /** 5.1) Reply hidden (All user) */
     {
@@ -624,50 +650,25 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
       },
     },
     { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
+    // Đếm số thẻ THẬT của bộ (Flashcards theo card_deckId) — deck_totalCards
+    // lưu trên deck thường lệch (0 với bộ tạo trước khi maintain). card_deckId
+    // có index nên count rẻ; non-flashcard (deskDoc null) → count 0, bị bỏ qua.
     {
       $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
+        from: 'Flashcards',
+        let: { deckId: '$deskDoc._id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$card_deckId', '$$deckId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'deskCardCount',
       },
     },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard Deck */
     {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
+      $addFields: {
+        deskCardCount: { $ifNull: [{ $first: '$deskCardCount.count' }, 0] },
       },
     },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
-
-    /** 7.1c) Todo project */
-    {
-      $lookup: {
-        from: 'TodoProjects',
-        localField: 'todo_project_id',
-        foreignField: '_id',
-        as: 'todoProjectDoc',
-      },
-    },
-    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
-
-    /** 7.1b) Flashcard Deck */
-    {
-      $lookup: {
-        from: 'FlashcardDecks',
-        localField: 'desk_id',
-        foreignField: '_id',
-        as: 'deskDoc',
-      },
-    },
-    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
 
     /** 7.1c) Todo project */
     {
@@ -723,6 +724,7 @@ export function buildMessageCorePipeline(userId: string): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
+              attachments: { $ifNull: ['$reply_attachments', []] },
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
@@ -885,6 +887,28 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
+    // Đính kèm (slim) của tin được reply → FE render thumbnail ảnh/file trong
+    // ô quote thay vì chỉ chữ "Ảnh", giúp biết đang reply tin nào (nhiều file).
+    {
+      $lookup: {
+        from: 'Attachments',
+        localField: 'reply_doc.attachment_ids',
+        foreignField: '_id',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              kind: 1,
+              url: 1,
+              name: 1,
+              thumbUrl: 1,
+              mimeType: 1,
+            },
+          },
+        ],
+        as: 'reply_attachments',
+      },
+    },
 
     /** 3.1) Reply hidden (All users) */
     {
@@ -1040,6 +1064,47 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
       },
     },
 
+    /** 7.1b) Flashcard Deck */
+    {
+      $lookup: {
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
+        foreignField: '_id',
+        as: 'deskDoc',
+      },
+    },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+    // Đếm số thẻ THẬT của bộ (Flashcards theo card_deckId) — deck_totalCards
+    // lưu trên deck thường lệch (0 với bộ tạo trước khi maintain). card_deckId
+    // có index nên count rẻ; non-flashcard (deskDoc null) → count 0, bị bỏ qua.
+    {
+      $lookup: {
+        from: 'Flashcards',
+        let: { deckId: '$deskDoc._id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$card_deckId', '$$deckId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'deskCardCount',
+      },
+    },
+    {
+      $addFields: {
+        deskCardCount: { $ifNull: [{ $first: '$deskCardCount.count' }, 0] },
+      },
+    },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1077,6 +1142,7 @@ export function buildMessageDetailPipeline(msgId: string): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
+              attachments: { $ifNull: ['$reply_attachments', []] },
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',
@@ -1237,6 +1303,28 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
     { $set: { reply_sender: { $first: '$reply_sender' } } },
+    // Đính kèm (slim) của tin được reply → FE render thumbnail ảnh/file trong
+    // ô quote thay vì chỉ chữ "Ảnh", giúp biết đang reply tin nào (nhiều file).
+    {
+      $lookup: {
+        from: 'Attachments',
+        localField: 'reply_doc.attachment_ids',
+        foreignField: '_id',
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              kind: 1,
+              url: 1,
+              name: 1,
+              thumbUrl: 1,
+              mimeType: 1,
+            },
+          },
+        ],
+        as: 'reply_attachments',
+      },
+    },
 
     /** 3.1) Reply hidden (All users) */
     {
@@ -1392,6 +1480,47 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
       },
     },
 
+    /** 7.1b) Flashcard Deck */
+    {
+      $lookup: {
+        from: 'FlashcardDecks',
+        localField: 'desk_id',
+        foreignField: '_id',
+        as: 'deskDoc',
+      },
+    },
+    { $addFields: { deskDoc: { $first: '$deskDoc' } } },
+    // Đếm số thẻ THẬT của bộ (Flashcards theo card_deckId) — deck_totalCards
+    // lưu trên deck thường lệch (0 với bộ tạo trước khi maintain). card_deckId
+    // có index nên count rẻ; non-flashcard (deskDoc null) → count 0, bị bỏ qua.
+    {
+      $lookup: {
+        from: 'Flashcards',
+        let: { deckId: '$deskDoc._id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$card_deckId', '$$deckId'] } } },
+          { $count: 'count' },
+        ],
+        as: 'deskCardCount',
+      },
+    },
+    {
+      $addFields: {
+        deskCardCount: { $ifNull: [{ $first: '$deskCardCount.count' }, 0] },
+      },
+    },
+
+    /** 7.1c) Todo project */
+    {
+      $lookup: {
+        from: 'TodoProjects',
+        localField: 'todo_project_id',
+        foreignField: '_id',
+        as: 'todoProjectDoc',
+      },
+    },
+    { $addFields: { todoProjectDoc: { $first: '$todoProjectDoc' } } },
+
     /** 7.2) Room event (for system messages) */
     ...roomEventLookupStages(),
 
@@ -1429,6 +1558,7 @@ export function buildMessagesDetailPipeline(msgIds: string[]): PipelineStage[] {
               type: '$reply_doc.msg_type',
               content: '$reply_doc.msg_content',
               createdAt: '$reply_doc.createdAt',
+              attachments: { $ifNull: ['$reply_attachments', []] },
               sender: {
                 _id: '$reply_sender._id',
                 name: '$reply_sender.usr_fullname',

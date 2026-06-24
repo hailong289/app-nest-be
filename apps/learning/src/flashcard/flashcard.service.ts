@@ -25,6 +25,25 @@ export class FlashcardService {
     private readonly flashcardProgressModel: Model<FlashcardProgress>,
   ) { }
 
+  /**
+   * Đồng bộ deck_totalCards = số thẻ thực (card_deckId) của bộ. deck_totalCards
+   * chỉ được pre('save') hook cập nhật theo deck_cardIds — mà các luồng tạo/xoá
+   * thẻ dùng card_deckId + insertMany/updateOne (bypass hook) nên field này kẹt
+   * ở 0, khiến chat hiển thị "0 thẻ". Gọi sau mọi thay đổi thẻ của 1 deck.
+   */
+  private async syncDeckTotalCards(
+    deckId: Types.ObjectId | null | undefined,
+  ): Promise<void> {
+    if (!deckId) return;
+    const total = await this.flashcardModel.countDocuments({
+      card_deckId: deckId,
+    });
+    await this.flashcardDeckModel.updateOne(
+      { _id: deckId },
+      { $set: { deck_totalCards: total } },
+    );
+  }
+
   // Flashcard methods
   async createFlashcard(data: CreateFlashcardDto & { card_userId: string }) {
     try {
@@ -36,6 +55,7 @@ export class FlashcardService {
           : null,
       };
       const flashcard = await this.flashcardModel.create(flashcardData);
+      await this.syncDeckTotalCards(flashcardData.card_deckId);
       return Response.success(flashcard);
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');
@@ -58,18 +78,23 @@ export class FlashcardService {
   ) {
     try {
       const query: any = {};
-      if (userId) {
-        query.card_userId = new Types.ObjectId(userId);
-      }
       if (deckId) {
-        const desk = await this.flashcardDeckModel.findOne({ deck_id: deckId });
+        // Lọc theo BỘ THẺ → trả TẤT CẢ thẻ của bộ, KHÔNG lọc theo card_userId.
+        // Thẻ thuộc chủ bộ (card_userId=creator); nếu lọc thêm card_userId thì
+        // người khác xem bộ được chia sẻ sẽ thấy 0 thẻ. Quyền xem do bộ kiểm soát.
+        const desk = await this.flashcardDeckModel.findOne(
+          Types.ObjectId.isValid(deckId) && deckId.length === 24
+            ? { $or: [{ deck_id: deckId }, { _id: new Types.ObjectId(deckId) }] }
+            : { deck_id: deckId },
+        );
         if (!desk) {
           return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
         }
         query.card_deckId = desk._id;
+      } else if (userId) {
+        // Không kèm bộ thẻ → liệt kê thẻ rời của chính user.
+        query.card_userId = new Types.ObjectId(userId);
       }
-
-      console.log('query', query);
 
       const flashcards = await this.flashcardModel
         .find(query)
@@ -116,6 +141,7 @@ export class FlashcardService {
     if (!flashcard) {
       return Response.error('Flashcard not found', 404, 'NOT_FOUND');
     }
+    await this.syncDeckTotalCards(flashcard.card_deckId);
     return Response.success(flashcard);
   }
 
@@ -127,16 +153,22 @@ export class FlashcardService {
         deck_userId: new Types.ObjectId(data.deck_userId),
       };
       const deck = await this.flashcardDeckModel.create(deckData);
-      if (data.flashcards) {
-        const flashcards = await this.flashcardModel.insertMany(
+      if (data.flashcards?.length) {
+        await this.flashcardModel.insertMany(
           data.flashcards.map((flashcard) => ({
             ...flashcard,
             card_userId: new Types.ObjectId(data.deck_userId),
             card_deckId: deck._id,
           })),
         );
+        // Cập nhật tổng số thẻ ngay (insertMany không kích hoạt pre-save hook).
+        await this.syncDeckTotalCards(deck._id);
+        deck.deck_totalCards = data.flashcards.length;
       }
-      return Response.success(deck);
+      return Response.success({
+        ...deck.toObject(),
+        id: deck._id.toString(), // trả mongo _id dưới field `id` (proto)
+      });
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');
     }
@@ -155,6 +187,8 @@ export class FlashcardService {
 
     return Response.success({
       ...deck,
+      _id: deck._id.toString(),
+      id: deck._id.toString(), // proto FlashcardDeckMetadata chỉ có field `id`
       total_cards,
       progress,
     });
@@ -235,6 +269,7 @@ export class FlashcardService {
 
           return {
             ...deck,
+            id: deck._id.toString(),
             total_cards,
             progress,
           };
@@ -361,15 +396,19 @@ export class FlashcardService {
 
         const insertedCards = await this.flashcardModel.insertMany(newCardsData);
 
-        // Update deck_cardIds
+        // Update deck_cardIds + đồng bộ deck_totalCards theo số thẻ thực.
         const cardIds = insertedCards.map(c => c._id);
         await this.flashcardDeckModel.updateOne(
           { _id: newDeck._id },
-          { $set: { deck_cardIds: cardIds } }
+          { $set: { deck_cardIds: cardIds, deck_totalCards: cardIds.length } }
         );
       }
 
-      return Response.success({ ...newDeck.toObject(), cloned_from: deck_id });
+      return Response.success({
+        ...newDeck.toObject(),
+        id: newDeck._id.toString(), // trả mongo _id dưới field `id` (proto)
+        cloned_from: deck_id,
+      });
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');
     }

@@ -267,6 +267,15 @@ class Utils {
         },
         consumer: kafkaConfig.consumer,
         producer: kafkaConfig.producer,
+        // Cho phép 1 instance xử lý nhiều partition SONG SONG (mặc định
+        // kafkajs = 1 = tuần tự). Cần thiết để việc tăng partition thực sự
+        // tăng throughput khi chạy ít instance. Thứ tự TRONG mỗi partition vẫn
+        // được giữ → topic keyed theo room không bị đảo.
+        run: {
+          partitionsConsumedConcurrently: Number(
+            process.env.KAFKA_PARTITIONS_CONCURRENCY ?? 3,
+          ),
+        },
       },
     });
 
@@ -300,6 +309,7 @@ class Utils {
     client: ClientKafka,
     pattern: string,
     data: Record<string, unknown> = {},
+    key?: string,
   ): Promise<
     ReturnType<typeof Response.success> | ReturnType<typeof Response.error>
   > {
@@ -318,7 +328,11 @@ class Utils {
       );
     }
     try {
-      await client.emit(pattern, data).toPromise();
+      // Có key → produce dạng { key, value } để Kafka phân partition theo key
+      // (cùng key = cùng partition, giữ thứ tự). NestJS serializer nhận shape
+      // này; consumer @Payload vẫn nhận đúng `value`. Không key → giữ nguyên.
+      const message = key ? { key, value: data } : data;
+      await client.emit(pattern, message).toPromise();
     } catch (error) {
       const errorMessage =
         error && typeof error === 'object' && 'message' in error

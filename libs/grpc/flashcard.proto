@@ -226,6 +226,7 @@ message FlashcardDeckMetadata {
     string updatedAt = 15;
     int32 total_cards = 16;
     FlashcardDeckProgress progress = 17;
+    string id = 18;
 }
 
 

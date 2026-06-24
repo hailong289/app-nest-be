@@ -761,26 +761,31 @@ export class DocumentsService {
     );
 
     if (alreadyShared) {
-      throw new BadGatewayException('Tài liệu đã được chia sẻ với user này');
-    }
-
-    // Thêm user vào sharedWith
-    await this.docsModel.findByIdAndUpdate(
-      doc._id,
-      {
-        $push: {
-          sharedWith: {
-            userId: shareUserObjId,
-            role,
-            sharedAt: new Date(),
+      // Đã chia sẻ → CẬP NHẬT quyền (viewer/editor) thay vì báo lỗi, để owner
+      // đổi quyền từng người (nâng viewer→editor hoặc hạ editor→viewer).
+      await this.docsModel.updateOne(
+        { _id: doc._id, 'sharedWith.userId': shareUserObjId },
+        { $set: { 'sharedWith.$.role': role, updatedAt: new Date() } },
+      );
+    } else {
+      // Thêm user vào sharedWith
+      await this.docsModel.findByIdAndUpdate(
+        doc._id,
+        {
+          $push: {
+            sharedWith: {
+              userId: shareUserObjId,
+              role,
+              sharedAt: new Date(),
+            },
+          },
+          $set: {
+            updatedAt: new Date(),
           },
         },
-        $set: {
-          updatedAt: new Date(),
-        },
-      },
-      { new: true },
-    );
+        { new: true },
+      );
+    }
 
     const formattedDoc = await this.getFormattedDocumentById(docId);
 

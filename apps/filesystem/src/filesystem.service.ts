@@ -12,7 +12,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Response } from '@app/helpers/response';
 import { InjectModel } from '@nestjs/mongoose';
 import { Attachment, AttachmentKind, Room, User } from 'libs/db/src';
-import { Model, FilterQuery } from 'mongoose';
+import { Model, FilterQuery, HydratedDocument } from 'mongoose';
 import Utils from '@app/helpers/utils';
 import {
   MulterFile,
@@ -70,8 +70,15 @@ export class FilesystemService {
   async uploadSingleFileByUser(dto: uploadSingleFileByUserDTo) {
     const { userId, roomId, file, id, messageId } = dto;
     if (!file?.buffer) throw new Error('File or buffer is missing');
+    const { room } = await this.validateUserAndRoom(userId, roomId);
+    return this.uploadFileForRoom({ file, userId, room, id, messageId });
+  }
 
-    // Validate user and room
+  /**
+   * Validate user + room MỘT lần, trả room doc để tái dùng (tránh re-query
+   * user/room mỗi file khi upload nhiều file).
+   */
+  private async validateUserAndRoom(userId: string, roomId: string) {
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('User not found');
     const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
@@ -79,6 +86,22 @@ export class FilesystemService {
       room_id: { $in: [roomId, roomPair] },
     });
     if (!room) throw new NotFoundException('Room not found');
+    return { user, room };
+  }
+
+  /**
+   * Lõi upload 1 file vào room ĐÃ validate (nhận room doc sẵn) — không tự
+   * query user/room nữa. Dùng chung cho upload đơn & nhiều file.
+   */
+  private async uploadFileForRoom(params: {
+    file: uploadSingleFileByUserDTo['file'];
+    userId: string;
+    room: HydratedDocument<Room>;
+    id?: string;
+    messageId?: string;
+  }) {
+    const { file, userId, room, id, messageId } = params;
+    if (!file?.buffer) throw new Error('File or buffer is missing');
 
     // Prepare file metadata
     const timestamp = Date.now();
@@ -188,34 +211,23 @@ export class FilesystemService {
   async uploadMultipleFilesByUser(dto: UploadMultipleFilesByUserDto) {
     const { files, userId, roomId, messageId } = dto;
 
-    // Validate user and room once
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-    const roomPair = this.utils.pairRoomId(user.usr_id, roomId);
-    const room = await this.roomModel.findOne({
-      room_id: { $in: [roomId, roomPair] },
-    });
-    if (!room) throw new NotFoundException('Room not found');
+    // Validate user + room MỘT lần cho cả lô rồi truyền room doc xuống core —
+    // trước đây mỗi file gọi uploadSingleFileByUser khiến re-query user+room
+    // (2 query DB) mỗi file.
+    const { room } = await this.validateUserAndRoom(userId, roomId);
 
     const results = await Promise.all(
       files.map(async (file) => {
         try {
-          // Reuse uploadSingleFileByUser logic but we need to bypass the user/room check to avoid redundant DB calls
-          // However, uploadSingleFileByUser is tightly coupled with DB checks.
-          // For simplicity and correctness, we can just call uploadSingleFileByUser for each file.
-          // It might be slightly less efficient but ensures consistency.
-          // Or we can refactor uploadSingleFileByUser to accept pre-fetched user/room.
-
-          // Calling uploadSingleFileByUser directly:
-          const result = await this.uploadSingleFileByUser({
-            userId,
-            roomId,
+          const result = await this.uploadFileForRoom({
             file: {
               ...file,
               fieldname: '',
               encoding: '7bit',
               size: file.buffer.length,
             },
+            userId,
+            room,
             messageId,
           });
           // eslint-disable-next-line @typescript-eslint/no-unsafe-return

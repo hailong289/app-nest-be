@@ -32,7 +32,7 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --min-instances=0 \
-            --max-instances=3 \
+            --max-instances=10 \
             --cpu=1 \
             --memory=4Gi \
             --port=8080 \
