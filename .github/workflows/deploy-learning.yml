@@ -32,7 +32,7 @@ jobs:
           service: learning-service
           image: asia-southeast1-docker.pkg.dev/project-3a90e7bd-fcfe-474a-a03/microservices/learning:latest
           region: asia-southeast1
-          flags: '--allow-unauthenticated --min-instances=0 --max-instances=5 --cpu=1 --memory=4Gi --port=8080 --timeout=60s --concurrency=100 --use-http2'
+          flags: '--allow-unauthenticated --min-instances=0 --max-instances=10 --cpu=1 --memory=4Gi --port=8080 --timeout=60s --concurrency=1000 --use-http2'
           env_vars: |-
             NODE_ENV=${{ secrets.NODE_ENV }}
             HOST=${{ secrets.HOST }}

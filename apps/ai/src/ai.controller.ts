@@ -1,20 +1,23 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Inject, Logger } from '@nestjs/common';
 import { AIService } from './ai.service';
-import { GrpcMethod, MessagePattern } from '@nestjs/microservices';
+import { ClientKafka, GrpcMethod, MessagePattern } from '@nestjs/microservices';
 import { EmbeddingService } from './embedding.service';
 import { KafkaEvent } from '@app/dto/enum.type';
 import { SearchMessagesDto } from '@app/dto/ai.dto';
 import type { MulterFile } from '@app/dto';
-import { AiLogUseService } from './ai-log-use.service';
+import { AiLogUseService, AI_KAFKA_CLIENT } from './ai-log-use.service';
 import type { AiLogUsagePayload } from './ai-log-use.service';
+import Utils from '@app/helpers/utils';
 import { map } from 'rxjs/operators';
 
 @Controller()
 export class AIController {
+  private readonly logger = new Logger(AIController.name);
   constructor(
     private readonly service: AIService,
     private readonly embeddingService: EmbeddingService,
     private readonly aiLogUseService: AiLogUseService,
+    @Inject(AI_KAFKA_CLIENT) private readonly kafkaClient: ClientKafka,
   ) {}
 
   @GrpcMethod('AIService', 'Moderation')
@@ -60,14 +63,56 @@ export class AIController {
     mimeType: string;
     messageId: string;
   }) {
-    return await this.embeddingService.createEmbedding({
-      text: data.fileUrl,
+    // 1. Tóm tắt THẬT nội dung file (tải file từ URL rồi cho AI tóm tắt).
+    //    Trước đây hàm này nhét thẳng `fileUrl` làm text embedding → pipeline
+    //    getMsg đọc ra "summary" chính là cái link, nên FE chỉ thấy link chứ
+    //    không có tóm tắt. Giờ embed nội dung tóm tắt thật.
+    let summaryText = '';
+    try {
+      const res: any = await this.service.summaryDocument(
+        'file_url',
+        undefined,
+        data.fileUrl,
+        null,
+        data.userId,
+      );
+      summaryText = String(res?.metadata?.summary ?? '').trim();
+    } catch (err) {
+      this.logger.error(
+        `summaryDocument failed for attachment ${data.docId}`,
+        err as Error,
+      );
+    }
+
+    // Không tóm tắt được → KHÔNG lưu link làm summary (đó chính là bug cũ).
+    if (!summaryText) {
+      this.logger.warn(
+        `Empty summary for attachment ${data.docId} — skip embedding`,
+      );
+      return;
+    }
+
+    // 2. Embed bản tóm tắt (vừa hiển thị summary, vừa phục vụ semantic search).
+    await this.embeddingService.createEmbedding({
+      text: summaryText,
       contextId: data.docId,
       contextType: 'file',
       service: 'document',
       userId: data.userId,
+      messageId: data.messageId,
       replaceOld: true,
     });
+
+    // 3. Báo cho chat service re-fetch message + broadcast MSGUPSERT qua redis
+    //    adapter để bong bóng tin nhắn cập nhật summary realtime, không phải chờ
+    //    người dùng tải lại tin nhắn.
+    if (data.messageId) {
+      await Utils.dispatchEventKafka(
+        this.kafkaClient,
+        KafkaEvent.FILE_SUMMARY_READY,
+        { messageId: data.messageId },
+      );
+    }
   }
 
   @GrpcMethod('AIService', 'SearchMessages')
