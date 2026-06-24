@@ -1,3 +1,5 @@
+// Redeploy trigger: Cloud Run memory quota fix (4Gi→1Gi) — chạm apps/socket/**
+// để paths-filter của deploy.yml kích hoạt deploy-socket với config đã sửa.
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { useSharedRedisAdapter } from './ws';

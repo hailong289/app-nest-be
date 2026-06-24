@@ -146,21 +146,41 @@ export class PresenceService implements OnModuleInit {
   private async purgeStaleMembers(onlineKey: string): Promise<number> {
     const members = await this.redis.sMembers(onlineKey);
     if (members.length === 0) return 0;
+    const { dead } = await this.collectDeadMembers(members);
+    if (dead.length === 0) return 0;
+    await this.redis.sRem(onlineKey, ...dead);
+    return dead.length;
+  }
+
+  /**
+   * Phân loại member của 1 online-set thành dead (legacy/malformed hoặc
+   * SOCKET_ALIVE đã hết hạn). Gộp toàn bộ kiểm tra SOCKET_ALIVE vào MỘT `mget`
+   * thay vì N lần `getData` tuần tự — quan trọng khi user nhiều socket / online
+   * lớn. Chỉ cần biết key còn tồn tại (non-null) là còn sống.
+   */
+  private async collectDeadMembers(
+    members: string[],
+  ): Promise<{ dead: string[] }> {
     const dead: string[] = [];
+    const toCheck: { member: string; key: string }[] = [];
     for (const m of members) {
       const idx = m.indexOf(':');
       if (idx <= 0 || idx === m.length - 1) {
         dead.push(m); // legacy bare-id or malformed entry
         continue;
       }
-      const ns = m.slice(0, idx);
-      const sid = m.slice(idx + 1);
-      const alive = await this.redis.getData(this.key.SOCKET_ALIVE(ns, sid));
-      if (!alive) dead.push(m);
+      toCheck.push({
+        member: m,
+        key: this.key.SOCKET_ALIVE(m.slice(0, idx), m.slice(idx + 1)),
+      });
     }
-    if (dead.length === 0) return 0;
-    await this.redis.sRem(onlineKey, ...dead);
-    return dead.length;
+    if (toCheck.length > 0) {
+      const alive = await this.redis.mget(toCheck.map((t) => t.key));
+      toCheck.forEach((t, i) => {
+        if (alive[i] === null) dead.push(t.member);
+      });
+    }
+    return { dead };
   }
 
   /**
@@ -215,24 +235,33 @@ export class PresenceService implements OnModuleInit {
    */
   async getBulkStatus(userIds: string[]): Promise<PresenceStatus[]> {
     if (userIds.length === 0) return [];
-    const out: PresenceStatus[] = [];
-    for (const id of userIds) {
-      const card = await this.redis.sCard(this.key.USER_ONLINE(id));
-      const lastSeen = (await this.redis.getData(
-        this.key.USER_LAST_SEEN(id),
-      )) as string | null;
+
+    // SCARD không gộp được bằng mget → dồn vào MỘT pipeline (1 round-trip).
+    const cardPipe = this.redis.client.pipeline();
+    for (const id of userIds) cardPipe.scard(this.key.USER_ONLINE(id));
+    const cardRes = await cardPipe.exec();
+
+    // USER_LAST_SEEN dồn vào MỘT mget (1 round-trip) thay vì N getData.
+    const lastSeenRaw = await this.redis.mget(
+      userIds.map((id) => this.key.USER_LAST_SEEN(id)),
+    );
+
+    const nowIso = new Date().toISOString();
+    return userIds.map((id, i) => {
+      const card = Number(cardRes?.[i]?.[1] ?? 0);
+      const raw = lastSeenRaw[i];
       const lastSeenStr =
-        typeof lastSeen === 'string' && lastSeen.startsWith('"')
-          ? (JSON.parse(lastSeen) as string)
-          : lastSeen;
-      out.push({
+        typeof raw === 'string' && raw.startsWith('"')
+          ? (JSON.parse(raw) as string)
+          : raw;
+      const isOnline = card > 0;
+      return {
         id,
-        isOnline: card > 0,
-        onlineAt: card > 0 ? lastSeenStr || new Date().toISOString() : null,
+        isOnline,
+        onlineAt: isOnline ? lastSeenStr || nowIso : null,
         lastSeen: lastSeenStr || null,
-      });
-    }
-    return out;
+      };
+    });
   }
 
   /**
@@ -254,26 +283,17 @@ export class PresenceService implements OnModuleInit {
         const userId = this.extractUserIdFromOnlineKey(key);
         if (!userId) continue;
         checked += 1;
-        const before = await this.redis.sCard(key);
-        if (before === 0) continue;
+        // Lấy members 1 lần; suy ra before/after từ độ dài thay vì 2 SCARD.
         const members = await this.redis.sMembers(key);
-        const dead: string[] = [];
-        for (const m of members) {
-          const idx = m.indexOf(':');
-          if (idx <= 0 || idx === m.length - 1) {
-            dead.push(m); // legacy bare-id or malformed entry
-            continue;
-          }
-          const ns = m.slice(0, idx);
-          const sid = m.slice(idx + 1);
-          const alive = await this.redis.getData(this.key.SOCKET_ALIVE(ns, sid));
-          if (!alive) dead.push(m);
-        }
+        const before = members.length;
+        if (before === 0) continue;
+        // Gộp kiểm tra SOCKET_ALIVE vào 1 mget (xem collectDeadMembers).
+        const { dead } = await this.collectDeadMembers(members);
         if (dead.length > 0) {
           await this.redis.sRem(key, ...dead);
           pruned += dead.length;
         }
-        const after = await this.redis.sCard(key);
+        const after = before - dead.length;
         if (before > 0 && after === 0) {
           await this.redis.setData(
             this.key.USER_LAST_SEEN(userId),
