@@ -23,6 +23,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import {
   Room,
   Message,
+  MessageDocument,
   RoomsState,
   MessageRead,
   RoomsUsersState,
@@ -303,9 +304,6 @@ export class HandleChatService {
     if (!createNewMsg) {
       throw new BadRequestException('không tạo được tin nhắn');
     }
-    const msg = await this.messageModel.aggregate(
-      buildMessageDetailPipeline(createNewMsg._id.toString()),
-    );
 
     // Phát realtime NGAY khi payload đã đầy đủ — KHÔNG chờ tail side-effect
     // (Kafka embedding, push notification, bulkWrite unread) ở dưới, và KHÔNG
@@ -313,9 +311,30 @@ export class HandleChatService {
     // chat service → Redis → apps/socket → client. Nhắm tới room cá nhân của
     // từng thành viên (ROOM_CLIENT) — đúng semantics gateway đang dùng, room
     // này luôn được join lúc connect nên không phụ thuộc trạng thái join roomId.
-    const serializedMsg = this.serializeRoomEvent(
-      msg[0] as Record<string, any>,
-    );
+    //
+    // HOT PATH: tin TEXT thuần (không attachment/reply/quiz/desk/todo/doc) —
+    // chiếm phần lớn lưu lượng burst — KHÔNG cần aggregate ~13 \$lookup. Dựng
+    // payload realtime ngay trong code, GIỮ NGUYÊN shape mà
+    // buildMessageDetailPipeline trả về (FE upsetMsg không phải đổi). Các loại
+    // tin còn lại vẫn đi aggregate đã kiểm chứng.
+    const isPlainText =
+      createNewMsg.msg_type === 'text' &&
+      (createNewMsg.attachment_ids?.length ?? 0) === 0 &&
+      !createNewMsg.reply_to &&
+      !createNewMsg.quiz_id &&
+      !createNewMsg.desk_id &&
+      !createNewMsg.todo_project_id &&
+      !createNewMsg.document_id;
+
+    const serializedMsg = isPlainText
+      ? this.buildRealtimeTextPayload(createNewMsg, userInfo)
+      : this.serializeRoomEvent(
+          (
+            await this.messageModel.aggregate(
+              buildMessageDetailPipeline(createNewMsg._id.toString()),
+            )
+          )[0] as Record<string, any>,
+        );
     // Cấp `seq` change-feed SỚM để gắn vào payload realtime (MSGUPSERT). Cùng
     // `seq` này được truyền sang tail `handleMessagePersisted` để ghi outbox
     // `room.newmsgs` → live + catch-up dùng CHUNG một seq, client tiến con trỏ
@@ -368,6 +387,10 @@ export class HandleChatService {
         serializedMsg,
         changeSeq,
       },
+      // key=roomMongoId → mọi tin cùng room về cùng partition: consumer tail
+      // (RoomsState/unread/last_message) xử lý ĐÚNG THỨ TỰ trong room dù
+      // MESSAGE_PERSISTED đã tăng lên nhiều partition.
+      finInfo._id.toString(),
     );
 
     return Response.success(
@@ -379,6 +402,54 @@ export class HandleChatService {
       },
       'Tin nhắn mới thành công',
     );
+  }
+
+  /**
+   * Dựng payload realtime cho tin TEXT thuần, KHỚP TỪNG FIELD với output của
+   * buildMessageDetailPipeline (đường aggregate) để FE không phải đổi. Chỉ gọi
+   * khi tin chắc chắn không có attachment/reply/quiz/desk/todo/doc — nên mọi
+   * field phụ đều là rỗng/null như pipeline trả về cho tin mới:
+   *   reactions/read_by/hiddenBy/attachments = [], read_by_count = 0,
+   *   reply/call_history/quiz/desk/todoProject/room_event/summary = null.
+   * editedAt/deletedAt/placeholder để nguyên (undefined → bị bỏ khi JSON hoá,
+   * giống pipeline bỏ field không tồn tại).
+   */
+  private buildRealtimeTextPayload(
+    msg: MessageDocument,
+    sender: User & { _id: Types.ObjectId },
+  ): Record<string, any> {
+    return {
+      _id: msg._id,
+      roomId: msg.msg_roomId,
+      id: msg._id,
+      type: msg.msg_type,
+      content: msg.msg_content,
+      createdAt: msg.createdAt,
+      editedAt: msg.editedAt,
+      deletedAt: msg.deletedAt,
+      isDeleted: !!msg.deletedAt,
+      pinned: msg.pinned,
+      placeholder: msg.placeholder,
+      sender: {
+        _id: sender._id,
+        fullname: sender.usr_fullname,
+        avatar: sender.usr_avatar,
+        id: sender.usr_id,
+      },
+      attachments: [],
+      reactions: [],
+      reply: null,
+      hiddenBy: [],
+      documentId: null,
+      read_by: [],
+      read_by_count: 0,
+      call_history: null,
+      quiz: null,
+      desk: null,
+      todoProject: null,
+      room_event: null,
+      summary: null,
+    };
   }
 
   /** Preview text của tin nhắn cho last_message / push theo loại. */

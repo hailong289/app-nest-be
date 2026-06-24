@@ -63,6 +63,46 @@ export class KafkaAdminService implements OnModuleInit {
         this.logger.log('✅ All topics already exist');
       }
 
+      // Topic đã tồn tại từ trước KHÔNG được createTopics cập nhật partition.
+      // Kafka chỉ cho TĂNG partition (không giảm) → gọi createPartitions cho
+      // topic nào đang ít hơn cấu hình. An toàn & idempotent: bỏ qua nếu đã đủ.
+      try {
+        const wantMultiPartition = topics.filter(
+          (t) => existingTopics.includes(t.topic) && t.numPartitions > 1,
+        );
+        if (wantMultiPartition.length > 0) {
+          const meta = await admin.fetchTopicMetadata({
+            topics: wantMultiPartition.map((t) => t.topic),
+          });
+          const currentCount = new Map(
+            meta.topics.map((t) => [t.name, t.partitions.length]),
+          );
+          const toGrow = wantMultiPartition.filter(
+            (t) => (currentCount.get(t.topic) ?? 1) < t.numPartitions,
+          );
+          if (toGrow.length > 0) {
+            this.logger.log(
+              `Increasing partitions: ${toGrow
+                .map((t) => `${t.topic}->${t.numPartitions}`)
+                .join(', ')}`,
+            );
+            await admin.createPartitions({
+              topicPartitions: toGrow.map((t) => ({
+                topic: t.topic,
+                count: t.numPartitions,
+              })),
+            });
+            this.logger.log('✅ Kafka partitions increased');
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `⚠️  Increase partitions skipped: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
       await admin.disconnect();
     } catch (error) {
       this.logger.error('❌ Error creating topics', error);
