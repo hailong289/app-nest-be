@@ -156,6 +156,9 @@ function buildTodoProjectProjection() {
     $cond: [
       { $ifNull: ['$todoProjectDoc', false] },
       {
+        // Mongo _id (quy chuẩn id) — đồng bộ với quiz/flashcard projection,
+        // để FE gửi _id khi join (addProjectMember accept cả _id lẫn project_id).
+        id: { $toString: '$todoProjectDoc._id' },
         project_id: '$todoProjectDoc.project_id',
         project_name: '$todoProjectDoc.project_name',
         project_description: '$todoProjectDoc.project_description',

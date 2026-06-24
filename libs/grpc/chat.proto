@@ -726,6 +726,7 @@ message TodoProjectCore {
   string createdAt = 9;
   string updatedAt = 10;
   repeated string project_members = 11;
+  string id = 12; // Mongo _id (quy chuẩn id) — đồng bộ QuizCore/FlashcardDeckCore
 }
 message FlashcardDeckCore {
   string id = 1;
