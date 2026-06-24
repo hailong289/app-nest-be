@@ -19,6 +19,17 @@ export class QuizzService {
     @InjectModel(Message.name) private readonly messageModel: Model<Message>,
   ) {}
 
+  /**
+   * Filter tra quiz chấp nhận CẢ Mongo `_id` (quy chuẩn) lẫn `quiz_id` custom
+   * (tương thích dữ liệu/FE cũ). FE chat ưu tiên gửi `_id` nên nếu chỉ match
+   * quiz_id sẽ "not found" lúc nộp bài. Cùng pattern addProjectMember bên todo.
+   */
+  private byQuizId(quiz_id: string): Record<string, any> {
+    return Types.ObjectId.isValid(quiz_id)
+      ? { $or: [{ quiz_id }, { _id: new Types.ObjectId(quiz_id) }] }
+      : { quiz_id };
+  }
+
   async createQuizz(data: CreateQuizzDto & { quiz_createdBy: string }) {
     try {
       // Convert string IDs to ObjectId
@@ -35,7 +46,7 @@ export class QuizzService {
   }
 
   async getQuizzById(quiz_id: string) {
-    const quiz = await this.quizModel.findOne({ quiz_id });
+    const quiz = await this.quizModel.findOne(this.byQuizId(quiz_id));
     if (!quiz) {
       return Response.error('Quiz not found', 404, 'NOT_FOUND');
     }
@@ -91,7 +102,7 @@ export class QuizzService {
 
   async updateQuizzById(quiz_id: string, data: UpdateQuizzDto) {
     try {
-      const quiz = await this.quizModel.findOneAndUpdate({ quiz_id }, data, {
+      const quiz = await this.quizModel.findOneAndUpdate(this.byQuizId(quiz_id), data, {
         new: true,
       });
       if (!quiz) {
@@ -104,7 +115,7 @@ export class QuizzService {
   }
 
   async deleteQuizzById(quiz_id: string) {
-    const quiz = await this.quizModel.findOneAndDelete({ quiz_id });
+    const quiz = await this.quizModel.findOneAndDelete(this.byQuizId(quiz_id));
     if (!quiz) {
       return Response.error('Quiz not found', 404, 'NOT_FOUND');
     }
@@ -205,7 +216,7 @@ export class QuizzService {
 
   async submitQuizz(quiz_id: string, answer: AnswerSubmitDto) {
     try {
-      const quiz = await this.quizModel.findOne({ quiz_id });
+      const quiz = await this.quizModel.findOne(this.byQuizId(quiz_id));
       if (!quiz) {
         return Response.error('Quiz not found', 404, 'NOT_FOUND');
       }

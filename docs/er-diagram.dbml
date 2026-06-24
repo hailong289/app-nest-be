@@ -1,0 +1,436 @@
+// ============================================================
+// IChat - ER Diagram (24 MongoDB Collections)
+// Paste at https://dbdiagram.io
+// ============================================================
+
+// ── AUTH & USER ──────────────────────────────────────────
+Table Users {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  usr_id varchar [unique, note: 'Business ID']
+  usr_slug varchar [unique]
+  usr_fullname varchar [not null]
+  usr_email varchar
+  usr_phone varchar
+  usr_salt varchar [not null, note: 'Password salt']
+  usr_avatar varchar
+  usr_dateOfBirth timestamp
+  usr_gender varchar
+  usr_address varchar
+  usr_status varchar [default: 'active', note: 'active | inactive | banned']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Keys {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  key_id varchar [unique]
+  key_userId bigint [not null]
+  key_token varchar [not null, note: 'JWT refresh token']
+  key_jti varchar [unique, not null, note: 'JWT ID for blacklist']
+  key_deviceInfo text
+  key_expiresAt timestamp
+  key_isRevoked boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Otps {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  indicator varchar [not null, note: 'Email or phone']
+  userId varchar [note: 'Soft ref → Users.usr_id']
+  otp varchar [not null]
+  type varchar [default: 'register', note: 'register | reset-password | change-password']
+  isUsed boolean [default: false]
+  createdAt timestamp [note: 'TTL 300s']
+}
+
+// ── CORE CHAT ────────────────────────────────────────────
+Table Rooms {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  room_id varchar [unique]
+  room_name varchar [not null]
+  room_type varchar [not null, note: 'private | group | channel']
+  room_avatar varchar
+  room_owner bigint
+  room_members text [note: 'JSON: Member[] subdocs — each has user_id']
+  room_createdBy bigint
+  room_isArchived boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Messages {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  msg_id varchar [unique]
+  msg_roomId bigint
+  msg_senderId bigint
+  msg_type varchar [not null, note: 'text|image|video|file|audio|link|doc|system|quiz|flashcard|todo']
+  msg_content text
+  msg_documentId bigint
+  msg_replyToMessageId bigint
+  msg_quizId bigint
+  msg_flashcardDeckId bigint
+  msg_todoProjectId bigint
+  msg_isDeleted boolean [default: false]
+  msg_deletedForUserId bigint
+  msg_isEdited boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Attachments {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  att_id varchar [unique]
+  att_roomId bigint
+  att_senderId bigint
+  att_kind varchar [not null, note: 'image|video|file|audio|link|doc|json']
+  att_url varchar [not null]
+  att_name varchar
+  att_size integer
+  att_mimeType varchar
+  att_status varchar [default: 'uploading', note: 'uploading|done|error']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table RoomEvents {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  event_id varchar [unique]
+  event_roomId bigint
+  event_type varchar [not null, note: 'member_join|member_leave|room_created|...']
+  event_actorId bigint
+  event_messageId bigint
+  event_metadata text [note: 'JSON']
+  createdAt timestamp
+}
+
+// ── MESSAGE SUB-TABLES ───────────────────────────────────
+Table MessageReads {
+  _id bigint [pk]
+  read_roomId bigint
+  read_messageId bigint
+  read_userId bigint
+  read_at timestamp
+}
+
+Table MessageReactions {
+  _id bigint [pk]
+  react_roomId bigint
+  react_messageId bigint
+  react_userId bigint
+  react_emoji varchar [not null, note: 'Emoji character or shortcode']
+  createdAt timestamp
+}
+
+Table MessageHides {
+  _id bigint [pk]
+  hide_roomId bigint
+  hide_messageId bigint
+  hide_userId bigint
+  createdAt timestamp
+}
+
+// ── ROOM STATE ───────────────────────────────────────────
+Table RoomsState {
+  _id bigint [pk]
+  rs_roomId bigint
+  rs_lastMessageId bigint
+  rs_unreadCount integer [default: 0]
+  rs_isPinned boolean [default: false]
+  rs_isMuted boolean [default: false]
+  rs_isArchived boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table RoomsUsersState {
+  _id bigint [pk]
+  rus_roomId bigint
+  rus_userId bigint
+  rus_lastReadMessageId bigint
+  rus_unreadCount integer [default: 0]
+  rus_isPinned boolean [default: false]
+  rus_isMuted boolean [default: false]
+  rus_isArchived boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── SOCIAL ───────────────────────────────────────────────
+Table Friendships {
+  _id bigint [pk, note: 'MongoDB ObjectId']
+  frp_id varchar [unique]
+  frp_userId1 varchar [not null, note: 'Soft ref → Users.usr_id']
+  frp_userId2 varchar [not null, note: 'Soft ref → Users.usr_id']
+  frp_actionUserId varchar [not null, note: 'Soft ref → Users.usr_id']
+  frp_status varchar [not null, note: 'PENDING|ACCEPTED|REJECTED|BLOCKED']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Notifications {
+  _id bigint [pk]
+  noti_id varchar [unique]
+  noti_userId bigint
+  noti_type varchar [not null, note: 'friend_request|friend_accepted|message|room_invite|system|other']
+  noti_title varchar [not null]
+  noti_content text
+  noti_read boolean [default: false]
+  noti_readAt timestamp
+  noti_image varchar
+  noti_level varchar [default: 'info', note: 'info|success|warning|error']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── CALLS ────────────────────────────────────────────────
+Table CallHistories {
+  _id bigint [pk]
+  call_id varchar [unique]
+  call_initiatedBy bigint
+  call_roomId bigint
+  call_messageId bigint
+  call_type varchar [not null, note: 'video|audio']
+  call_status varchar [not null, note: 'initiated|started|ended']
+  call_startedAt timestamp
+  call_endedAt timestamp
+  call_duration integer [note: 'Thời lượng (giây)']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── DOCUMENTS ────────────────────────────────────────────
+Table Documents {
+  _id bigint [pk]
+  doc_id varchar [unique]
+  doc_title varchar [not null]
+  doc_content text [note: 'Yjs collaborative content']
+  doc_createdBy bigint
+  doc_visibility varchar [default: 'private', note: 'private|room|public']
+  doc_isArchived boolean [default: false]
+  doc_tags varchar
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── LEARNING: QUIZ ───────────────────────────────────────
+Table Quizzes {
+  _id bigint [pk]
+  quiz_id varchar [unique]
+  quiz_title varchar [not null]
+  quiz_description text
+  quiz_createdBy bigint
+  quiz_status varchar [default: 'draft', note: 'draft|active|completed|cancelled']
+  quiz_totalPoints integer [default: 0]
+  quiz_timeLimit integer [note: 'Thời gian (phút)']
+  quiz_shuffleQuestions boolean [default: false]
+  quiz_isPublic boolean [default: false]
+  quiz_tags varchar
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table QuizResults {
+  _id bigint [pk]
+  result_id varchar [unique]
+  result_quizId bigint
+  result_roomId bigint
+  result_userId bigint
+  result_score integer [not null]
+  result_totalPoints integer [not null]
+  result_completedAt timestamp
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── LEARNING: FLASHCARD ──────────────────────────────────
+Table FlashcardDecks {
+  _id bigint [pk]
+  deck_id varchar [unique]
+  deck_userId bigint
+  deck_name varchar [not null]
+  deck_name_norm varchar [note: 'Tên chuẩn hóa để search']
+  deck_description text
+  deck_image varchar
+  deck_tags varchar
+  deck_totalCards integer [default: 0]
+  deck_totalLearners integer [default: 0]
+  deck_isPublic boolean [default: true]
+  deck_isArchived boolean [default: false]
+  deck_level varchar [default: 'beginner', note: 'beginner|intermediate|advanced|expert']
+  deck_language varchar
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Flashcards {
+  _id bigint [pk]
+  card_id varchar [unique]
+  card_userId bigint
+  card_deckId bigint
+  card_front varchar [not null, note: 'Mặt trước (câu hỏi)']
+  card_front_norm varchar
+  card_back varchar [not null, note: 'Mặt sau (đáp án)']
+  card_back_norm varchar
+  card_hint varchar
+  card_tags varchar
+  card_image varchar
+  card_audio varchar
+  card_difficulty integer [default: 0, note: '1-5']
+  card_totalViews integer [default: 0]
+  card_totalReviews integer [default: 0]
+  card_isPublic boolean [default: true]
+  card_isArchived boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table FlashcardProgresses {
+  _id bigint [pk]
+  card_id varchar [not null, note: 'Soft ref → Flashcards.card_id']
+  user_id varchar [not null, note: 'Soft ref → Users.usr_id']
+  mastery_level integer [default: 0, note: '0-100']
+  review_count integer [default: 0]
+  correct_count integer [default: 0]
+  incorrect_count integer [default: 0]
+  last_reviewed timestamp
+  next_review timestamp [note: 'Spaced repetition']
+  is_mastered boolean [default: false]
+  is_favorite boolean [default: false]
+  status varchar [default: 'new', note: 'new|learning|review|mastered']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── TODO ─────────────────────────────────────────────────
+Table TodoProjects {
+  _id bigint [pk]
+  project_id varchar [unique]
+  project_name varchar [not null]
+  project_description text
+  project_createdBy bigint
+  project_roomId bigint
+  project_isArchived boolean [default: false]
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table Todos {
+  _id bigint [pk]
+  todo_id varchar [unique]
+  todo_title varchar [not null]
+  todo_description text
+  todo_status varchar [default: 'todo', note: 'todo|in_progress|done|cancelled + custom']
+  todo_priority varchar [default: 'medium', note: 'low|medium|high']
+  todo_dueDate timestamp
+  todo_roomId bigint
+  todo_projectId varchar [note: 'Soft ref → TodoProjects.project_id']
+  todo_createdBy bigint
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+// ── AI ───────────────────────────────────────────────────
+Table AIEmbeddings {
+  _id bigint [pk]
+  service varchar [not null, note: 'moderation|chat|document']
+  provider varchar [default: 'google']
+  model varchar [not null]
+  hash varchar [unique, not null]
+  text text [not null]
+  userId varchar [note: 'Soft ref → Users.usr_id']
+  contextType varchar [note: 'room|doc']
+  contextId bigint [note: 'Polymorphic FK — Rooms._id or Documents._id']
+  messageId bigint [note: 'FK — Messages._id or Documents._id']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+Table AIUsageLogs {
+  _id bigint [pk]
+  service varchar [not null, note: 'moderation|summarization|translation|stt|ocr|...']
+  provider varchar [default: 'google']
+  model varchar [not null, note: 'gemini-2.5-flash|...']
+  userId varchar [not null, note: 'Soft ref → Users.usr_id']
+  tokenInput integer
+  tokenOutput integer
+  latencyMs integer
+  costUsd decimal
+  status varchar [default: 'success', note: 'success|error']
+  createdAt timestamp
+  updatedAt timestamp
+}
+
+
+// ============================================================
+// RELATIONSHIPS
+// ============================================================
+
+// ── Users ← all ──
+Ref: Keys.key_userId > Users._id
+Ref: Rooms.room_owner > Users._id
+Ref: Rooms.room_createdBy > Users._id
+Ref: Messages.msg_senderId > Users._id
+Ref: Messages.msg_deletedForUserId > Users._id
+Ref: Attachments.att_senderId > Users._id
+Ref: RoomEvents.event_actorId > Users._id
+Ref: MessageReads.read_userId > Users._id
+Ref: MessageReactions.react_userId > Users._id
+Ref: MessageHides.hide_userId > Users._id
+Ref: RoomsUsersState.rus_userId > Users._id
+Ref: Notifications.noti_userId > Users._id
+Ref: CallHistories.call_initiatedBy > Users._id
+Ref: Documents.doc_createdBy > Users._id
+Ref: Quizzes.quiz_createdBy > Users._id
+Ref: QuizResults.result_userId > Users._id
+Ref: FlashcardDecks.deck_userId > Users._id
+Ref: Flashcards.card_userId > Users._id
+Ref: TodoProjects.project_createdBy > Users._id
+Ref: Todos.todo_createdBy > Users._id
+
+// ── Rooms ← all ──
+Ref: Messages.msg_roomId > Rooms._id
+Ref: Attachments.att_roomId > Rooms._id
+Ref: RoomEvents.event_roomId > Rooms._id
+Ref: MessageReads.read_roomId > Rooms._id
+Ref: MessageReactions.react_roomId > Rooms._id
+Ref: MessageHides.hide_roomId > Rooms._id
+Ref: RoomsState.rs_roomId > Rooms._id
+Ref: RoomsUsersState.rus_roomId > Rooms._id
+Ref: CallHistories.call_roomId > Rooms._id
+Ref: QuizResults.result_roomId > Rooms._id
+Ref: TodoProjects.project_roomId > Rooms._id
+Ref: Todos.todo_roomId > Rooms._id
+
+// ── Messages ← all ──
+Ref: MessageReads.read_messageId > Messages._id
+Ref: MessageReactions.react_messageId > Messages._id
+Ref: MessageHides.hide_messageId > Messages._id
+Ref: RoomsState.rs_lastMessageId > Messages._id
+Ref: RoomsUsersState.rus_lastReadMessageId > Messages._id
+Ref: RoomEvents.event_messageId > Messages._id
+Ref: CallHistories.call_messageId > Messages._id
+
+// ── Messages → external entities ──
+Ref: Messages.msg_replyToMessageId > Messages._id
+Ref: Messages.msg_documentId > Documents._id
+Ref: Messages.msg_quizId > Quizzes._id
+Ref: Messages.msg_flashcardDeckId > FlashcardDecks._id
+Ref: Messages.msg_todoProjectId > TodoProjects._id
+
+// ── Flashcard ──
+Ref: Flashcards.card_deckId > FlashcardDecks._id
+
+// ── Quiz ──
+Ref: QuizResults.result_quizId > Quizzes._id
+
+// ── Soft refs (varchar → varchar — string-based IDs) ──
+Ref: Otps.userId > Users.usr_id
+Ref: Friendships.frp_userId1 > Users.usr_id
+Ref: Friendships.frp_userId2 > Users.usr_id
+Ref: Friendships.frp_actionUserId > Users.usr_id
+Ref: AIEmbeddings.userId > Users.usr_id
+Ref: AIUsageLogs.userId > Users.usr_id
+Ref: FlashcardProgresses.user_id > Users.usr_id
+Ref: FlashcardProgresses.card_id > Flashcards.card_id
+Ref: Todos.todo_projectId > TodoProjects.project_id
