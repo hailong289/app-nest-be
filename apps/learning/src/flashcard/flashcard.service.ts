@@ -160,7 +160,10 @@ export class FlashcardService {
         await this.syncDeckTotalCards(deck._id);
         deck.deck_totalCards = data.flashcards.length;
       }
-      return Response.success(deck);
+      return Response.success({
+        ...deck.toObject(),
+        id: deck._id.toString(), // trả mongo _id dưới field `id` (proto)
+      });
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');
     }
@@ -180,6 +183,7 @@ export class FlashcardService {
     return Response.success({
       ...deck,
       _id: deck._id.toString(),
+      id: deck._id.toString(), // proto FlashcardDeckMetadata chỉ có field `id`
       total_cards,
       progress,
     });
@@ -395,7 +399,11 @@ export class FlashcardService {
         );
       }
 
-      return Response.success({ ...newDeck.toObject(), cloned_from: deck_id });
+      return Response.success({
+        ...newDeck.toObject(),
+        id: newDeck._id.toString(), // trả mongo _id dưới field `id` (proto)
+        cloned_from: deck_id,
+      });
     } catch (error) {
       return Response.error(error.message, 400, 'Bad Request');
     }
