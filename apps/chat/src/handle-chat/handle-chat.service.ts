@@ -305,6 +305,32 @@ export class HandleChatService {
       throw new BadRequestException('không tạo được tin nhắn');
     }
 
+    // Chia sẻ tài liệu vào hội thoại: cấp quyền cho room NGAY (đồng bộ) TRƯỚC
+    // khi broadcast. Trước đây roomIds được set qua tail Kafka (MESSAGE_PERSISTED
+    // → SHARE_DOC_FOR_ROOM → filesystem) nên người nhận bấm sớm bị "truy cập bị
+    // từ chối" (DB chưa kịp cập nhật). Chat ghi thẳng documentModel (cùng Mongo).
+    // Match kèm ownerId → chỉ owner share được (non-owner no-op, giữ semantics cũ).
+    if (documentId) {
+      try {
+        await this.documentModel.updateOne(
+          {
+            _id: this.utils.convertToObjectIdMongoose(documentId),
+            ownerId: userInfo._id,
+          },
+          {
+            $addToSet: { roomIds: finInfo._id },
+            $set: { updatedAt: new Date() },
+          },
+        );
+      } catch (err) {
+        this.log.warn(
+          `[DOC_SHARE] cấp quyền room cho doc ${documentId} thất bại: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
     // Phát realtime NGAY khi payload đã đầy đủ — KHÔNG chờ tail side-effect
     // (Kafka embedding, push notification, bulkWrite unread) ở dưới, và KHÔNG
     // đi vòng gRPC response → gateway → emit. Bắn thẳng qua Redis adapter:
@@ -591,20 +617,8 @@ export class HandleChatService {
             ),
           ]
         : []),
-      ...(documentId
-        ? [
-            this.utils.dispatchEventKafka(
-              this.fileClient,
-              KafkaEvent.SHARE_DOC_FOR_ROOM,
-              {
-                roomId: roomCustomId,
-                userId: senderId,
-                docId: documentId,
-                messageId,
-              },
-            ),
-          ]
-        : []),
+      // SHARE_DOC_FOR_ROOM đã được làm ĐỒNG BỘ ở createMessage (cấp roomIds
+      // trước broadcast) để tránh race "truy cập bị từ chối". Bỏ emit tail.
       this.utils.dispatchEventKafka(
         this.notificationClient,
         KafkaEvent.PUSH_NOTIFICATION_USERS,
