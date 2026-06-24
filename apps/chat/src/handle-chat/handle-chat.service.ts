@@ -387,6 +387,10 @@ export class HandleChatService {
         serializedMsg,
         changeSeq,
       },
+      // key=roomMongoId → mọi tin cùng room về cùng partition: consumer tail
+      // (RoomsState/unread/last_message) xử lý ĐÚNG THỨ TỰ trong room dù
+      // MESSAGE_PERSISTED đã tăng lên nhiều partition.
+      finInfo._id.toString(),
     );
 
     return Response.success(
