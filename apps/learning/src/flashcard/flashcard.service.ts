@@ -78,18 +78,23 @@ export class FlashcardService {
   ) {
     try {
       const query: any = {};
-      if (userId) {
-        query.card_userId = new Types.ObjectId(userId);
-      }
       if (deckId) {
-        const desk = await this.flashcardDeckModel.findOne({ deck_id: deckId });
+        // Lọc theo BỘ THẺ → trả TẤT CẢ thẻ của bộ, KHÔNG lọc theo card_userId.
+        // Thẻ thuộc chủ bộ (card_userId=creator); nếu lọc thêm card_userId thì
+        // người khác xem bộ được chia sẻ sẽ thấy 0 thẻ. Quyền xem do bộ kiểm soát.
+        const desk = await this.flashcardDeckModel.findOne(
+          Types.ObjectId.isValid(deckId) && deckId.length === 24
+            ? { $or: [{ deck_id: deckId }, { _id: new Types.ObjectId(deckId) }] }
+            : { deck_id: deckId },
+        );
         if (!desk) {
           return Response.error('Flashcard deck not found', 404, 'NOT_FOUND');
         }
         query.card_deckId = desk._id;
+      } else if (userId) {
+        // Không kèm bộ thẻ → liệt kê thẻ rời của chính user.
+        query.card_userId = new Types.ObjectId(userId);
       }
-
-      console.log('query', query);
 
       const flashcards = await this.flashcardModel
         .find(query)
