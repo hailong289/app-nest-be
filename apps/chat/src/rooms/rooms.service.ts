@@ -99,6 +99,28 @@ export class RoomsService {
   }
 
   /**
+   * Realtime room upsert — bắn thẳng qua Redis adapter tới room cá nhân
+   * (ROOM_CLIENT) của TỪNG member. Khác `emitRoomUpserted` (change-feed,
+   * chỉ thấy khi reload): cái này để client ĐANG online thấy room mới /
+   * member list thay đổi NGAY, kể cả member vừa được add (chưa join kênh
+   * roomId). FE handler fetch lại room theo từng user + join kênh roomId.
+   * `members` phải có field `id` (ULID usr_id) — đúng shape room_members.
+   */
+  private notifyRoomUpsertRealtime(
+    roomCustomId: string,
+    members: Array<{ id?: string }>,
+  ): void {
+    if (!roomCustomId) return;
+    const clientRooms = Array.from(
+      new Set((members ?? []).map((m) => m?.id).filter(Boolean) as string[]),
+    ).map((id) => this.key.ROOM_CLIENT(id));
+    if (!clientRooms.length) return;
+    this.emitter.broadcastTo('/chat', clientRooms, socketEvent.ROOMUPSERT, {
+      roomId: roomCustomId,
+    });
+  }
+
+  /**
    * Catch-up `room.removed` (thin) — client xoá room + messages khỏi cache. Dùng
    * khi user bị kick / rời / phòng bị xoá. No-op khi thiếu recipient.
    */
@@ -1320,6 +1342,9 @@ export class RoomsService {
         members: members,
       },
     });
+    // Realtime: member đang online (gồm người vừa được tạo nhóm cùng) thấy
+    // room mới ngay, không cần reload.
+    this.notifyRoomUpsertRealtime(room_id, members);
     return Response.success(result, 'Tạo phòng thành công');
   }
 
@@ -1863,6 +1888,9 @@ export class RoomsService {
         members: roomMember,
       },
     });
+    // Realtime: member cũ cập nhật member list, member MỚI thấy room ngay
+    // (roomMember đã gồm cả người vừa thêm, mỗi phần tử có `.id` = ULID).
+    this.notifyRoomUpsertRealtime(roomId, roomMember);
 
     return Response.success(
       { members: roomMember, roomId },

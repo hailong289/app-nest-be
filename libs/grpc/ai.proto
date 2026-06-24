@@ -98,6 +98,8 @@ message SearchResult {
   string contextId = 2;
   double score = 3;
   string messageId = 4;
+  // Phạm vi (scope) của kết quả: 'room' = tin nhắn, 'file' = tệp, 'doc' = tài liệu.
+  string contextType = 5;
 }
 
 message SuggestRepliesRequest {

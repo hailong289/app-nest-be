@@ -296,6 +296,9 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       messageId: string;
       createdAt: Date;
       score: number;
+      // Phạm vi (scope) của kết quả: 'room' = tin nhắn chat, 'file' = tệp
+      // đính kèm, 'doc' = tài liệu. FE dùng để hiển thị nguồn của hit.
+      contextType?: string;
     };
     const roomObjectId = Utils.convertToObjectIdMongoose(roomId);
 
@@ -342,6 +345,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
             _id: 0,
             text: 1,
             contextId: 1,
+            contextType: 1,
             messageId: 1,
             createdAt: 1,
             score: { $meta: 'vectorSearchScore' },
@@ -360,8 +364,12 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         text: { $regex: Utils.escapeRegex(query), $options: 'i' },
       };
 
-      // 4. Chạy song song (Hybrid Search)
-      const [vectorResults, keywordResults] = await Promise.all([
+      // 4. Chạy song song cả 3 nguồn (Hybrid Search + always include Messages)
+      //    - Vector search: tìm ngữ nghĩa trong AIEmbedding (score: vector similarity)
+      //    - Keyword search: tìm chính xác từ khóa trong AIEmbedding.text (score: 1.5)
+      //    - Message search: tìm trong Messages collection (score: 0.3) — bắt cả text
+      //      không có trong embedding, ưu tiên thấp hơn embedding results.
+      const [vectorResults, keywordResults, messageResults] = await Promise.all([
         this.embedModel
           .aggregate<SearchResult>(vectorPipeline)
           .catch(async (err: unknown) => {
@@ -379,7 +387,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
                   { contextType: 'doc', contextId: { $in: docIds } },
                 ],
               })
-              .select('text contextId messageId createdAt vector')
+              .select('text contextId contextType messageId createdAt vector')
               .lean()
               .exec();
 
@@ -395,7 +403,7 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         this.embedModel
           .find(keywordQuery)
           .limit(limit)
-          .select('-_id text contextId messageId createdAt')
+          .select('-_id text contextId contextType messageId createdAt')
           .lean()
           .exec()
           .then((docs) => {
@@ -406,13 +414,18 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
               (d) =>
                 ({
                   ...d,
-                  score: 1.5, // Hack: Ưu tiên kết quả khớp từ khóa chính xác cao hơn vector
+                  score: 1.5, // Ưu tiên khớp từ khóa chính xác trong embedding
                 }) as unknown as SearchResult,
             );
           }),
+        // Luôn tìm trong Messages collection — không chỉ khi fallback.
+        // Bắt cả text chưa được embed, xếp sau embedding results nhờ score thấp.
+        this.fallbackKeywordSearchOnMessages(query, roomObjectId, limit),
       ]);
-      // 5. Merge & Deduplicate
-      const combined = [...keywordResults, ...vectorResults];
+
+      // 5. Merge & Deduplicate — message text-only results (score ~0.3) vào trước
+      //    để embedding results (score cao hơn) ghi đè nếu trùng messageId.
+      const combined = [...messageResults, ...vectorResults, ...keywordResults];
       const uniqueMap = new Map<string, SearchResult>();
 
       combined.forEach((item) => {
@@ -456,16 +469,9 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
         .filter((r) => !systemMessageIds.has(String(r.messageId)))
         .slice(0, limit);
 
-      // 7. Fallback: if no embeddings/vectors matched (room never indexed,
-      // AI offline, etc.) fall back to a plain regex over Messages.msg_content_norm
-      // — same UX as a regular keyword search.
-      if (ranked.length === 0) {
-        return this.fallbackKeywordSearchOnMessages(query, roomObjectId, limit);
-      }
-
       return ranked;
     } catch (error) {
-      this.logger.error('Search failed, falling back to keyword search', error);
+      this.logger.error('All search paths failed, last-resort keyword fallback', error);
       return this.fallbackKeywordSearchOnMessages(
         query,
         Utils.convertToObjectIdMongoose(roomId),
@@ -475,10 +481,9 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
   }
 
   /**
-   * Plain keyword search over the Messages collection — used as a fallback
-   * when the AI/vector pipeline returns no hits (room not yet embedded, AI
-   * service unavailable, ...). Searches against `msg_content_norm` (Vietnamese
-   * diacritics-stripped index) so "tin nhan" matches "tin nhắn".
+   * Keyword search over the Messages collection (msg_content_norm).
+   * Always runs alongside embedding searches — catches text that hasn't been
+   * embedded yet. Results get score 0.3 so they sort after embedding hits.
    */
   private async fallbackKeywordSearchOnMessages(
     query: string,
@@ -513,12 +518,14 @@ Trả về MỘT đối tượng JSON DUY NHẤT như định dạng trên.
       );
 
       return docs.map((d) => ({
-        text: d.msg_content,
-        contextId: d.msg_roomId,
-        messageId: d._id,
+        text: d.msg_content ?? '',
+        contextId: String(d.msg_roomId),
+        // Hit từ Messages collection = tin nhắn chat → scope 'room'.
+        contextType: 'room',
+        messageId: String(d._id),
         createdAt: d.createdAt,
-        // Lower than vector hits (>=0.5) and lower than embedding-keyword hits
-        // (1.5) — keeps fallback results visually distinct.
+        // Lower than vector hits (≥0) and lower than embedding-keyword hits
+        // (1.5) — text-only messages sort after embedding results.
         score: 0.3,
       }));
     } catch (err) {
