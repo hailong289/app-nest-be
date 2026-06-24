@@ -10,9 +10,9 @@ export default registerAs('google', () => {
      *
      * Some Gemini "lite" variants may reject inlineData audio with a
      * misleading `API_KEY_INVALID` response, so we keep a dedicated
-     * `GOOGLE_AUDIO_MODEL` (default: gemini-3.1-flash-tts).
+     * `GOOGLE_AUDIO_MODEL` (default: gemini-2.5-flash-lite).
      */
     audioModel:
-      process.env.GOOGLE_AUDIO_MODEL ?? "gemini-3.1-flash-tts",
+      process.env.GOOGLE_AUDIO_MODEL ?? "gemini-2.5-flash-lite",
   };
 });
