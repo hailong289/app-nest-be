@@ -73,6 +73,9 @@ export enum KafkaEvent {
   // Chat — ghi outbox change-feed (catch-up sync). Chat tự consume rồi bulkWrite
   // per-recipient vào UserChangeEvents. Xem plan/DONG_BO_EVENT_SYNC.md.
   OUTBOX_APPEND = 'chat.outboxAppend',
+  // Chat — AI đã tóm tắt xong file đính kèm. Chat consume rồi re-fetch message
+  // và broadcast MSGUPSERT để bong bóng tin nhắn cập nhật summary realtime.
+  FILE_SUMMARY_READY = 'chat.fileSummaryReady',
 
   // Notification & Auth
   SEND_OTP = 'send_otp',
