@@ -236,7 +236,7 @@ export class FlashcardService {
 
           return {
             ...deck,
-            _id: deck._id.toString(),
+            id: deck._id.toString(),
             total_cards,
             progress,
           };
