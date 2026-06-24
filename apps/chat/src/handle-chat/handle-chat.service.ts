@@ -37,6 +37,7 @@ import {
   User,
   Document,
   Quiz,
+  FlashcardDeck,
 } from 'libs/db/src';
 import { Model, Types } from 'mongoose';
 import { RoomsService } from '../rooms/rooms.service';
@@ -112,6 +113,8 @@ export class HandleChatService {
     private readonly quizModel: Model<Quiz>,
     @InjectModel(TodoProject.name)
     private readonly todoProjectModel: Model<TodoProject>,
+    @InjectModel(FlashcardDeck.name)
+    private readonly flashcardDeckModel: Model<FlashcardDeck>,
     private readonly emitter: RemoteSocketEmitter,
     @Inject(SERVICES.CHAT)
     private readonly chatClient: ClientKafka,
@@ -275,9 +278,29 @@ export class HandleChatService {
         ? this.utils.convertToObjectIdMongoose(documentId)
         : null,
       quiz_id: quizId ? this.utils.convertToObjectIdMongoose(quizId) : null,
-      desk_id: desk_id ? this.utils.convertToObjectIdMongoose(desk_id) : null,
+      desk_id: null as Types.ObjectId | null,
       todo_project_id: null as Types.ObjectId | null,
     };
+
+    // desk_id: FE gửi deck_id custom (ULID) → convertToObjectIdMongoose sẽ ném
+    // lỗi / không khớp lookup (desk_id→_id) → tin flashcard không render. Resolve
+    // về Mongo _id, chấp nhận CẢ _id lẫn deck_id custom (giống todo_project).
+    if (desk_id) {
+      const deck = await this.flashcardDeckModel.findOne(
+        Types.ObjectId.isValid(desk_id) && desk_id.length === 24
+          ? {
+              $or: [
+                { _id: this.utils.convertToObjectIdMongoose(desk_id) },
+                { deck_id: desk_id },
+              ],
+            }
+          : { deck_id: desk_id },
+      );
+      if (!deck) {
+        throw new NotFoundException('Bộ thẻ không tồn tại');
+      }
+      updatePayload.desk_id = deck._id;
+    }
 
     if (todoProjectId) {
       const todoProject = await this.todoProjectModel.findOne({
