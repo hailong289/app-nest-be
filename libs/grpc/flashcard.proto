@@ -209,24 +209,24 @@ message FlashcardDeckProgress {
 }
 
 message FlashcardDeckMetadata {
-    string _id = 1;
-    string deck_id = 2;
-    string deck_userId = 3;
-    string deck_name = 4;
-    string deck_description = 5;
-    string deck_image = 6;
-    repeated string deck_tags = 7;
-    repeated string deck_cardIds = 8;
-    int32 deck_totalCards = 9;
-    int32 deck_totalLearners = 10;
-    bool deck_isPublic = 11;
-    bool deck_isArchived = 12;
-    string deck_level = 13; // beginner, intermediate, advanced, expert
-    string deck_language = 14;
-    string createdAt = 15;
-    string updatedAt = 16;
-    int32 total_cards = 17;
-    FlashcardDeckProgress progress = 18;
+    string deck_id = 1;
+    string deck_userId = 2;
+    string deck_name = 3;
+    string deck_description = 4;
+    string deck_image = 5;
+    repeated string deck_tags = 6;
+    repeated string deck_cardIds = 7;
+    int32 deck_totalCards = 8;
+    int32 deck_totalLearners = 9;
+    bool deck_isPublic = 10;
+    bool deck_isArchived = 11;
+    string deck_level = 12; // beginner, intermediate, advanced, expert
+    string deck_language = 13;
+    string createdAt = 14;
+    string updatedAt = 15;
+    int32 total_cards = 16;
+    FlashcardDeckProgress progress = 17;
+    string _id = 18;
 }
 
 
