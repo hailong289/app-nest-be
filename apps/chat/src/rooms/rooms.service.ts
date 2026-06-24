@@ -1910,13 +1910,23 @@ export class RoomsService {
     const matchType = type && type !== 'all' ? { room_type: type } : {};
     const objectId = this.utils.convertToObjectIdMongoose(userId);
 
+    // Cap page size: handlePipeline enrich nặng (RoomEvents/last_message/
+    // MessageReads/pinned/Friendship) cho TỪNG phòng trong trang. Ổn ở ~20,
+    // nhưng nếu FE truyền limit lớn sẽ enrich hàng trăm phòng → nghẽn. Chặn
+    // trần để bảo vệ hot path; FE muốn nhiều hơn thì phân trang tiếp.
+    const MAX_ROOM_PAGE = Number(process.env.MAX_ROOM_PAGE ?? 50);
+    const pageLimit = Math.min(
+      Math.max(Number(limit) || 20, 1),
+      MAX_ROOM_PAGE,
+    );
+
     // PHÂN TRANG TRƯỚC (pha A nhẹ) → cắt còn ~limit phòng → ENRICH SAU (pha B
     // nặng = handlePipeline) chỉ trên trang. Lọc tên-rỗng + search `q` nằm trong
     // pha A (trước skip/limit) nên page size đúng và search chạy trên toàn tập.
     const listRooms = await this.roomModel.aggregate([
       ...this.buildRoomPaginateStages(objectId, { matchType, q }),
       { $skip: Number(offset || 0) },
-      { $limit: Number(limit || 20) },
+      { $limit: pageLimit },
       // dọn field tạm của pha A trước khi enrich (handlePipeline tự dựng lại
       // name/_lastTs/... và $project quyết định shape cuối — không đổi).
       { $unset: ['_pg_state', '_pg_lastTs', '_pg_other', '_pg_otherUser', '_pg_name'] },
