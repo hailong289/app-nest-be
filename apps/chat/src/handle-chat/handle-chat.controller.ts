@@ -68,6 +68,23 @@ export class HandleChatController {
     }
   }
 
+  /**
+   * AI vừa tóm tắt xong file đính kèm. Re-fetch message (pipeline đã join
+   * summary mới) rồi broadcast MSGUPSERT để FE cập nhật bong bóng realtime.
+   */
+  @MessagePattern(KafkaEvent.FILE_SUMMARY_READY)
+  async onFileSummaryReady(@Payload() data: { messageId: string }) {
+    try {
+      await this.hdChat.broadcastFileSummary(data.messageId);
+    } catch (err) {
+      this.logger.error(
+        `[FILE_SUMMARY_READY] broadcast failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   @GrpcMethod('ChatService', 'GetOneMsg')
   async GetOneMsg(@Body() payload: { userId: string; msgId: string }) {
     this.logger.log('[gRPC] GetOneMsg called with payload:', payload);
